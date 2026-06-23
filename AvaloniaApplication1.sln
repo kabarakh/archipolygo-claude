@@ -1,0 +1,16 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Archipolygo", "AvaloniaApplication1\AvaloniaApplication1.csproj", "{AAEC99BE-B052-4DB4-A764-852A906F874A}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{AAEC99BE-B052-4DB4-A764-852A906F874A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AAEC99BE-B052-4DB4-A764-852A906F874A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AAEC99BE-B052-4DB4-A764-852A906F874A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AAEC99BE-B052-4DB4-A764-852A906F874A}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

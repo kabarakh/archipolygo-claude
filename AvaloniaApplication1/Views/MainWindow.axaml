@@ -1,0 +1,145 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Archipolygo.ViewModels"
+        xmlns:m="using:Archipolygo.Models"
+        xmlns:conv="using:Archipolygo.Converters"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="550"
+        x:Class="Archipolygo.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Icon="/Assets/archipolyo-icon.ico"
+        Title="Archipolygo">
+
+    <Window.Resources>
+        <conv:EventTextSegmentKindToBrushConverter x:Key="SegmentKindToBrushConverter"/>
+    </Window.Resources>
+
+    <Design.DataContext>
+        <!-- This only sets the DataContext for the previewer in an IDE,
+             to set the actual DataContext for runtime, set the DataContext property in code (look at App.axaml.cs) -->
+        <vm:MainWindowViewModel/>
+    </Design.DataContext>
+
+    <DockPanel>
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="8" Spacing="8" VerticalAlignment="Center">
+            <Image Source="/Assets/project-logo.png" Width="28" Height="28" VerticalAlignment="Center"/>
+            <Button Content="Add connection..." Click="OnAddProfileClick"/>
+            <Button Content="Edit selected..." Click="OnEditProfileClick"/>
+            <Button Content="Duplicate selected..." Click="OnDuplicateProfileClick"/>
+            <Button Content="Remove selected" Command="{Binding RemoveSelectedTabCommand}"/>
+            <Button Content="Disconnect all" Command="{Binding DisconnectAllTabsCommand}"/>
+            <Button Content="Settings..." Click="OnSettingsClick"/>
+        </StackPanel>
+
+        <TabControl ItemsSource="{Binding Tabs}" SelectedItem="{Binding SelectedTab}">
+            <TabControl.ItemTemplate>
+                <DataTemplate DataType="vm:TabViewModel">
+                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                        <Border Background="OrangeRed" CornerRadius="8" MinWidth="16" Height="16"
+                                Padding="4,0" VerticalAlignment="Center"
+                                IsVisible="{Binding HasUnreadEvents}">
+                            <TextBlock Text="{Binding UnreadEventCount}" Foreground="White" FontSize="10"
+                                       FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <TextBlock Text="{Binding HeaderText}"/>
+                    </StackPanel>
+                </DataTemplate>
+            </TabControl.ItemTemplate>
+            <TabControl.ContentTemplate>
+                <DataTemplate DataType="vm:TabViewModel">
+                    <Grid Margin="16" RowDefinitions="Auto,Auto,*,Auto">
+                        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding ServerProfile.Name}" FontSize="18" FontWeight="Bold"/>
+                            <TextBlock Text="{Binding ServerProfile.Host}"/>
+                            <TextBlock Text=":"/>
+                            <TextBlock Text="{Binding ServerProfile.Port}"/>
+                            <TextBlock Text="-"/>
+                            <TextBlock Text="{Binding ConnectionState}" FontWeight="Bold"/>
+                        </StackPanel>
+
+                        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="0,8,0,8">
+                            <Button Content="Connect" Command="{Binding ConnectCommand}"/>
+                            <Button Content="Disconnect" Command="{Binding DisconnectCommand}"/>
+                        </StackPanel>
+
+                        <Grid Grid.Row="2" ColumnDefinitions="2*,8,1*">
+                            <DockPanel Grid.Column="0">
+                                <TextBlock DockPanel.Dock="Top" Text="Events" FontWeight="Bold" Margin="0,0,0,4"/>
+                                <ListBox ItemsSource="{Binding Events}" KeyDown="OnEventsListKeyDown" Loaded="OnEventsListLoaded">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate DataType="m:EventEntry">
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <TextBlock Text="{Binding Timestamp, StringFormat='HH:mm:ss'}" Opacity="0.6"/>
+                                                <TextBlock Text="NEW" FontWeight="Bold" Foreground="OrangeRed"
+                                                           IsVisible="{Binding IsNewSinceLastSession}"/>
+                                                <TextBlock Text="{Binding Type}" Opacity="0.6"/>
+                                                <ItemsControl ItemsSource="{Binding EffectiveSegments}">
+                                                    <ItemsControl.ItemsPanel>
+                                                        <ItemsPanelTemplate>
+                                                            <WrapPanel/>
+                                                        </ItemsPanelTemplate>
+                                                    </ItemsControl.ItemsPanel>
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate DataType="m:EventTextSegment">
+                                                            <TextBlock Text="{Binding Text}" TextWrapping="Wrap"
+                                                                       Foreground="{Binding Kind, Converter={StaticResource SegmentKindToBrushConverter}}"/>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </DockPanel>
+
+                            <DockPanel Grid.Column="2">
+                                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,4">
+                                    <TextBlock Text="Hints" FontWeight="Bold" VerticalAlignment="Center"/>
+                                    <Button Content="All" Command="{Binding ShowAllHintsCommand}"/>
+                                    <Button Content="Unfound" Command="{Binding ShowUnfoundHintsCommand}"/>
+                                </StackPanel>
+                                <ListBox ItemsSource="{Binding VisibleHints}">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate DataType="m:HintEntry">
+                                            <StackPanel Orientation="Vertical" Spacing="2" Margin="0,2">
+                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                    <TextBlock Text="NEW" FontWeight="Bold" Foreground="OrangeRed"
+                                                               IsVisible="{Binding IsNewSinceLastSession}"/>
+                                                    <TextBlock Text="✓" FontWeight="Bold" Foreground="Green"
+                                                               IsVisible="{Binding Found}"/>
+                                                    <TextBlock Text="{Binding ItemName}" FontWeight="Bold" TextWrapping="Wrap"
+                                                               Foreground="{Binding ItemKind, Converter={StaticResource SegmentKindToBrushConverter}}"/>
+                                                </StackPanel>
+                                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                                    <TextBlock Text="{Binding FindingPlayerName}" Opacity="0.85" TextWrapping="Wrap"
+                                                               Foreground="{Binding FindingPlayerKind, Converter={StaticResource SegmentKindToBrushConverter}}"/>
+                                                    <TextBlock Text="-&gt;" Opacity="0.7"/>
+                                                    <TextBlock Text="{Binding ReceivingPlayerName}" Opacity="0.85" TextWrapping="Wrap"
+                                                               Foreground="{Binding ReceivingPlayerKind, Converter={StaticResource SegmentKindToBrushConverter}}"/>
+                                                    <TextBlock Text=":" Opacity="0.7"/>
+                                                    <TextBlock Text="{Binding LocationName}" Opacity="0.7" TextWrapping="Wrap"/>
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </DockPanel>
+                        </Grid>
+
+                        <Grid Grid.Row="3" ColumnDefinitions="*,Auto" Margin="0,8,0,0">
+                            <TextBox Grid.Column="0" Text="{Binding MessageToSend}" Watermark="Message..."
+                                     IsEnabled="{Binding IsConnected}">
+                                <TextBox.KeyBindings>
+                                    <KeyBinding Gesture="Enter" Command="{Binding SendMessageCommand}"/>
+                                </TextBox.KeyBindings>
+                            </TextBox>
+                            <Button Grid.Column="1" Content="Send" Command="{Binding SendMessageCommand}" Margin="8,0,0,0"/>
+                        </Grid>
+                    </Grid>
+                </DataTemplate>
+            </TabControl.ContentTemplate>
+        </TabControl>
+    </DockPanel>
+
+</Window>

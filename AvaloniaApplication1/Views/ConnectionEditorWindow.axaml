@@ -1,0 +1,45 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Archipolygo.ViewModels"
+        xmlns:conv="using:Avalonia.Data.Converters"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        x:Class="Archipolygo.Views.ConnectionEditorWindow"
+        x:DataType="vm:ConnectionEditorViewModel"
+        Width="360" SizeToContent="Height" CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Title="Connection Profile">
+
+    <Design.DataContext>
+        <vm:ConnectionEditorViewModel/>
+    </Design.DataContext>
+
+    <StackPanel Margin="16" Spacing="8">
+        <TextBlock Text="Name"/>
+        <TextBox Text="{Binding Name}"/>
+
+        <TextBlock Text="Host"/>
+        <TextBox Text="{Binding Host}"/>
+
+        <TextBlock Text="Port"/>
+        <NumericUpDown Value="{Binding Port}" Minimum="1" Maximum="65535" FormatString="0"/>
+
+        <TextBlock Text="Slot name"/>
+        <TextBox Text="{Binding SlotName}"/>
+
+        <TextBlock Text="Password"/>
+        <TextBox Text="{Binding Password}" PasswordChar="*"/>
+
+        <CheckBox Content="Auto-connect" IsChecked="{Binding AutoConnect}"/>
+
+        <TextBlock Text="{Binding ValidationError}"
+                   Foreground="Red"
+                   IsVisible="{Binding ValidationError, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"
+                   TextWrapping="Wrap"/>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,8,0,0">
+            <Button Content="Cancel" Click="OnCancelClick"/>
+            <Button Content="Save" Click="OnSaveClick" IsDefault="True"/>
+        </StackPanel>
+    </StackPanel>
+</Window>
