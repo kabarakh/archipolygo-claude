@@ -35,4 +35,15 @@ public class EventEntry
     /// </summary>
     public IReadOnlyList<EventTextSegment> EffectiveSegments =>
         Segments.Count > 0 ? Segments : new[] { new EventTextSegment(Text, EventTextSegmentKind.PlainText) };
+
+    /// <summary>
+    /// Whether this entry actually concerns this tab's own slot, as opposed
+    /// to e.g. chat banter between two other players, or a hint that's
+    /// neither received by nor to be found by this slot. Used to decide
+    /// whether the entry should count towards the tab's unread-event badge
+    /// (see <see cref="ViewModels.TabViewModel.UnreadEventCount"/>); defaults
+    /// to true since most event types (connect/disconnect/error/item
+    /// received) are inherently about this slot.
+    /// </summary>
+    public bool ConcernsOwnSlot { get; init; } = true;
 }

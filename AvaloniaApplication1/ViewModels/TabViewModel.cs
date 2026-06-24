@@ -138,10 +138,25 @@ public partial class TabViewModel : ViewModelBase
 
     private void OnEventsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        if (e.Action == NotifyCollectionChangedAction.Add && !IsSelected)
+        if (e.Action != NotifyCollectionChangedAction.Add || IsSelected || e.NewItems is null)
         {
-            UnreadEventCount += e.NewItems?.Count ?? 1;
+            return;
         }
+
+        // Only events that actually concern this slot (its own items, hints
+        // for/from it, chat naming it, its own connect/disconnect/errors)
+        // should bump the unread badge - not e.g. banter between two other
+        // players in the same multiworld.
+        var relevantCount = 0;
+        foreach (var item in e.NewItems)
+        {
+            if (item is EventEntry { ConcernsOwnSlot: true })
+            {
+                relevantCount++;
+            }
+        }
+
+        UnreadEventCount += relevantCount;
     }
 
     private void OnHintsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)

@@ -84,7 +84,12 @@ public class HintService : IHintService
                         newEntry.FindingPlayerName, snapshot.FindingPlayerKind,
                         newEntry.ReceivingPlayerName, snapshot.ReceivingPlayerKind,
                         newEntry.LocationName),
-                    IsNewSinceLastSession = newEntry.IsNewSinceLastSession
+                    IsNewSinceLastSession = newEntry.IsNewSinceLastSession,
+                    // Only a hint where this slot is the one receiving the item or
+                    // the one who has to find it actually concerns it - TrackHints
+                    // can also report hints between two other players.
+                    ConcernsOwnSlot = snapshot.ReceivingPlayerKind == EventTextSegmentKind.OwnSlotName ||
+                                      snapshot.FindingPlayerKind == EventTextSegmentKind.OwnSlotName
                 });
 
                 if (syncState.SeenHintIds.Add(snapshot.Key))

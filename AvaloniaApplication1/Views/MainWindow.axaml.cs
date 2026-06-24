@@ -106,42 +106,68 @@ public partial class MainWindow : Window
     /// <summary>
     /// Keeps the events list scrolled to the bottom as new events arrive, so
     /// the most recent message/event is always visible without the user
-    /// having to scroll manually. Each <see cref="TabViewModel"/>'s events
-    /// list gets its own ListBox instance (one per tab's content template),
-    /// so the subscription is attached/detached per instance via Loaded/Unloaded.
+    /// having to scroll manually.
     ///
-    /// Scrolls the inner <see cref="ScrollViewer"/> directly to its end
-    /// (rather than ListBox.ScrollIntoView, which needs the new item's
-    /// container already realized). A previous version deferred this via the
-    /// LayoutUpdated event, but that turned out unreliable: server-originated
-    /// events (e.g. the !hint reply) often arrive together with other
-    /// changes on the same tab (hint list updates, the tab header's unfound-
-    /// hint count), which can trigger their own, unrelated layout passes; our
-    /// one-shot LayoutUpdated handler could fire (and unsubscribe) on one of
-    /// those instead of the pass that actually realizes the new event, so the
-    /// scroll never happened. A short fixed delay sidesteps that race
-    /// entirely - it doesn't matter which layout pass did the work, only
-    /// that enough time passed for all of them to finish before scrolling.
+    /// This reacts to the <see cref="ScrollViewer.ScrollChanged"/> event
+    /// rather than the events collection or a fixed delay: while a tab is
+    /// not the selected one, Avalonia skips layout for its (hidden) content,
+    /// so its <see cref="ScrollViewer.Extent"/> does not grow as new events
+    /// arrive - only <see cref="ScrollViewer.Offset"/> would need to follow
+    /// it, and there is nothing to follow yet. The moment the tab becomes
+    /// visible again, a layout pass finally catches the content up to its
+    /// real size, which is exactly when <see cref="ScrollViewer.ExtentDelta"/>
+    /// becomes positive - so reacting to that, instead of guessing how long
+    /// any particular layout pass takes, is what actually fixes "wasn't
+    /// scrolled to the end after switching back", regardless of how much
+    /// content arrived or how long the log is.
     /// </summary>
     private void OnEventsListLoaded(object? sender, RoutedEventArgs e)
     {
-        if (sender is not ListBox listBox || listBox.DataContext is not TabViewModel tab)
+        if (sender is not ListBox listBox)
         {
             return;
         }
 
-        async void OnEventsChanged(object? collectionSender, NotifyCollectionChangedEventArgs args)
+        ScrollViewer? attachedScrollViewer = null;
+
+        void Attach()
         {
-            if (args.Action != NotifyCollectionChangedAction.Add)
+            if (attachedScrollViewer is not null)
             {
                 return;
             }
 
-            await Task.Delay(75);
-            listBox.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault()?.ScrollToEnd();
+            attachedScrollViewer = listBox.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
+            if (attachedScrollViewer is null)
+            {
+                return;
+            }
+
+            attachedScrollViewer.ScrollChanged += OnEventsScrollViewerScrollChanged;
+            attachedScrollViewer.ScrollToEnd();
         }
 
-        tab.Events.CollectionChanged += OnEventsChanged;
-        listBox.Unloaded += (_, _) => tab.Events.CollectionChanged -= OnEventsChanged;
+        // The control template (and with it, the inner ScrollViewer) might
+        // not be applied yet at this exact point; TemplateApplied covers
+        // that case, Attach() itself covers the common case where it's
+        // already available.
+        Attach();
+        listBox.TemplateApplied += (_, _) => Attach();
+
+        listBox.Unloaded += (_, _) =>
+        {
+            if (attachedScrollViewer is not null)
+            {
+                attachedScrollViewer.ScrollChanged -= OnEventsScrollViewerScrollChanged;
+            }
+        };
+    }
+
+    private static void OnEventsScrollViewerScrollChanged(object? sender, ScrollChangedEventArgs e)
+    {
+        if (sender is ScrollViewer scrollViewer && e.ExtentDelta.Y > 0)
+        {
+            scrollViewer.ScrollToEnd();
+        }
     }
 }

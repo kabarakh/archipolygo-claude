@@ -48,8 +48,25 @@ public class MessageHistoryService : IMessageHistoryService
     public void HandleError(TabViewModel tab, string message) =>
         AddEvent(tab, new EventEntry { Type = EventType.Error, Text = message });
 
-    public void HandleChatMessage(TabViewModel tab, string text, IReadOnlyList<EventTextSegment> segments) =>
-        AddEvent(tab, new EventEntry { Type = EventType.Chat, Text = text, Segments = segments });
+    public void HandleChatMessage(TabViewModel tab, string text, IReadOnlyList<EventTextSegment> segments)
+    {
+        // Only messages that actually name this tab's own slot (e.g. someone
+        // sending/finding an item for/by it, or it being mentioned) should
+        // count towards the unread badge - plain banter between other
+        // players, or server messages that don't involve this slot at all,
+        // should not.
+        var concernsOwnSlot = false;
+        foreach (var segment in segments)
+        {
+            if (segment.Kind == EventTextSegmentKind.OwnSlotName)
+            {
+                concernsOwnSlot = true;
+                break;
+            }
+        }
+
+        AddEvent(tab, new EventEntry { Type = EventType.Chat, Text = text, Segments = segments, ConcernsOwnSlot = concernsOwnSlot });
+    }
 
     public void HandleItemsReceived(TabViewModel tab, ServerProfile profile, ReadOnlyCollection<ItemInfo> allItemsReceived)
     {
