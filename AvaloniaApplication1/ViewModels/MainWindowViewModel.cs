@@ -20,15 +20,26 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private TabViewModel? _selectedTab;
 
-    public MainWindowViewModel() : this(new PersistenceService())
+    public MainWindowViewModel()
+        : this(new PersistenceService())
     {
     }
 
+    /// <summary>
+    /// DI-friendly overload: builds the default <see cref="ConnectionManager"/>
+    /// wired to <paramref name="persistenceService"/>. Mainly useful for tests
+    /// that need a custom <see cref="IPersistenceService"/> but don't care
+    /// about the connection manager.
+    /// </summary>
     public MainWindowViewModel(IPersistenceService persistenceService)
         : this(persistenceService, new ConnectionManager(new MessageHistoryService(persistenceService), new HintService(persistenceService)))
     {
     }
 
+    /// <summary>
+    /// Fully DI-friendly overload, e.g. for tests that need to substitute
+    /// both dependencies.
+    /// </summary>
     public MainWindowViewModel(IPersistenceService persistenceService, IConnectionManager connectionManager)
     {
         _persistenceService = persistenceService;
@@ -112,7 +123,7 @@ public partial class MainWindowViewModel : ViewModelBase
     /// reconnects that tab manually, same as the per-tab Disconnect button.
     /// </summary>
     [RelayCommand]
-    private async Task DisconnectAllTabs()
+    private async Task DisconnectAllTabsAsync()
     {
         var tabsToDisconnect = Tabs.Where(t => t.CanDisconnect).ToList();
         foreach (var tab in tabsToDisconnect)
@@ -122,7 +133,7 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private async Task RemoveSelectedTab()
+    private async Task RemoveSelectedTabAsync()
     {
         if (SelectedTab is null)
         {
@@ -144,18 +155,8 @@ public partial class MainWindowViewModel : ViewModelBase
         PersistProfiles();
     }
 
-    private TabViewModel? FindTabByProfileId(Guid id)
-    {
-        foreach (var tab in Tabs)
-        {
-            if (tab.ServerProfile.Id == id)
-            {
-                return tab;
-            }
-        }
-
-        return null;
-    }
+    private TabViewModel? FindTabByProfileId(Guid id) =>
+        Tabs.FirstOrDefault(t => t.ServerProfile.Id == id);
 
     /// <summary>
     /// Reorders <see cref="Tabs"/> in place so that tabs sharing the same
@@ -185,14 +186,5 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    private void PersistProfiles()
-    {
-        var profiles = new List<ServerProfile>();
-        foreach (var tab in Tabs)
-        {
-            profiles.Add(tab.ServerProfile);
-        }
-
-        _persistenceService.SaveProfiles(profiles);
-    }
+    private void PersistProfiles() => _persistenceService.SaveProfiles(GetAllProfiles());
 }

@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Archipolygo.Models;
@@ -31,7 +32,7 @@ public partial class ConnectionEditorWindow : Window
     /// Shows the editor as a modal dialog and returns the resulting profile,
     /// or null if the user cancelled.
     /// </summary>
-    public static System.Threading.Tasks.Task<ServerProfile?> ShowDialogAsync(Window owner, ConnectionEditorViewModel viewModel)
+    public static Task<ServerProfile?> ShowDialogAsync(Window owner, ConnectionEditorViewModel viewModel)
     {
         var window = new ConnectionEditorWindow { DataContext = viewModel };
         return window.ShowDialog<ServerProfile?>(owner);

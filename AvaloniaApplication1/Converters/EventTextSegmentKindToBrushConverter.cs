@@ -12,7 +12,7 @@ namespace Archipolygo.Converters;
 /// events log. The item-related colors (trap/progression/useful/other) match
 /// the official Archipelago client's palette (Salmon/Plum/SlateBlue/Cyan) so
 /// they look familiar to players coming from other AP trackers; the
-/// player-name colors follow the same Magenta-for-yourself/Yellow-for-others
+/// player-name colors follow the same Magenta-for-yourself/Gold-for-others
 /// convention, with an extra color for players tracked by another tab of
 /// this app on the same server instance.
 /// </summary>
