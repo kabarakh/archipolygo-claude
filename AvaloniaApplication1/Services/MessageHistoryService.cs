@@ -48,7 +48,7 @@ public class MessageHistoryService : IMessageHistoryService
     public void HandleError(TabViewModel tab, string message) =>
         AddEvent(tab, new EventEntry { Type = EventType.Error, Text = message });
 
-    public void HandleChatMessage(TabViewModel tab, string text, IReadOnlyList<EventTextSegment> segments)
+    public void HandleChatMessage(TabViewModel tab, string text, IReadOnlyList<EventTextSegment> segments, EventType eventType = EventType.Chat)
     {
         // Only messages that actually name this tab's own slot (e.g. someone
         // sending/finding an item for/by it, or it being mentioned) should
@@ -65,7 +65,7 @@ public class MessageHistoryService : IMessageHistoryService
             }
         }
 
-        AddEvent(tab, new EventEntry { Type = EventType.Chat, Text = text, Segments = segments, ConcernsOwnSlot = concernsOwnSlot });
+        AddEvent(tab, new EventEntry { Type = eventType, Text = text, Segments = segments, ConcernsOwnSlot = concernsOwnSlot });
     }
 
     public void HandleItemsReceived(TabViewModel tab, ServerProfile profile, ReadOnlyCollection<ItemInfo> allItemsReceived)

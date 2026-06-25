@@ -13,7 +13,33 @@
 
     <Window.Resources>
         <conv:EventTextSegmentKindToBrushConverter x:Key="SegmentKindToBrushConverter"/>
+        <conv:EnumEqualsConverter x:Key="EnumEqualsConverter"/>
     </Window.Resources>
+
+    <Window.Styles>
+        <!-- Makes the currently active tab's header text stand out, beyond
+             just the Fluent theme's default selection underline. -->
+        <Style Selector="TabItem:selected">
+            <Setter Property="FontWeight" Value="Bold"/>
+        </Style>
+
+        <!-- The log filter buttons (Events relevance/category, Hints) each
+             get an "active" class bound to whether they represent the
+             currently selected filter value (see Classes.active on each
+             Button below); this highlights the active one so it's
+             unmistakable at a glance, independently of which Command
+             actually changed the filter. -->
+        <Style Selector="Button.filter-toggle.active">
+            <!-- A plain named brush rather than a theme accent resource, to
+                 avoid relying on exactly which accent-related resource key
+                 the installed Fluent theme version exposes (some are Color,
+                 not IBrush, and aren't all guaranteed DynamicResource-safe
+                 the same way across versions). -->
+            <Setter Property="Background" Value="DodgerBlue"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+        </Style>
+    </Window.Styles>
 
     <Design.DataContext>
         <!-- This only sets the DataContext for the previewer in an IDE,
@@ -66,7 +92,20 @@
                         <Grid Grid.Row="2" ColumnDefinitions="2*,8,1*">
                             <DockPanel Grid.Column="0">
                                 <TextBlock DockPanel.Dock="Top" Text="Events" FontWeight="Bold" Margin="0,0,0,4"/>
-                                <ListBox ItemsSource="{Binding Events}" KeyDown="OnEventsListKeyDown" Loaded="OnEventsListLoaded">
+                                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,4">
+                                    <Button Content="All" Classes="filter-toggle" Command="{Binding ShowAllEventsRelevanceCommand}"
+                                            Classes.active="{Binding SelectedEventRelevanceFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=All}"/>
+                                    <Button Content="Concerns me" Classes="filter-toggle" Command="{Binding ShowOwnEventsOnlyCommand}"
+                                            Classes.active="{Binding SelectedEventRelevanceFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ConcernsMe}"/>
+                                    <Border Width="1" Background="Gray" Opacity="0.5" Margin="2,0"/>
+                                    <Button Content="All" Classes="filter-toggle" Command="{Binding ShowAllEventCategoriesCommand}"
+                                            Classes.active="{Binding SelectedEventCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=All}"/>
+                                    <Button Content="Hints" Classes="filter-toggle" Command="{Binding ShowHintEventsOnlyCommand}"
+                                            Classes.active="{Binding SelectedEventCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Hints}"/>
+                                    <Button Content="Items" Classes="filter-toggle" Command="{Binding ShowItemEventsOnlyCommand}"
+                                            Classes.active="{Binding SelectedEventCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Items}"/>
+                                </StackPanel>
+                                <ListBox ItemsSource="{Binding VisibleEvents}" KeyDown="OnEventsListKeyDown" Loaded="OnEventsListLoaded">
                                     <ListBox.ItemTemplate>
                                         <DataTemplate DataType="m:EventEntry">
                                             <StackPanel Orientation="Horizontal" Spacing="8">
@@ -94,10 +133,12 @@
                             </DockPanel>
 
                             <DockPanel Grid.Column="2">
+                                <TextBlock DockPanel.Dock="Top" Text="Hints" FontWeight="Bold" Margin="0,0,0,4"/>
                                 <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,4">
-                                    <TextBlock Text="Hints" FontWeight="Bold" VerticalAlignment="Center"/>
-                                    <Button Content="All" Command="{Binding ShowAllHintsCommand}"/>
-                                    <Button Content="Unfound" Command="{Binding ShowUnfoundHintsCommand}"/>
+                                    <Button Content="All" Classes="filter-toggle" Command="{Binding ShowAllHintsCommand}"
+                                            Classes.active="{Binding SelectedHintFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=All}"/>
+                                    <Button Content="Unfound" Classes="filter-toggle" Command="{Binding ShowUnfoundHintsCommand}"
+                                            Classes.active="{Binding SelectedHintFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Unfound}"/>
                                 </StackPanel>
                                 <ListBox ItemsSource="{Binding VisibleHints}">
                                     <ListBox.ItemTemplate>

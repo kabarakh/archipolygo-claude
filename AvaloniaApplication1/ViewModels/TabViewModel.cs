@@ -46,6 +46,12 @@ public partial class TabViewModel : ViewModelBase
     private HintFilter _selectedHintFilter = HintFilter.All;
 
     [ObservableProperty]
+    private EventRelevanceFilter _selectedEventRelevanceFilter = EventRelevanceFilter.All;
+
+    [ObservableProperty]
+    private EventCategoryFilter _selectedEventCategoryFilter = EventCategoryFilter.All;
+
+    [ObservableProperty]
     private string _messageToSend = string.Empty;
 
     public ObservableCollection<EventEntry> Events { get; } = new();
@@ -72,6 +78,39 @@ public partial class TabViewModel : ViewModelBase
         SelectedHintFilter == HintFilter.Unfound ? Hints.Where(h => !h.Found) : Hints;
 
     public int UnfoundHintCount => Hints.Count(h => !h.Found);
+
+    /// <summary>
+    /// <see cref="Events"/> filtered by <see cref="SelectedEventRelevanceFilter"/>
+    /// and <see cref="SelectedEventCategoryFilter"/>. The two filters combine
+    /// (e.g. "concerns me" + "hints" shows only hints relevant to this slot).
+    /// <see cref="Events"/> itself is never modified, so clearing either
+    /// filter (setting it back to "All") makes everything reappear. As with
+    /// <see cref="VisibleHints"/>, there is no live-filtering collection view
+    /// available, so this is recomputed on every read and a property-changed
+    /// notification is raised manually whenever <see cref="Events"/> or either
+    /// filter changes.
+    /// </summary>
+    public IEnumerable<EventEntry> VisibleEvents
+    {
+        get
+        {
+            IEnumerable<EventEntry> events = Events;
+
+            if (SelectedEventRelevanceFilter == EventRelevanceFilter.ConcernsMe)
+            {
+                events = events.Where(e => e.ConcernsOwnSlot);
+            }
+
+            events = SelectedEventCategoryFilter switch
+            {
+                EventCategoryFilter.Hints => events.Where(e => e.Type == EventType.HintReceived),
+                EventCategoryFilter.Items => events.Where(e => e.Type == EventType.ItemReceived),
+                _ => events,
+            };
+
+            return events;
+        }
+    }
 
     /// <summary>
     /// Whether the unread-event badge should be shown; derived purely for
@@ -136,8 +175,18 @@ public partial class TabViewModel : ViewModelBase
 
     partial void OnSelectedHintFilterChanged(HintFilter value) => OnPropertyChanged(nameof(VisibleHints));
 
+    partial void OnSelectedEventRelevanceFilterChanged(EventRelevanceFilter value) => OnPropertyChanged(nameof(VisibleEvents));
+
+    partial void OnSelectedEventCategoryFilterChanged(EventCategoryFilter value) => OnPropertyChanged(nameof(VisibleEvents));
+
     private void OnEventsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
+        // Events is the unfiltered source; VisibleEvents is a derived
+        // sequence with no observable-collection semantics of its own, so it
+        // needs an explicit nudge whenever the source changes (new entries,
+        // resets, ...), regardless of whether this tab is currently selected.
+        OnPropertyChanged(nameof(VisibleEvents));
+
         if (e.Action != NotifyCollectionChangedAction.Add || IsSelected || e.NewItems is null)
         {
             return;
@@ -222,4 +271,19 @@ public partial class TabViewModel : ViewModelBase
 
     [RelayCommand]
     private void ShowUnfoundHints() => SelectedHintFilter = HintFilter.Unfound;
+
+    [RelayCommand]
+    private void ShowAllEventsRelevance() => SelectedEventRelevanceFilter = EventRelevanceFilter.All;
+
+    [RelayCommand]
+    private void ShowOwnEventsOnly() => SelectedEventRelevanceFilter = EventRelevanceFilter.ConcernsMe;
+
+    [RelayCommand]
+    private void ShowAllEventCategories() => SelectedEventCategoryFilter = EventCategoryFilter.All;
+
+    [RelayCommand]
+    private void ShowHintEventsOnly() => SelectedEventCategoryFilter = EventCategoryFilter.Hints;
+
+    [RelayCommand]
+    private void ShowItemEventsOnly() => SelectedEventCategoryFilter = EventCategoryFilter.Items;
 }

@@ -26,7 +26,15 @@ public interface IMessageHistoryService
     /// classification is available, in which case the entry falls back to
     /// plain text (see <see cref="EventEntry.EffectiveSegments"/>).
     /// </summary>
-    void HandleChatMessage(TabViewModel tab, string text, IReadOnlyList<EventTextSegment> segments);
+    /// <param name="eventType">
+    /// Most messages on the session's <c>MessageLog</c> are plain chat, but
+    /// some (item sends, item cheats) describe an item changing hands rather
+    /// than something someone typed; pass <see cref="EventType.ItemReceived"/>
+    /// for those so they show up under the "Item" log filter instead of
+    /// "Chat" - see <see cref="Archipelago.MultiClient.Net.MessageLog.Messages.ItemSendLogMessage"/>.
+    /// Defaults to <see cref="EventType.Chat"/>.
+    /// </param>
+    void HandleChatMessage(TabViewModel tab, string text, IReadOnlyList<EventTextSegment> segments, EventType eventType = EventType.Chat);
 
     /// <summary>
     /// Called whenever the session's full received-items list is available

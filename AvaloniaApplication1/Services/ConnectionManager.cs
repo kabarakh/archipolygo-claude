@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Archipelago.MultiClient.Net;
 using Archipelago.MultiClient.Net.Enums;
 using Archipelago.MultiClient.Net.Helpers;
+using Archipelago.MultiClient.Net.MessageLog.Messages;
 using Archipelago.MultiClient.Net.Models;
 using Archipolygo.Models;
 using Archipolygo.ViewModels;
@@ -88,7 +89,12 @@ public class ConnectionManager : IConnectionManager
         session.MessageLog.OnMessageReceived += logMessage => _messageHistoryService.HandleChatMessage(
             tab,
             logMessage.ToString(),
-            EventSegmentBuilder.BuildChatSegments(logMessage, GetOtherConnectedSlotIds(profile)));
+            EventSegmentBuilder.BuildChatSegments(logMessage, GetOtherConnectedSlotIds(profile)),
+            // "X sent Y to Z" (and the cheat-console/hint-completion variants,
+            // which derive from the same base class) describe an item
+            // changing hands, not something someone typed - file those under
+            // the "Item" log filter rather than "Chat".
+            logMessage is ItemSendLogMessage ? EventType.ItemReceived : EventType.Chat);
         session.Items.ItemReceived += helper => OnItemReceived(tab, profile, helper);
 
         try
