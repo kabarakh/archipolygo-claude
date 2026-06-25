@@ -23,6 +23,7 @@ This entire codebase is fully AI-generated — no line of code was manually writ
 - [Avalonia UI](https://avaloniaui.net/) 12.0.4 (cross-platform desktop UI), with the Fluent theme
 - [CommunityToolkit.Mvvm](https://learn.microsoft.com/dotnet/communitytoolkit/mvvm/) 8.4.1 for MVVM (observable properties, relay commands)
 - [Archipelago.MultiClient.Net](https://github.com/ArchipelagoMW/Archipelago.MultiClient.Net) 6.7.1 for the actual Archipelago protocol/connection handling
+- [Microsoft.Extensions.DependencyInjection](https://learn.microsoft.com/dotnet/core/extensions/dependency-injection) 10.0.0 for explicit, container-managed service singletons (wired up in `App.axaml.cs`)
 
 ## Building the app
 

@@ -20,25 +20,22 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private TabViewModel? _selectedTab;
 
-    public MainWindowViewModel()
-        : this(new PersistenceService())
-    {
-    }
-
     /// <summary>
-    /// DI-friendly overload: builds the default <see cref="ConnectionManager"/>
-    /// wired to <paramref name="persistenceService"/>. Mainly useful for tests
-    /// that need a custom <see cref="IPersistenceService"/> but don't care
-    /// about the connection manager.
+    /// Design-time only: used by the <c>&lt;Design.DataContext&gt;</c> in
+    /// MainWindow.axaml so the XAML previewer has something to bind against.
+    /// Not used at runtime - see <see cref="App"/> for the actual composition
+    /// root, which resolves this view model (and its dependencies) from the
+    /// DI container as explicit singletons instead.
     /// </summary>
-    public MainWindowViewModel(IPersistenceService persistenceService)
-        : this(persistenceService, new ConnectionManager(new MessageHistoryService(persistenceService), new HintService(persistenceService)))
+    public MainWindowViewModel()
+        : this(new PersistenceService(), new ConnectionManager(new MessageHistoryService(new PersistenceService()), new HintService(new PersistenceService())))
     {
     }
 
     /// <summary>
-    /// Fully DI-friendly overload, e.g. for tests that need to substitute
-    /// both dependencies.
+    /// Real constructor, resolved by the DI container in <see cref="App"/>.
+    /// Also directly usable by tests that need to substitute either
+    /// dependency with a fake/mock.
     /// </summary>
     public MainWindowViewModel(IPersistenceService persistenceService, IConnectionManager connectionManager)
     {

@@ -32,5 +32,6 @@
         </PackageReference>
         <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.1"/>
         <PackageReference Include="Archipelago.MultiClient.Net" Version="6.7.1"/>
+        <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0"/>
     </ItemGroup>
 </Project>
