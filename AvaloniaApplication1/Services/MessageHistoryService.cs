@@ -11,14 +11,13 @@ namespace Archipolygo.Services;
 public class MessageHistoryService : IMessageHistoryService
 {
     private readonly IPersistenceService _persistenceService;
+    private readonly IProfileSyncStateStore _syncStateStore;
     private readonly int _eventHistoryLimit;
 
-    // Cached per profile so we don't hit disk on every single item/message.
-    private readonly Dictionary<Guid, ProfileSyncState> _syncStateCache = new();
-
-    public MessageHistoryService(IPersistenceService persistenceService)
+    public MessageHistoryService(IPersistenceService persistenceService, IProfileSyncStateStore syncStateStore)
     {
         _persistenceService = persistenceService;
+        _syncStateStore = syncStateStore;
         // Read once at startup; a changed limit takes effect after a restart.
         _eventHistoryLimit = Math.Max(1, persistenceService.LoadSettings().EventHistoryLimit);
     }
@@ -70,7 +69,7 @@ public class MessageHistoryService : IMessageHistoryService
 
     public void HandleItemsReceivedSinceLastConnection(TabViewModel tab, ServerProfile profile, ReadOnlyCollection<ItemInfo> allItemsReceived)
     {
-        var syncState = GetOrLoadSyncState(profile.Id);
+        var syncState = _syncStateStore.Get(profile.Id);
 
         for (var i = syncState.LastSeenItemIndex; i < allItemsReceived.Count; i++)
         {
@@ -97,7 +96,7 @@ public class MessageHistoryService : IMessageHistoryService
         // while connected. Still need to keep the persisted index moving,
         // though, so a later reconnect doesn't re-announce these as "since
         // last connection".
-        var syncState = GetOrLoadSyncState(profile.Id);
+        var syncState = _syncStateStore.Get(profile.Id);
         AdvanceSyncState(syncState, allItemsReceived.Count);
     }
 
@@ -106,19 +105,8 @@ public class MessageHistoryService : IMessageHistoryService
         if (newCount > syncState.LastSeenItemIndex)
         {
             syncState.LastSeenItemIndex = newCount;
-            _persistenceService.SaveSyncState(syncState);
+            _syncStateStore.Save(syncState);
         }
-    }
-
-    private ProfileSyncState GetOrLoadSyncState(Guid profileId)
-    {
-        if (!_syncStateCache.TryGetValue(profileId, out var state))
-        {
-            state = _persistenceService.LoadSyncState(profileId);
-            _syncStateCache[profileId] = state;
-        }
-
-        return state;
     }
 
     private void AddEvent(TabViewModel tab, EventEntry entry)

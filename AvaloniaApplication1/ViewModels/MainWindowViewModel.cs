@@ -28,8 +28,24 @@ public partial class MainWindowViewModel : ViewModelBase
     /// DI container as explicit singletons instead.
     /// </summary>
     public MainWindowViewModel()
-        : this(new PersistenceService(), new ConnectionManager(new MessageHistoryService(new PersistenceService()), new HintService(new PersistenceService())))
+        : this(new PersistenceService(), CreateDesignTimeConnectionManager())
     {
+    }
+
+    /// <summary>
+    /// Wires up a design-time-only <see cref="IConnectionManager"/> using one
+    /// shared <see cref="ProfileSyncStateStore"/> instance for both
+    /// dependencies, the same way <see cref="App"/> does via the real DI
+    /// container - HintService and MessageHistoryService must not each get
+    /// their own independently-loaded sync-state cache, or whichever saves
+    /// last would overwrite the other's already-persisted field.
+    /// </summary>
+    private static IConnectionManager CreateDesignTimeConnectionManager()
+    {
+        var syncStateStore = new ProfileSyncStateStore(new PersistenceService());
+        return new ConnectionManager(
+            new MessageHistoryService(new PersistenceService(), syncStateStore),
+            new HintService(syncStateStore));
     }
 
     /// <summary>

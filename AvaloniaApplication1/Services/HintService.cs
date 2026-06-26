@@ -8,19 +8,16 @@ namespace Archipolygo.Services;
 
 public class HintService : IHintService
 {
-    private readonly IPersistenceService _persistenceService;
+    private readonly IProfileSyncStateStore _syncStateStore;
 
-    // Cached per profile so we don't hit disk on every single hint update.
-    private readonly Dictionary<Guid, ProfileSyncState> _syncStateCache = new();
-
-    public HintService(IPersistenceService persistenceService)
+    public HintService(IProfileSyncStateStore syncStateStore)
     {
-        _persistenceService = persistenceService;
+        _syncStateStore = syncStateStore;
     }
 
     public void SyncHints(TabViewModel tab, ServerProfile profile, IReadOnlyList<HintSnapshot> hints)
     {
-        var syncState = GetOrLoadSyncState(profile.Id);
+        var syncState = _syncStateStore.Get(profile.Id);
 
         // The whole diff runs on the UI thread: tab.Hints is owned by the UI and
         // must not be enumerated from a background thread while a previous,
@@ -100,19 +97,8 @@ public class HintService : IHintService
 
             if (stateChanged)
             {
-                _persistenceService.SaveSyncState(syncState);
+                _syncStateStore.Save(syncState);
             }
         });
-    }
-
-    private ProfileSyncState GetOrLoadSyncState(Guid profileId)
-    {
-        if (!_syncStateCache.TryGetValue(profileId, out var state))
-        {
-            state = _persistenceService.LoadSyncState(profileId);
-            _syncStateCache[profileId] = state;
-        }
-
-        return state;
     }
 }
