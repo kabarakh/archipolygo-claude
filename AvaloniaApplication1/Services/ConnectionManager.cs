@@ -26,10 +26,41 @@ public class ConnectionManager : IConnectionManager
     // Backoff schedule for auto-reconnect attempts; the last value repeats for further attempts.
     private static readonly int[] ReconnectDelaysSeconds = { 5, 10, 30 };
 
+    // Minimum time between the *start* of two consecutive connection
+    // attempts (across all tabs), so opening the app with several
+    // AutoConnect tabs - or several tabs auto-reconnecting at once - doesn't
+    // hit the Archipelago server with a burst of simultaneous handshakes.
+    // See EnqueueConnect/ProcessConnectQueueAsync.
+    private static readonly TimeSpan ConnectAttemptSpacing = TimeSpan.FromSeconds(3);
+
+    // The Archipelago network-protocol version this client implements (used
+    // in the login handshake) - not this app's own version number.
+    private static readonly Version ArchipelagoProtocolVersion = new(0, 6, 7);
+
     private readonly IMessageHistoryService _messageHistoryService;
     private readonly IHintService _hintService;
     private readonly ConcurrentDictionary<Guid, ArchipelagoSession> _sessions = new();
     private readonly ConcurrentDictionary<Guid, CancellationTokenSource> _reconnectTokens = new();
+
+    // Serializes connection attempts across all tabs with ConnectAttemptSpacing
+    // between the start of one and the start of the next. Guarded by _queueLock.
+    private readonly List<TabViewModel> _connectQueue = new();
+    private readonly object _queueLock = new();
+    private bool _queueRunning;
+
+    // Marks a profile whose queued connect attempt should be skipped without
+    // ever starting a handshake, because the user disconnected the tab while
+    // it was still waiting its turn (see DisconnectAsync). Cleared again at
+    // the start of the next ConnectAsync call for that profile.
+    private readonly ConcurrentDictionary<Guid, bool> _queueSkip = new();
+
+    // Present for a profile only while ConnectNowAsync's handshake
+    // (ConnectAsync/LoginAsync) is actually in flight for it. Lets
+    // DisconnectAsync interrupt that wait immediately so the rest of the
+    // connect queue isn't blocked behind a connection nobody wants anymore -
+    // the next queued slot is "brought to the front" right away instead of
+    // waiting for this attempt to time out on its own.
+    private readonly ConcurrentDictionary<Guid, TaskCompletionSource<bool>> _cancellationSignals = new();
 
     // Mirrors _sessions' keys while connected; used to find other tabs' own
     // slot ids on the same Archipelago server instance (same host+port), so
@@ -53,13 +84,22 @@ public class ConnectionManager : IConnectionManager
         _hintService = hintService;
     }
 
-    public async Task ConnectAsync(TabViewModel tab)
+    public Task ConnectAsync(TabViewModel tab)
     {
         var profile = tab.ServerProfile;
 
         if (_sessions.ContainsKey(profile.Id))
         {
-            return;
+            return Task.CompletedTask;
+        }
+
+        lock (_queueLock)
+        {
+            // Already waiting in the queue or actively connecting - nothing more to do.
+            if (_connectQueue.Contains(tab) || _cancellationSignals.ContainsKey(profile.Id))
+            {
+                return Task.CompletedTask;
+            }
         }
 
         // A manual (re-)connect attempt always takes over from any pending
@@ -68,6 +108,95 @@ public class ConnectionManager : IConnectionManager
         // the next unexpected drop.
         CancelPendingReconnect(profile.Id);
         _autoReconnectSuppressed.TryRemove(profile.Id, out _);
+        _queueSkip.TryRemove(profile.Id, out _);
+
+        EnqueueConnect(tab);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Adds <paramref name="tab"/> to the connect queue (see
+    /// <see cref="ConnectAttemptSpacing"/>) and starts
+    /// <see cref="ProcessConnectQueueAsync"/> if it isn't already running.
+    /// </summary>
+    private void EnqueueConnect(TabViewModel tab)
+    {
+        SetConnectionState(tab, ConnectionState.Queued);
+
+        lock (_queueLock)
+        {
+            _connectQueue.Add(tab);
+
+            if (_queueRunning)
+            {
+                return;
+            }
+
+            _queueRunning = true;
+        }
+
+        _ = ProcessConnectQueueAsync();
+    }
+
+    /// <summary>
+    /// Processes the connect queue one tab at a time, waiting
+    /// <see cref="ConnectAttemptSpacing"/> between the end of one attempt and
+    /// the start of the next (but never after the last queued attempt).
+    /// </summary>
+    private async Task ProcessConnectQueueAsync()
+    {
+        while (true)
+        {
+            TabViewModel next;
+            lock (_queueLock)
+            {
+                if (_connectQueue.Count == 0)
+                {
+                    _queueRunning = false;
+                    return;
+                }
+
+                next = _connectQueue[0];
+                _connectQueue.RemoveAt(0);
+            }
+
+            // Disconnected while still waiting its turn - skip it entirely;
+            // no connection was attempted, so no spacing delay is charged
+            // for it either, and the next queued slot is reached right away.
+            if (_queueSkip.TryRemove(next.ServerProfile.Id, out _))
+            {
+                continue;
+            }
+
+            await ConnectNowAsync(next);
+
+            bool moreQueued;
+            lock (_queueLock)
+            {
+                moreQueued = _connectQueue.Count > 0;
+            }
+
+            if (moreQueued)
+            {
+                await Task.Delay(ConnectAttemptSpacing);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Performs the actual connection attempt for <paramref name="tab"/>:
+    /// opens the websocket and logs in. Only ever called from
+    /// <see cref="ProcessConnectQueueAsync"/>, one tab at a time.
+    /// </summary>
+    private async Task ConnectNowAsync(TabViewModel tab)
+    {
+        var profile = tab.ServerProfile;
+
+        // Registered for the duration of the handshake so DisconnectAsync can
+        // interrupt the await below without waiting for the server to
+        // actually respond (see field comment on _cancellationSignals).
+        var cancelTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _cancellationSignals[profile.Id] = cancelTcs;
 
         SetConnectionState(tab, ConnectionState.Connecting);
 
@@ -78,6 +207,7 @@ public class ConnectionManager : IConnectionManager
         }
         catch (Exception ex)
         {
+            _cancellationSignals.TryRemove(profile.Id, out _);
             SetConnectionState(tab, ConnectionState.Error);
             _messageHistoryService.HandleError(tab, $"Could not create session: {ex.Message}");
             return;
@@ -99,14 +229,33 @@ public class ConnectionManager : IConnectionManager
 
         try
         {
-            await session.ConnectAsync();
+            var connectTask = session.ConnectAsync();
+            if (await Task.WhenAny(connectTask, cancelTcs.Task) == cancelTcs.Task)
+            {
+                // Disconnected while still waiting for the server's RoomInfo -
+                // don't keep the queue waiting on it; drop the socket once the
+                // call does eventually return (or right away if it already has).
+                _ = connectTask.ContinueWith(_ => TryCloseSocket(session), TaskScheduler.Default);
+                return;
+            }
 
-            var loginResult = await session.LoginAsync(
+            await connectTask; // surfaces a connect-time exception, if any
+
+            var loginTask = session.LoginAsync(
                 string.Empty, // generic tracker client: no specific game implementation
                 profile.SlotName,
                 ItemsHandlingFlags.AllItems,
-                tags: new[] { "Tracker" },
+                ArchipelagoProtocolVersion,
+                tags: new[] { "Tracker", "AP", "Poly" },
                 password: string.IsNullOrEmpty(profile.Password) ? null : profile.Password);
+
+            if (await Task.WhenAny(loginTask, cancelTcs.Task) == cancelTcs.Task)
+            {
+                _ = loginTask.ContinueWith(_ => TryCloseSocket(session), TaskScheduler.Default);
+                return;
+            }
+
+            var loginResult = await loginTask;
 
             if (loginResult is not LoginSuccessful)
             {
@@ -123,6 +272,10 @@ public class ConnectionManager : IConnectionManager
             _messageHistoryService.HandleError(tab, $"Connection failed: {ex.Message}");
             return;
         }
+        finally
+        {
+            _cancellationSignals.TryRemove(profile.Id, out _);
+        }
 
         _sessions[profile.Id] = session;
         _sessionProfiles[profile.Id] = profile;
@@ -137,6 +290,18 @@ public class ConnectionManager : IConnectionManager
         _messageHistoryService.HandleConnected(tab);
     }
 
+    private static void TryCloseSocket(ArchipelagoSession session)
+    {
+        try
+        {
+            session.Socket.DisconnectAsync();
+        }
+        catch
+        {
+            // Best-effort cleanup of an attempt that was already cancelled; nothing more to do.
+        }
+    }
+
     public Task DisconnectAsync(TabViewModel tab)
     {
         var profileId = tab.ServerProfile.Id;
@@ -146,17 +311,27 @@ public class ConnectionManager : IConnectionManager
         // so AutoConnect cannot bring this profile back by itself.
         _autoReconnectSuppressed[profileId] = true;
 
+        // No-op unless this tab is actually still sitting in the connect
+        // queue when ProcessConnectQueueAsync reaches it; cleared again at
+        // the start of the next ConnectAsync call either way.
+        _queueSkip[profileId] = true;
+
+        if (_cancellationSignals.TryGetValue(profileId, out var cancelTcs))
+        {
+            // A handshake is currently in flight for this slot - stop the
+            // queue from waiting on it; see field comment on _cancellationSignals.
+            cancelTcs.TrySetResult(true);
+        }
+
         if (_sessions.TryRemove(profileId, out var session))
         {
             _sessionProfiles.TryRemove(profileId, out _);
             // SocketClosed will fire and move the tab to Disconnected/log the event.
             session.Socket.DisconnectAsync();
-        }
-        else
-        {
-            SetConnectionState(tab, ConnectionState.Disconnected);
+            return Task.CompletedTask;
         }
 
+        SetConnectionState(tab, ConnectionState.Disconnected);
         return Task.CompletedTask;
     }
 
@@ -172,8 +347,21 @@ public class ConnectionManager : IConnectionManager
 
     private void OnSocketClosed(TabViewModel tab, Guid profileId, string reason)
     {
-        _sessions.TryRemove(profileId, out _);
+        var wasConnected = _sessions.TryRemove(profileId, out _);
         _sessionProfiles.TryRemove(profileId, out _);
+
+        if (!wasConnected)
+        {
+            // The handshake (ConnectAsync/LoginAsync) itself was still
+            // pending when the socket closed - e.g. a cancelled queued
+            // attempt being torn down, or the server refusing the
+            // connection outright. There's no established connection to
+            // report as "disconnected": a handshake failure is already
+            // reported via ConnectNowAsync's own catch block, and a
+            // cancellation reports nothing since the user already knows
+            // they cancelled it.
+            return;
+        }
 
         _messageHistoryService.HandleDisconnected(tab, reason);
 

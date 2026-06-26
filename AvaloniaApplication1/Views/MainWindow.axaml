@@ -14,6 +14,7 @@
     <Window.Resources>
         <conv:EventTextSegmentKindToBrushConverter x:Key="SegmentKindToBrushConverter"/>
         <conv:EnumEqualsConverter x:Key="EnumEqualsConverter"/>
+        <conv:ConnectionStateToBrushConverter x:Key="ConnectionStateToBrushConverter"/>
     </Window.Resources>
 
     <Window.Styles>
@@ -62,6 +63,8 @@
             <TabControl.ItemTemplate>
                 <DataTemplate DataType="vm:TabViewModel">
                     <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                        <Ellipse Width="8" Height="8" VerticalAlignment="Center"
+                                 Fill="{Binding ConnectionState, Converter={StaticResource ConnectionStateToBrushConverter}}"/>
                         <Border Background="OrangeRed" CornerRadius="8" MinWidth="16" Height="16"
                                 Padding="4,0" VerticalAlignment="Center"
                                 IsVisible="{Binding HasUnreadEvents}">
@@ -69,6 +72,11 @@
                                        FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <TextBlock Text="{Binding HeaderText}"/>
+                        <!-- Only shown while not connected, so the tab itself
+                             surfaces "disconnected"/"queued"/"connecting"/
+                             "reconnecting"/"error" without needing to select it. -->
+                        <TextBlock Text="{Binding ConnectionState}" FontSize="11" Opacity="0.7"
+                                   VerticalAlignment="Center" IsVisible="{Binding !IsConnected}"/>
                     </StackPanel>
                 </DataTemplate>
             </TabControl.ItemTemplate>
@@ -76,10 +84,7 @@
                 <DataTemplate DataType="vm:TabViewModel">
                     <Grid Margin="16" RowDefinitions="Auto,Auto,*,Auto">
                         <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                            <TextBlock Text="{Binding ServerProfile.Name}" FontSize="18" FontWeight="Bold"/>
-                            <TextBlock Text="{Binding ServerProfile.Host}"/>
-                            <TextBlock Text=":"/>
-                            <TextBlock Text="{Binding ServerProfile.Port}"/>
+                            <TextBlock Text="{Binding ServerProfile.HostPort}"/>
                             <TextBlock Text="-"/>
                             <TextBlock Text="{Binding ConnectionState}" FontWeight="Bold"/>
                         </StackPanel>
@@ -169,7 +174,7 @@
                         </Grid>
 
                         <Grid Grid.Row="3" ColumnDefinitions="*,Auto" Margin="0,8,0,0">
-                            <TextBox Grid.Column="0" Text="{Binding MessageToSend}" Watermark="Message..."
+                            <TextBox Grid.Column="0" Text="{Binding MessageToSend}" PlaceholderText="Message..."
                                      IsEnabled="{Binding IsConnected}">
                                 <TextBox.KeyBindings>
                                     <KeyBinding Gesture="Enter" Command="{Binding SendMessageCommand}"/>

@@ -43,7 +43,7 @@ public partial class TabViewModel : ViewModelBase
     private bool _isSelected;
 
     [ObservableProperty]
-    private HintFilter _selectedHintFilter = HintFilter.All;
+    private HintFilter _selectedHintFilter = HintFilter.Unfound;
 
     [ObservableProperty]
     private EventRelevanceFilter _selectedEventRelevanceFilter = EventRelevanceFilter.All;
@@ -63,6 +63,7 @@ public partial class TabViewModel : ViewModelBase
     public bool CanConnect => ConnectionState is ConnectionState.Disconnected or ConnectionState.Error;
 
     public bool CanDisconnect => ConnectionState is ConnectionState.Connected
+        or ConnectionState.Queued
         or ConnectionState.Connecting
         or ConnectionState.Reconnecting;
 

@@ -28,4 +28,14 @@ public partial class ServerProfile : ObservableObject
 
     [ObservableProperty]
     private bool _autoConnect;
+
+    /// <summary>
+    /// "host:port" with no surrounding/inner whitespace, for compact display
+    /// (see MainWindow.axaml's tab content header).
+    /// </summary>
+    public string HostPort => $"{Host}:{Port}";
+
+    partial void OnHostChanged(string value) => OnPropertyChanged(nameof(HostPort));
+
+    partial void OnPortChanged(int value) => OnPropertyChanged(nameof(HostPort));
 }
