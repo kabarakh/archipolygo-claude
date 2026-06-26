@@ -68,7 +68,7 @@ public class MessageHistoryService : IMessageHistoryService
         AddEvent(tab, new EventEntry { Type = eventType, Text = text, Segments = segments, ConcernsOwnSlot = concernsOwnSlot });
     }
 
-    public void HandleItemsReceived(TabViewModel tab, ServerProfile profile, ReadOnlyCollection<ItemInfo> allItemsReceived)
+    public void HandleItemsReceivedSinceLastConnection(TabViewModel tab, ServerProfile profile, ReadOnlyCollection<ItemInfo> allItemsReceived)
     {
         var syncState = GetOrLoadSyncState(profile.Id);
 
@@ -78,18 +78,34 @@ public class MessageHistoryService : IMessageHistoryService
             AddEvent(tab, new EventEntry
             {
                 Type = EventType.ItemReceived,
-                Text = $"Received {item.ItemDisplayName} ({item.LocationDisplayName})",
+                Text = $"Received {item.ItemDisplayName} ({item.LocationDisplayName}) since last connection",
                 Segments = EventSegmentBuilder.BuildItemReceivedSegments(item.ItemDisplayName, item.Flags, item.LocationDisplayName),
                 // Everything from the last persisted index onward is "new since last
-                // session" by definition - this covers items received while offline
-                // as well as items arriving live during the current session.
+                // session" by definition - these are items that arrived while this
+                // client wasn't connected (or hadn't shown them yet).
                 IsNewSinceLastSession = true
             });
         }
 
-        if (allItemsReceived.Count > syncState.LastSeenItemIndex)
+        AdvanceSyncState(syncState, allItemsReceived.Count);
+    }
+
+    public void AdvanceItemSyncState(ServerProfile profile, ReadOnlyCollection<ItemInfo> allItemsReceived)
+    {
+        // No log entry here on purpose: the live "X sent Y to Z" chat-log
+        // line (see HandleChatMessage) already announces items received
+        // while connected. Still need to keep the persisted index moving,
+        // though, so a later reconnect doesn't re-announce these as "since
+        // last connection".
+        var syncState = GetOrLoadSyncState(profile.Id);
+        AdvanceSyncState(syncState, allItemsReceived.Count);
+    }
+
+    private void AdvanceSyncState(ProfileSyncState syncState, int newCount)
+    {
+        if (newCount > syncState.LastSeenItemIndex)
         {
-            syncState.LastSeenItemIndex = allItemsReceived.Count;
+            syncState.LastSeenItemIndex = newCount;
             _persistenceService.SaveSyncState(syncState);
         }
     }

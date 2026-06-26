@@ -213,6 +213,15 @@ public class ConnectionManager : IConnectionManager
             return;
         }
 
+        // Set to true once this connection reaches ConnectionState.Connected
+        // (see below); read by the ItemReceived handler so that the backlog
+        // delivered while logging in is shown as "received since last
+        // connection", while items arriving later, truly live, are not
+        // logged again here - the "X sent Y to Z" chat-log line below
+        // already announces those. Captured by reference, so the handler
+        // always sees the up-to-date value.
+        var hasAnnouncedConnection = false;
+
         // Subscriptions must happen before connecting so that no early items/messages are missed.
         session.Socket.SocketClosed += reason => OnSocketClosed(tab, profile.Id, reason);
         session.Socket.ErrorReceived += (_, message) => _messageHistoryService.HandleError(tab, message);
@@ -225,7 +234,7 @@ public class ConnectionManager : IConnectionManager
             // changing hands, not something someone typed - file those under
             // the "Item" log filter rather than "Chat".
             logMessage is ItemSendLogMessage ? EventType.ItemReceived : EventType.Chat);
-        session.Items.ItemReceived += helper => OnItemReceived(tab, profile, helper);
+        session.Items.ItemReceived += helper => OnItemReceived(tab, profile, helper, hasAnnouncedConnection);
 
         try
         {
@@ -287,6 +296,7 @@ public class ConnectionManager : IConnectionManager
             retrieveCurrentlyUnlockedHints: true);
 
         SetConnectionState(tab, ConnectionState.Connected);
+        hasAnnouncedConnection = true;
         _messageHistoryService.HandleConnected(tab);
     }
 
@@ -451,12 +461,23 @@ public class ConnectionManager : IConnectionManager
         return slotIds;
     }
 
-    private void OnItemReceived(TabViewModel tab, ServerProfile profile, ReceivedItemsHelper helper)
+    private void OnItemReceived(TabViewModel tab, ServerProfile profile, ReceivedItemsHelper helper, bool isLive)
     {
-        _messageHistoryService.HandleItemsReceived(tab, profile, helper.AllItemsReceived);
+        if (isLive)
+        {
+            // Already connected - the chat-log "X sent Y to Z" line handles
+            // announcing this one; just keep the persisted index moving.
+            _messageHistoryService.AdvanceItemSyncState(profile, helper.AllItemsReceived);
+        }
+        else
+        {
+            // Still logging in - this is backlog the server had queued up
+            // (received while offline, or simply not shown yet).
+            _messageHistoryService.HandleItemsReceivedSinceLastConnection(tab, profile, helper.AllItemsReceived);
+        }
 
-        // Drain the queue as documented by the library; HandleItemsReceived already
-        // read everything it needs from AllItemsReceived.
+        // Drain the queue as documented by the library; the calls above already
+        // read everything they need from AllItemsReceived.
         while (helper.Any())
         {
             helper.DequeueItem();

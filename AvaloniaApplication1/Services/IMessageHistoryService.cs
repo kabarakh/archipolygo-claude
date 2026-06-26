@@ -37,10 +37,23 @@ public interface IMessageHistoryService
     void HandleChatMessage(TabViewModel tab, string text, IReadOnlyList<EventTextSegment> segments, EventType eventType = EventType.Chat);
 
     /// <summary>
-    /// Called whenever the session's full received-items list is available
-    /// (fires for every item on connect, reconnect, and live receipt).
-    /// Appends an <see cref="EventEntry"/> for every item beyond the last
-    /// persisted index and advances/saves that index.
+    /// Called with the items that were waiting on the server from before this
+    /// connection attempt (i.e. received while offline, or otherwise not yet
+    /// shown to this client). Appends an <see cref="EventEntry"/> for every
+    /// item beyond the last persisted index, marked as received since the
+    /// last connection, and advances/saves that index. Only meant to be
+    /// called once per successful connect/reconnect, before any live item
+    /// arrives - see <see cref="AdvanceItemSyncState"/> for those.
     /// </summary>
-    void HandleItemsReceived(TabViewModel tab, ServerProfile profile, ReadOnlyCollection<ItemInfo> allItemsReceived);
+    void HandleItemsReceivedSinceLastConnection(TabViewModel tab, ServerProfile profile, ReadOnlyCollection<ItemInfo> allItemsReceived);
+
+    /// <summary>
+    /// Called for items received live while already connected. The normal
+    /// Archipelago "X sent Y to Z" chat-log line (see
+    /// <see cref="HandleChatMessage"/>) already announces these, so this only
+    /// advances/saves the persisted last-seen-item index - it does not append
+    /// another log entry - to make sure a later reconnect doesn't re-announce
+    /// items that were already shown live.
+    /// </summary>
+    void AdvanceItemSyncState(ServerProfile profile, ReadOnlyCollection<ItemInfo> allItemsReceived);
 }
