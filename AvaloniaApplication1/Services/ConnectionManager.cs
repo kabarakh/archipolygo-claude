@@ -336,8 +336,23 @@ public class ConnectionManager : IConnectionManager
         if (_sessions.TryRemove(profileId, out var session))
         {
             _sessionProfiles.TryRemove(profileId, out _);
-            // SocketClosed will fire and move the tab to Disconnected/log the event.
             session.Socket.DisconnectAsync();
+
+            // Used to rely on the eventual SocketClosed event to move the tab
+            // to Disconnected and log it - but OnSocketClosed now checks
+            // whether the profile is still present in _sessions (added so
+            // cancelled in-flight handshakes that never finished logging in
+            // don't get a spurious "Disconnected" entry, see its own
+            // comment), and it no longer is by the time the socket actually
+            // finishes closing, since it was just removed above. Without
+            // this, a manual disconnect of an actually-connected tab would
+            // never visibly resolve on its own - the tab would stay stuck
+            // showing "Connected" until a second Disconnect click happened to
+            // hit the no-session fallback below. Do it here instead, right
+            // away; the later SocketClosed firing for this same profile is
+            // now a no-op (wasConnected will correctly be false for it).
+            SetConnectionState(tab, ConnectionState.Disconnected);
+            _messageHistoryService.HandleDisconnected(tab, "disconnected by user");
             return Task.CompletedTask;
         }
 
@@ -362,14 +377,17 @@ public class ConnectionManager : IConnectionManager
 
         if (!wasConnected)
         {
-            // The handshake (ConnectAsync/LoginAsync) itself was still
+            // Either the handshake (ConnectAsync/LoginAsync) was still
             // pending when the socket closed - e.g. a cancelled queued
-            // attempt being torn down, or the server refusing the
-            // connection outright. There's no established connection to
-            // report as "disconnected": a handshake failure is already
-            // reported via ConnectNowAsync's own catch block, and a
-            // cancellation reports nothing since the user already knows
-            // they cancelled it.
+            // attempt being torn down, or the server refusing the connection
+            // outright - or this is the deliberate close started by
+            // DisconnectAsync for an already-connected tab, which already
+            // removed the profile from _sessions and handled the
+            // state/logging itself right away (see its comment) rather than
+            // waiting for this event. Either way, nothing left to do: a
+            // handshake failure is already reported via ConnectNowAsync's own
+            // catch block, and a deliberate disconnect reports nothing here
+            // since the user already knows they disconnected it.
             return;
         }
 
