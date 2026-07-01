@@ -40,16 +40,20 @@ public class HintService : IHintService
                     if (existing.Found != snapshot.Found)
                     {
                         // HintEntry is an ObservableObject, so this updates the UI in
-                        // place without needing to remove/re-add the item.
+                        // place without needing to remove/re-add the item. The
+                        // VisibleHints filter on TabViewModel will hide it automatically
+                        // when the hint filter is set to Unfound.
                         existing.Found = snapshot.Found;
                     }
 
                     continue;
                 }
 
-                // First time we've seen this hint in this run. Whether it counts as
-                // "new since last session" depends on whether it was already
-                // persisted as seen the last time this profile was connected.
+                // First time we've seen this hint. Always add it to tab.Hints so
+                // the "show found" button can reveal it - VisibleHints filters by
+                // Found at display time. Only generate an event-log entry for
+                // unfound hints though: already-found hints at login time are
+                // historical noise with nothing left to act on.
                 var isNew = !syncState.SeenHintIds.Contains(snapshot.Key);
 
                 var itemKind = EventSegmentBuilder.ClassifyItemFlags(snapshot.ItemFlags);
@@ -72,22 +76,26 @@ public class HintService : IHintService
                 };
 
                 tab.Hints.Add(newEntry);
-                tab.Events.Add(new EventEntry
+
+                if (!snapshot.Found)
                 {
-                    Type = EventType.HintReceived,
-                    Text = $"Hint: {newEntry.ItemName} ({newEntry.FindingPlayerName} -> {newEntry.ReceivingPlayerName}, {newEntry.LocationName})",
-                    Segments = EventSegmentBuilder.BuildHintReceivedSegments(
-                        newEntry.ItemName, snapshot.ItemFlags,
-                        newEntry.FindingPlayerName, snapshot.FindingPlayerKind,
-                        newEntry.ReceivingPlayerName, snapshot.ReceivingPlayerKind,
-                        newEntry.LocationName),
-                    IsNewSinceLastSession = newEntry.IsNewSinceLastSession,
-                    // Only a hint where this slot is the one receiving the item or
-                    // the one who has to find it actually concerns it - TrackHints
-                    // can also report hints between two other players.
-                    ConcernsOwnSlot = snapshot.ReceivingPlayerKind == EventTextSegmentKind.OwnSlotName ||
-                                      snapshot.FindingPlayerKind == EventTextSegmentKind.OwnSlotName
-                });
+                    tab.Events.Add(new EventEntry
+                    {
+                        Type = EventType.HintReceived,
+                        Text = $"Hint: {newEntry.ItemName} ({newEntry.FindingPlayerName} -> {newEntry.ReceivingPlayerName}, {newEntry.LocationName})",
+                        Segments = EventSegmentBuilder.BuildHintReceivedSegments(
+                            newEntry.ItemName, snapshot.ItemFlags,
+                            newEntry.FindingPlayerName, snapshot.FindingPlayerKind,
+                            newEntry.ReceivingPlayerName, snapshot.ReceivingPlayerKind,
+                            newEntry.LocationName),
+                        IsNewSinceLastSession = newEntry.IsNewSinceLastSession,
+                        // Only a hint where this slot is the one receiving the item or
+                        // the one who has to find it actually concerns it - TrackHints
+                        // can also report hints between two other players.
+                        ConcernsOwnSlot = snapshot.ReceivingPlayerKind == EventTextSegmentKind.OwnSlotName ||
+                                          snapshot.FindingPlayerKind == EventTextSegmentKind.OwnSlotName
+                    });
+                }
 
                 if (syncState.SeenHintIds.Add(snapshot.Key))
                 {

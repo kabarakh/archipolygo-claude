@@ -144,6 +144,13 @@
                                             Classes.active="{Binding SelectedHintFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=All}"/>
                                     <Button Content="Unfound" Classes="filter-toggle" Command="{Binding ShowUnfoundHintsCommand}"
                                             Classes.active="{Binding SelectedHintFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Unfound}"/>
+                                    <Border Width="1" Background="Gray" Opacity="0.5" Margin="2,0"/>
+                                    <Button Content="All" Classes="filter-toggle" Command="{Binding ShowAllHintRolesCommand}"
+                                            Classes.active="{Binding SelectedHintRoleFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=All}"/>
+                                    <Button Content="My location" Classes="filter-toggle" Command="{Binding ShowHintsIFindCommand}"
+                                            Classes.active="{Binding SelectedHintRoleFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=IFind}"/>
+                                    <Button Content="My item" Classes="filter-toggle" Command="{Binding ShowHintsIReceiveCommand}"
+                                            Classes.active="{Binding SelectedHintRoleFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=IReceive}"/>
                                 </StackPanel>
                                 <ListBox ItemsSource="{Binding VisibleHints}">
                                     <ListBox.ItemTemplate>

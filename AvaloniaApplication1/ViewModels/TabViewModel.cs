@@ -46,6 +46,9 @@ public partial class TabViewModel : ViewModelBase
     private HintFilter _selectedHintFilter = HintFilter.Unfound;
 
     [ObservableProperty]
+    private HintRoleFilter _selectedHintRoleFilter = HintRoleFilter.All;
+
+    [ObservableProperty]
     private EventRelevanceFilter _selectedEventRelevanceFilter = EventRelevanceFilter.All;
 
     [ObservableProperty]
@@ -75,8 +78,32 @@ public partial class TabViewModel : ViewModelBase
     /// or the filter itself changes, which is enough for the bound ListBox
     /// to re-pull the sequence.
     /// </summary>
-    public IEnumerable<HintEntry> VisibleHints =>
-        SelectedHintFilter == HintFilter.Unfound ? Hints.Where(h => !h.Found) : Hints;
+    /// <summary>
+    /// Hints filtered by <see cref="SelectedHintFilter"/> and
+    /// <see cref="SelectedHintRoleFilter"/>. The two dimensions combine
+    /// independently (e.g. "Unfound + I find" shows only unfound hints at
+    /// this slot's locations). A hint where finder and receiver are the same
+    /// slot appears under both role filters, as expected.
+    /// </summary>
+    public IEnumerable<HintEntry> VisibleHints
+    {
+        get
+        {
+            IEnumerable<HintEntry> hints = Hints;
+
+            if (SelectedHintFilter == HintFilter.Unfound)
+                hints = hints.Where(h => !h.Found);
+
+            hints = SelectedHintRoleFilter switch
+            {
+                HintRoleFilter.IFind    => hints.Where(h => h.FindingPlayerKind == EventTextSegmentKind.OwnSlotName),
+                HintRoleFilter.IReceive => hints.Where(h => h.ReceivingPlayerKind == EventTextSegmentKind.OwnSlotName),
+                _                       => hints,
+            };
+
+            return hints;
+        }
+    }
 
     public int UnfoundHintCount => Hints.Count(h => !h.Found);
 
@@ -176,6 +203,8 @@ public partial class TabViewModel : ViewModelBase
 
     partial void OnSelectedHintFilterChanged(HintFilter value) => OnPropertyChanged(nameof(VisibleHints));
 
+    partial void OnSelectedHintRoleFilterChanged(HintRoleFilter value) => OnPropertyChanged(nameof(VisibleHints));
+
     partial void OnSelectedEventRelevanceFilterChanged(EventRelevanceFilter value) => OnPropertyChanged(nameof(VisibleEvents));
 
     partial void OnSelectedEventCategoryFilterChanged(EventCategoryFilter value) => OnPropertyChanged(nameof(VisibleEvents));
@@ -272,6 +301,15 @@ public partial class TabViewModel : ViewModelBase
 
     [RelayCommand]
     private void ShowUnfoundHints() => SelectedHintFilter = HintFilter.Unfound;
+
+    [RelayCommand]
+    private void ShowAllHintRoles() => SelectedHintRoleFilter = HintRoleFilter.All;
+
+    [RelayCommand]
+    private void ShowHintsIFind() => SelectedHintRoleFilter = HintRoleFilter.IFind;
+
+    [RelayCommand]
+    private void ShowHintsIReceive() => SelectedHintRoleFilter = HintRoleFilter.IReceive;
 
     [RelayCommand]
     private void ShowAllEventsRelevance() => SelectedEventRelevanceFilter = EventRelevanceFilter.All;
