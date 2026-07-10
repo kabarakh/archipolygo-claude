@@ -56,4 +56,29 @@ public interface IMessageHistoryService
     /// items that were already shown live.
     /// </summary>
     void AdvanceItemSyncState(ServerProfile profile, ReadOnlyCollection<ItemInfo> allItemsReceived);
+
+    /// <summary>
+    /// Appends the most-recently-arrived item (the last element of
+    /// <paramref name="allItemsReceived"/>) to the tab's received-items panel.
+    /// Called for every <c>ItemReceived</c> event, regardless of whether the
+    /// item is backlog or live.
+    /// </summary>
+    /// <param name="senderName">
+    /// Display name of the player whose location check produced this item,
+    /// resolved by the caller via <c>session.Players.GetPlayerAlias</c>.
+    /// </param>
+    /// <param name="senderKind">
+    /// Segment kind for <paramref name="senderName"/> (own / connected / other slot).
+    /// </param>
+    void TrackReceivedItem(TabViewModel tab, ReadOnlyCollection<ItemInfo> allItemsReceived,
+                           string senderName, EventTextSegmentKind senderKind);
+
+    /// <summary>
+    /// Clears the tab's received-items list in preparation for a new
+    /// connection attempt. Should be called before subscribing to
+    /// <c>ItemReceived</c> so that reconnects start with a clean slate
+    /// (the server re-delivers the full history on every connect, so the
+    /// list is rebuilt from scratch each time).
+    /// </summary>
+    void ClearReceivedItems(TabViewModel tab);
 }

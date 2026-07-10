@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
@@ -55,11 +56,22 @@ public partial class TabViewModel : ViewModelBase
     private EventCategoryFilter _selectedEventCategoryFilter = EventCategoryFilter.All;
 
     [ObservableProperty]
+    private RightPanelView _selectedRightPanel = RightPanelView.Hints;
+
+    [ObservableProperty]
+    private ItemCategoryFilter _selectedItemCategoryFilter = ItemCategoryFilter.All;
+
+    [ObservableProperty]
+    private string _itemSearchText = string.Empty;
+
+    [ObservableProperty]
     private string _messageToSend = string.Empty;
 
     public ObservableCollection<EventEntry> Events { get; } = new();
 
     public ObservableCollection<HintEntry> Hints { get; } = new();
+
+    public ObservableCollection<ReceivedItemEntry> ReceivedItems { get; } = new();
 
     public bool IsConnected => ConnectionState == ConnectionState.Connected;
 
@@ -70,14 +82,6 @@ public partial class TabViewModel : ViewModelBase
         or ConnectionState.Connecting
         or ConnectionState.Reconnecting;
 
-    /// <summary>
-    /// Hints filtered by <see cref="SelectedHintFilter"/>. There is no
-    /// live-filtering collection view available, so this is recomputed on
-    /// every read; a property-changed notification is raised manually
-    /// whenever <see cref="Hints"/>, a hint's <see cref="HintEntry.Found"/>,
-    /// or the filter itself changes, which is enough for the bound ListBox
-    /// to re-pull the sequence.
-    /// </summary>
     /// <summary>
     /// Hints filtered by <see cref="SelectedHintFilter"/> and
     /// <see cref="SelectedHintRoleFilter"/>. The two dimensions combine
@@ -101,11 +105,44 @@ public partial class TabViewModel : ViewModelBase
                 _                       => hints,
             };
 
+            if (!string.IsNullOrEmpty(ItemSearchText))
+                hints = hints.Where(h => h.ItemName.Contains(ItemSearchText, StringComparison.OrdinalIgnoreCase));
+
             return hints;
         }
     }
 
     public int UnfoundHintCount => Hints.Count(h => !h.Found);
+
+    /// <summary>
+    /// Number of unfound hints where this slot is the finder ("My location").
+    /// A hint where finder == receiver contributes to both this count and
+    /// <see cref="UnfoundHintIReceiveCount"/>, so their sum can exceed
+    /// <see cref="UnfoundHintCount"/>.
+    /// </summary>
+    public int UnfoundHintIFindCount =>
+        Hints.Count(h => !h.Found && h.FindingPlayerKind == EventTextSegmentKind.OwnSlotName);
+
+    /// <summary>
+    /// Number of unfound hints where this slot receives the item ("My item").
+    /// </summary>
+    public int UnfoundHintIReceiveCount =>
+        Hints.Count(h => !h.Found && h.ReceivingPlayerKind == EventTextSegmentKind.OwnSlotName);
+
+    /// <summary>Button label for the Hints panel selector: "Hints (N)" when N &gt; 0.</summary>
+    public string HintsPanelButtonText => UnfoundHintCount > 0
+        ? $"Hints ({UnfoundHintCount})"
+        : "Hints";
+
+    /// <summary>Button label for the "My location" role filter.</summary>
+    public string HintsIFindButtonText => UnfoundHintIFindCount > 0
+        ? $"My location ({UnfoundHintIFindCount})"
+        : "My location";
+
+    /// <summary>Button label for the "My item" role filter.</summary>
+    public string HintsIReceiveButtonText => UnfoundHintIReceiveCount > 0
+        ? $"My item ({UnfoundHintIReceiveCount})"
+        : "My item";
 
     /// <summary>
     /// <see cref="Events"/> filtered by <see cref="SelectedEventRelevanceFilter"/>
@@ -141,6 +178,37 @@ public partial class TabViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// <see cref="ReceivedItems"/> filtered by
+    /// <see cref="SelectedItemCategoryFilter"/> and <see cref="ItemSearchText"/>.
+    /// The two dimensions combine independently. Recomputed on every read;
+    /// property-changed notifications are raised via the callbacks below.
+    /// </summary>
+    public IEnumerable<ReceivedItemEntry> VisibleReceivedItems
+    {
+        get
+        {
+            IEnumerable<ReceivedItemEntry> items = ReceivedItems;
+
+            items = SelectedItemCategoryFilter switch
+            {
+                ItemCategoryFilter.Progress => items.Where(i => i.ItemKind == EventTextSegmentKind.ItemProgression),
+                ItemCategoryFilter.Useful   => items.Where(i => i.ItemKind == EventTextSegmentKind.ItemUseful),
+                ItemCategoryFilter.Normal   => items.Where(i => i.ItemKind == EventTextSegmentKind.ItemOther),
+                ItemCategoryFilter.Trap     => items.Where(i => i.ItemKind == EventTextSegmentKind.ItemTrap),
+                _                           => items,
+            };
+
+            if (!string.IsNullOrEmpty(ItemSearchText))
+            {
+                items = items.Where(i =>
+                    i.ItemName.Contains(ItemSearchText, StringComparison.OrdinalIgnoreCase));
+            }
+
+            return items;
+        }
+    }
+
+    /// <summary>
     /// Whether the unread-event badge should be shown; derived purely for
     /// XAML visibility bindings (Avalonia has no built-in "greater than
     /// zero" converter).
@@ -151,9 +219,7 @@ public partial class TabViewModel : ViewModelBase
     /// Tab header text: profile name, plus the unfound-hint count in
     /// parentheses once there is at least one unfound hint.
     /// </summary>
-    public string HeaderText => UnfoundHintCount > 0
-        ? $"{ServerProfile.Name} ({UnfoundHintCount})"
-        : ServerProfile.Name;
+    public string HeaderText => ServerProfile.Name;
 
     public TabViewModel(ServerProfile serverProfile, IConnectionManager connectionManager)
     {
@@ -162,6 +228,7 @@ public partial class TabViewModel : ViewModelBase
 
         Events.CollectionChanged += OnEventsCollectionChanged;
         Hints.CollectionChanged += OnHintsCollectionChanged;
+        ReceivedItems.CollectionChanged += (_, _) => OnPropertyChanged(nameof(VisibleReceivedItems));
         ServerProfile.PropertyChanged += OnServerProfilePropertyChanged;
     }
 
@@ -204,6 +271,14 @@ public partial class TabViewModel : ViewModelBase
     partial void OnSelectedHintFilterChanged(HintFilter value) => OnPropertyChanged(nameof(VisibleHints));
 
     partial void OnSelectedHintRoleFilterChanged(HintRoleFilter value) => OnPropertyChanged(nameof(VisibleHints));
+
+    partial void OnSelectedItemCategoryFilterChanged(ItemCategoryFilter value) => OnPropertyChanged(nameof(VisibleReceivedItems));
+
+    partial void OnItemSearchTextChanged(string value)
+    {
+        OnPropertyChanged(nameof(VisibleHints));
+        OnPropertyChanged(nameof(VisibleReceivedItems));
+    }
 
     partial void OnSelectedEventRelevanceFilterChanged(EventRelevanceFilter value) => OnPropertyChanged(nameof(VisibleEvents));
 
@@ -274,6 +349,11 @@ public partial class TabViewModel : ViewModelBase
     {
         OnPropertyChanged(nameof(VisibleHints));
         OnPropertyChanged(nameof(UnfoundHintCount));
+        OnPropertyChanged(nameof(UnfoundHintIFindCount));
+        OnPropertyChanged(nameof(UnfoundHintIReceiveCount));
+        OnPropertyChanged(nameof(HintsPanelButtonText));
+        OnPropertyChanged(nameof(HintsIFindButtonText));
+        OnPropertyChanged(nameof(HintsIReceiveButtonText));
         OnPropertyChanged(nameof(HeaderText));
     }
 
@@ -301,6 +381,27 @@ public partial class TabViewModel : ViewModelBase
 
     [RelayCommand]
     private void ShowUnfoundHints() => SelectedHintFilter = HintFilter.Unfound;
+
+    [RelayCommand]
+    private void ShowHintsPanel() => SelectedRightPanel = RightPanelView.Hints;
+
+    [RelayCommand]
+    private void ShowReceivedItemsPanel() => SelectedRightPanel = RightPanelView.ReceivedItems;
+
+    [RelayCommand]
+    private void ShowAllItemCategories() => SelectedItemCategoryFilter = ItemCategoryFilter.All;
+
+    [RelayCommand]
+    private void ShowProgressItems() => SelectedItemCategoryFilter = ItemCategoryFilter.Progress;
+
+    [RelayCommand]
+    private void ShowUsefulItems() => SelectedItemCategoryFilter = ItemCategoryFilter.Useful;
+
+    [RelayCommand]
+    private void ShowNormalItems() => SelectedItemCategoryFilter = ItemCategoryFilter.Normal;
+
+    [RelayCommand]
+    private void ShowTrapItems() => SelectedItemCategoryFilter = ItemCategoryFilter.Trap;
 
     [RelayCommand]
     private void ShowAllHintRoles() => SelectedHintRoleFilter = HintRoleFilter.All;

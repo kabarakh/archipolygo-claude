@@ -100,6 +100,30 @@ public class MessageHistoryService : IMessageHistoryService
         AdvanceSyncState(syncState, allItemsReceived.Count);
     }
 
+    public void TrackReceivedItem(TabViewModel tab, ReadOnlyCollection<ItemInfo> allItemsReceived,
+                                   string senderName, EventTextSegmentKind senderKind)
+    {
+        if (allItemsReceived.Count == 0)
+            return;
+
+        var item = allItemsReceived[allItemsReceived.Count - 1];
+        var entry = new ReceivedItemEntry
+        {
+            ItemName     = item.ItemDisplayName,
+            LocationName = item.LocationDisplayName,
+            SenderName   = senderName,
+            ItemKind     = EventSegmentBuilder.ClassifyItemFlags(item.Flags),
+            SenderKind   = senderKind,
+        };
+
+        Dispatcher.UIThread.Post(() => tab.ReceivedItems.Add(entry));
+    }
+
+    public void ClearReceivedItems(TabViewModel tab)
+    {
+        Dispatcher.UIThread.Post(() => tab.ReceivedItems.Clear());
+    }
+
     private void AdvanceSyncState(ProfileSyncState syncState, int newCount)
     {
         if (newCount > syncState.LastSeenItemIndex)

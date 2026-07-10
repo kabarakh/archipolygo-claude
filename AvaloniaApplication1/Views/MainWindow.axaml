@@ -94,9 +94,26 @@
                             <Button Content="Disconnect" Command="{Binding DisconnectCommand}"/>
                         </StackPanel>
 
-                        <Grid Grid.Row="2" ColumnDefinitions="2*,8,1*">
-                            <DockPanel Grid.Column="0">
-                                <TextBlock DockPanel.Dock="Top" Text="Events" FontWeight="Bold" Margin="0,0,0,4"/>
+                        <!-- RowDefinitions: header row (Auto) + content row (*).
+                             The header row holds the "Events" label and the
+                             Hints/Items panel selector side-by-side so both
+                             columns start their filter rows at the same height. -->
+                        <Grid Grid.Row="2" ColumnDefinitions="2*,8,1*" RowDefinitions="Auto,*">
+
+                            <!-- ── Header row ── -->
+                            <TextBlock Grid.Row="0" Grid.Column="0"
+                                       Text="Events" FontWeight="Bold"
+                                       VerticalAlignment="Center" Margin="0,0,0,4"/>
+                            <StackPanel Grid.Row="0" Grid.Column="2"
+                                        Orientation="Horizontal" Spacing="8" Margin="0,0,0,4">
+                                <Button Content="{Binding HintsPanelButtonText}" Classes="filter-toggle" Command="{Binding ShowHintsPanelCommand}"
+                                        Classes.active="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Hints}"/>
+                                <Button Content="Items" Classes="filter-toggle" Command="{Binding ShowReceivedItemsPanelCommand}"
+                                        Classes.active="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ReceivedItems}"/>
+                            </StackPanel>
+
+                            <!-- ── Content row: Events ── -->
+                            <DockPanel Grid.Row="1" Grid.Column="0">
                                 <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,4">
                                     <Button Content="All" Classes="filter-toggle" Command="{Binding ShowAllEventsRelevanceCommand}"
                                             Classes.active="{Binding SelectedEventRelevanceFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=All}"/>
@@ -137,9 +154,24 @@
                                 </ListBox>
                             </DockPanel>
 
-                            <DockPanel Grid.Column="2">
-                                <TextBlock DockPanel.Dock="Top" Text="Hints" FontWeight="Bold" Margin="0,0,0,4"/>
-                                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,4">
+                            <!-- ── Content row: Hints / Items panels ──
+                                 Three explicit rows so both panels share an
+                                 identical layout skeleton and the list always
+                                 starts at the same vertical position:
+                                   Row 0 (Auto) – panel-specific filter buttons
+                                   Row 1 (Auto) – search box, always rendered
+                                   Row 2 (*)    – list
+                                 Because the search TextBox is always in the
+                                 layout tree it never changes the row heights
+                                 when switching panels.  The box also filters
+                                 hints by item name, so it is useful in both
+                                 modes. -->
+                            <Grid Grid.Row="1" Grid.Column="2" RowDefinitions="Auto,Auto,*">
+
+                                <!-- Row 0 – Hints filters -->
+                                <StackPanel Grid.Row="0"
+                                            IsVisible="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Hints}"
+                                            Orientation="Horizontal" Spacing="8" Margin="0,0,0,4">
                                     <Button Content="All" Classes="filter-toggle" Command="{Binding ShowAllHintsCommand}"
                                             Classes.active="{Binding SelectedHintFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=All}"/>
                                     <Button Content="Unfound" Classes="filter-toggle" Command="{Binding ShowUnfoundHintsCommand}"
@@ -147,12 +179,36 @@
                                     <Border Width="1" Background="Gray" Opacity="0.5" Margin="2,0"/>
                                     <Button Content="All" Classes="filter-toggle" Command="{Binding ShowAllHintRolesCommand}"
                                             Classes.active="{Binding SelectedHintRoleFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=All}"/>
-                                    <Button Content="My location" Classes="filter-toggle" Command="{Binding ShowHintsIFindCommand}"
+                                    <Button Content="{Binding HintsIFindButtonText}" Classes="filter-toggle" Command="{Binding ShowHintsIFindCommand}"
                                             Classes.active="{Binding SelectedHintRoleFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=IFind}"/>
-                                    <Button Content="My item" Classes="filter-toggle" Command="{Binding ShowHintsIReceiveCommand}"
+                                    <Button Content="{Binding HintsIReceiveButtonText}" Classes="filter-toggle" Command="{Binding ShowHintsIReceiveCommand}"
                                             Classes.active="{Binding SelectedHintRoleFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=IReceive}"/>
                                 </StackPanel>
-                                <ListBox ItemsSource="{Binding VisibleHints}">
+
+                                <!-- Row 0 – Items filters (same row, alternates with hints filters) -->
+                                <StackPanel Grid.Row="0"
+                                            IsVisible="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ReceivedItems}"
+                                            Orientation="Horizontal" Spacing="8" Margin="0,0,0,4">
+                                    <Button Content="All" Classes="filter-toggle" Command="{Binding ShowAllItemCategoriesCommand}"
+                                            Classes.active="{Binding SelectedItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=All}"/>
+                                    <Button Content="Progress" Classes="filter-toggle" Command="{Binding ShowProgressItemsCommand}"
+                                            Classes.active="{Binding SelectedItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Progress}"/>
+                                    <Button Content="Useful" Classes="filter-toggle" Command="{Binding ShowUsefulItemsCommand}"
+                                            Classes.active="{Binding SelectedItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Useful}"/>
+                                    <Button Content="Normal" Classes="filter-toggle" Command="{Binding ShowNormalItemsCommand}"
+                                            Classes.active="{Binding SelectedItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Normal}"/>
+                                    <Button Content="Trap" Classes="filter-toggle" Command="{Binding ShowTrapItemsCommand}"
+                                            Classes.active="{Binding SelectedItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Trap}"/>
+                                </StackPanel>
+
+                                <!-- Row 1 – Search box (always rendered; filters active panel) -->
+                                <TextBox Grid.Row="1" Text="{Binding ItemSearchText}"
+                                         PlaceholderText="Search..." Margin="0,0,0,4"/>
+
+                                <!-- Row 2 – Hints list -->
+                                <ListBox Grid.Row="2"
+                                         IsVisible="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Hints}"
+                                         ItemsSource="{Binding VisibleHints}">
                                     <ListBox.ItemTemplate>
                                         <DataTemplate DataType="m:HintEntry">
                                             <StackPanel Orientation="Vertical" Spacing="2" Margin="0,2">
@@ -177,7 +233,28 @@
                                         </DataTemplate>
                                     </ListBox.ItemTemplate>
                                 </ListBox>
-                            </DockPanel>
+
+                                <!-- Row 2 – Items list (same row, alternates with hints list) -->
+                                <ListBox Grid.Row="2"
+                                         IsVisible="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ReceivedItems}"
+                                         ItemsSource="{Binding VisibleReceivedItems}">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate DataType="m:ReceivedItemEntry">
+                                            <StackPanel Orientation="Vertical" Spacing="2" Margin="0,2">
+                                                <TextBlock Text="{Binding ItemName}" FontWeight="Bold" TextWrapping="Wrap"
+                                                           Foreground="{Binding ItemKind, Converter={StaticResource SegmentKindToBrushConverter}}"/>
+                                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                                    <TextBlock Text="{Binding SenderName}" Opacity="0.85" TextWrapping="Wrap"
+                                                               Foreground="{Binding SenderKind, Converter={StaticResource SegmentKindToBrushConverter}}"/>
+                                                    <TextBlock Text=":" Opacity="0.5"/>
+                                                    <TextBlock Text="{Binding LocationName}" Opacity="0.7" TextWrapping="Wrap"/>
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+
+                            </Grid>
                         </Grid>
 
                         <Grid Grid.Row="3" ColumnDefinitions="*,Auto" Margin="0,8,0,0">

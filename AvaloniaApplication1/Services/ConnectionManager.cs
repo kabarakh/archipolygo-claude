@@ -33,6 +33,20 @@ public class ConnectionManager : IConnectionManager
     // See EnqueueConnect/ProcessConnectQueueAsync.
     private static readonly TimeSpan ConnectAttemptSpacing = TimeSpan.FromSeconds(3);
 
+    // How long after a successful login to keep treating newly received items
+    // as connect-time backlog rather than as live receipts. The server sends
+    // the initial ReceivedItems backlog as a separate WebSocket message after
+    // the Connected packet, so LoginAsync's task can resolve (and our async
+    // continuation can run) before all backlog items have fired ItemReceived.
+    // Setting hasAnnouncedConnection = true immediately would race against the
+    // socket thread still delivering those items - the continuation could flip
+    // the flag between two consecutive ItemReceived calls inside the same
+    // PerformResynchronization burst, silently suppressing everything after the
+    // first item. A brief delay ensures the entire synchronous burst finishes
+    // before any item is treated as live. Two seconds is generous; in practice
+    // the burst completes in milliseconds.
+    private static readonly TimeSpan ItemBacklogGracePeriod = TimeSpan.FromSeconds(2);
+
     // The Archipelago network-protocol version this client implements (used
     // in the login handshake) - not this app's own version number.
     private static readonly Version ArchipelagoProtocolVersion = new(0, 6, 7);
@@ -234,6 +248,13 @@ public class ConnectionManager : IConnectionManager
             // changing hands, not something someone typed - file those under
             // the "Item" log filter rather than "Chat".
             logMessage is ItemSendLogMessage ? EventType.ItemReceived : EventType.Chat);
+        // Clear the received-items list before subscribing. The server re-delivers
+        // the full item history on every connect (via PerformResynchronization),
+        // so we rebuild from scratch each time. Dispatching before the subscription
+        // ensures the clear runs on the UI thread before any item-added posts
+        // arrive (the Dispatcher queue is FIFO and nothing is subscribed yet).
+        _messageHistoryService.ClearReceivedItems(tab);
+
         session.Items.ItemReceived += helper => OnItemReceived(tab, profile, helper, hasAnnouncedConnection);
 
         try
@@ -296,8 +317,17 @@ public class ConnectionManager : IConnectionManager
             retrieveCurrentlyUnlockedHints: true);
 
         SetConnectionState(tab, ConnectionState.Connected);
-        hasAnnouncedConnection = true;
         _messageHistoryService.HandleConnected(tab);
+
+        // Do NOT flip hasAnnouncedConnection synchronously here. The server
+        // delivers the initial ReceivedItems backlog as a separate message
+        // after Connected, so the socket thread may still be mid-burst inside
+        // PerformResynchronization when our async continuation resumes. If we
+        // set the flag now, items firing on the socket thread after the first
+        // one see isLive=true and get silently swallowed (index advances, no
+        // log entry). The grace period lets the synchronous burst finish first.
+        _ = Task.Delay(ItemBacklogGracePeriod)
+                .ContinueWith(_ => hasAnnouncedConnection = true, TaskScheduler.Default);
     }
 
     private static void TryCloseSocket(ArchipelagoSession session)
@@ -493,6 +523,23 @@ public class ConnectionManager : IConnectionManager
             // (received while offline, or simply not shown yet).
             _messageHistoryService.HandleItemsReceivedSinceLastConnection(tab, profile, helper.AllItemsReceived);
         }
+
+        // Resolve the sender name for the received-items panel.  The item at
+        // the tail of AllItemsReceived is the one that just arrived; its Player
+        // field is the slot index of whoever found and sent it.
+        var senderName = string.Empty;
+        var senderKind = EventTextSegmentKind.OtherSlotName;
+        if (_sessions.TryGetValue(profile.Id, out var senderSession) && helper.AllItemsReceived.Count > 0)
+        {
+            var latest = helper.AllItemsReceived[helper.AllItemsReceived.Count - 1];
+            senderName = senderSession.Players.GetPlayerAlias(latest.Player) ?? string.Empty;
+            var ownSlot           = senderSession.ConnectionInfo.Slot;
+            var otherConnectedIds = GetOtherConnectedSlotIds(profile);
+            senderKind = EventSegmentBuilder.ClassifyPlayerSlot(latest.Player, ownSlot, otherConnectedIds);
+        }
+
+        // Always track in the received-items panel regardless of live/backlog.
+        _messageHistoryService.TrackReceivedItem(tab, helper.AllItemsReceived, senderName, senderKind);
 
         // Drain the queue as documented by the library; the calls above already
         // read everything they need from AllItemsReceived.
