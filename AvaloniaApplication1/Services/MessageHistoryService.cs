@@ -110,12 +110,13 @@ public class MessageHistoryService : IMessageHistoryService
         var item = allItemsReceived[allItemsReceived.Count - 1];
         var entry = new ReceivedItemEntry
         {
-            SlotId       = slot.Id,
-            ItemName     = item.ItemDisplayName,
-            LocationName = item.LocationDisplayName,
-            SenderName   = senderName,
-            ItemKind     = EventSegmentBuilder.ClassifyItemFlags(item.Flags),
-            SenderKind   = senderKind,
+            SlotId            = slot.Id,
+            ReceivingSlotName = slot.SlotName,
+            ItemName          = item.ItemDisplayName,
+            LocationName      = item.LocationDisplayName,
+            SenderName        = senderName,
+            ItemKind          = EventSegmentBuilder.ClassifyItemFlags(item.Flags),
+            SenderKind        = senderKind,
         };
 
         Dispatcher.UIThread.Post(() => group.ReceivedItems.Add(entry));
@@ -136,12 +137,13 @@ public class MessageHistoryService : IMessageHistoryService
 
         var entry = new ReceivedItemEntry
         {
-            SlotId       = targetSlot.Id,
-            ItemName     = itemDisplayName,
-            LocationName = locationDisplayName,
-            SenderName   = senderName,
-            ItemKind     = EventSegmentBuilder.ClassifyItemFlags(itemFlags),
-            SenderKind   = senderKind,
+            SlotId            = targetSlot.Id,
+            ReceivingSlotName = targetSlot.SlotName,
+            ItemName          = itemDisplayName,
+            LocationName      = locationDisplayName,
+            SenderName        = senderName,
+            ItemKind          = EventSegmentBuilder.ClassifyItemFlags(itemFlags),
+            SenderKind        = senderKind,
         };
 
         Dispatcher.UIThread.Post(() => group.ReceivedItems.Add(entry));

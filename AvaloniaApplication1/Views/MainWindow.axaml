@@ -300,13 +300,13 @@
                                                                IsVisible="{Binding Found}"/>
                                                     <TextBlock Text="{Binding ItemName}" FontWeight="Bold" TextWrapping="Wrap"
                                                                Foreground="{Binding ItemKind, Converter={StaticResource SegmentKindToBrushConverter}}"/>
+                                                    <TextBlock Text="-" Opacity="0.5"/>
+                                                    <TextBlock Text="{Binding ReceivingPlayerName}" FontWeight="SemiBold" Opacity="0.85" TextWrapping="Wrap"
+                                                               Foreground="{Binding ReceivingPlayerKind, Converter={StaticResource SegmentKindToBrushConverter}}"/>
                                                 </StackPanel>
                                                 <StackPanel Orientation="Horizontal" Spacing="4">
                                                     <TextBlock Text="{Binding FindingPlayerName}" Opacity="0.85" TextWrapping="Wrap"
                                                                Foreground="{Binding FindingPlayerKind, Converter={StaticResource SegmentKindToBrushConverter}}"/>
-                                                    <TextBlock Text="-&gt;" Opacity="0.7"/>
-                                                    <TextBlock Text="{Binding ReceivingPlayerName}" Opacity="0.85" TextWrapping="Wrap"
-                                                               Foreground="{Binding ReceivingPlayerKind, Converter={StaticResource SegmentKindToBrushConverter}}"/>
                                                     <TextBlock Text=":" Opacity="0.7"/>
                                                     <TextBlock Text="{Binding LocationName}" Opacity="0.7" TextWrapping="Wrap"/>
                                                 </StackPanel>
@@ -322,9 +322,16 @@
                                     <ListBox.ItemTemplate>
                                         <DataTemplate DataType="m:ReceivedItemEntry">
                                             <StackPanel Orientation="Vertical" Spacing="2" Margin="0,2">
-                                                <TextBlock Text="{Binding ItemName}" FontWeight="Bold" TextWrapping="Wrap"
-                                                           Foreground="{Binding ItemKind, Converter={StaticResource SegmentKindToBrushConverter}}"/>
                                                 <StackPanel Orientation="Horizontal" Spacing="4">
+                                                    <TextBlock Text="{Binding ItemName}" FontWeight="Bold" TextWrapping="Wrap"
+                                                               Foreground="{Binding ItemKind, Converter={StaticResource SegmentKindToBrushConverter}}"/>
+                                                    <TextBlock Text="-" Opacity="0.5"/>
+                                                    <TextBlock Text="{Binding ReceivingSlotName}" FontWeight="SemiBold" Opacity="0.85" TextWrapping="Wrap"/>
+                                                </StackPanel>
+                                                <TextBlock Text="Starting Item" Opacity="0.7" FontStyle="Italic"
+                                                           IsVisible="{Binding IsStartingItem}"/>
+                                                <StackPanel Orientation="Horizontal" Spacing="4"
+                                                            IsVisible="{Binding !IsStartingItem}">
                                                     <TextBlock Text="{Binding SenderName}" Opacity="0.85" TextWrapping="Wrap"
                                                                Foreground="{Binding SenderKind, Converter={StaticResource SegmentKindToBrushConverter}}"/>
                                                     <TextBlock Text=":" Opacity="0.5"/>
