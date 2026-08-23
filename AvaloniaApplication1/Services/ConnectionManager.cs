@@ -100,6 +100,25 @@ public class ConnectionManager : IConnectionManager
 
     private readonly ConcurrentDictionary<Guid, CancellationTokenSource> _reconnectTokens = new();
 
+    // GroupId -> the CancellationTokenSource for whichever single connect
+    // attempt (SwitchLeaderAsync's leader connect, or CatchUpSyncAsync's
+    // catch-up dip - never both at once, per the "slots never connect
+    // concurrently" invariant) is currently in flight for that group.
+    // DisconnectGroupAsync cancels this *before* it waits on _groupLocks, so
+    // a manual disconnect actually interrupts a stuck/retrying connect
+    // instead of silently queuing behind it until the retries exhaust
+    // themselves - see DisconnectGroupAsync and ConnectSlotSessionAsync.
+    private readonly ConcurrentDictionary<Guid, CancellationTokenSource> _connectCancellationSources = new();
+
+    // GroupId -> configured slot ids whose startup catch-up sync
+    // (InitializeGroupAsync's per-slot loop) never ran because the user hit
+    // Disconnect while the group was still stuck trying to connect - see
+    // InitializeGroupAsync's early-return and SwitchLeaderAsync's resume
+    // logic. Without this, those slots' missed-item backlog would just stay
+    // missed forever once InitializeGroupAsync (which only ever runs once,
+    // at startup) has already returned for that group.
+    private readonly ConcurrentDictionary<Guid, List<Guid>> _skippedCatchUpSlots = new();
+
     // Set right before a deliberate DisconnectGroupAsync and only cleared
     // again by a subsequent explicit SwitchLeaderAsync (account dropdown,
     // startup). Deliberately not consumed/removed by OnSocketClosed, mirroring
@@ -145,7 +164,17 @@ public class ConnectionManager : IConnectionManager
             // live for a moment) so the switch has no visible gap, at the
             // cost of a chat message that arrives in exactly that window
             // possibly not showing up in the log (see Umsetzungsplan.md).
-            var newSession = await ConnectSlotSessionAsync(group, targetSlot, isLeaderSession: true);
+            using var connectCts = new CancellationTokenSource();
+            _connectCancellationSources[groupId] = connectCts;
+            ArchipelagoSession? newSession;
+            try
+            {
+                newSession = await ConnectSlotSessionAsync(group, targetSlot, isLeaderSession: true, connectCts.Token);
+            }
+            finally
+            {
+                _connectCancellationSources.TryRemove(groupId, out _);
+            }
 
             if (newSession is null)
             {
@@ -195,6 +224,17 @@ public class ConnectionManager : IConnectionManager
 
                 TryCloseSocket(oldSession);
             }
+
+            // If this group's startup catch-up was cut short earlier by a
+            // manual Disconnect (see InitializeGroupAsync/RecordSkippedCatchUp),
+            // this successful connection is the first proof since then that
+            // the server is actually reachable - pick that sync back up now
+            // for whichever other configured slots never got it, rather than
+            // leaving their backlog missed for the rest of the run.
+            if (_skippedCatchUpSlots.TryRemove(groupId, out var pendingCatchUpSlotIds))
+            {
+                await ResumeSkippedCatchUpAsync(group, pendingCatchUpSlotIds, targetSlot.Id);
+            }
         }
         finally
         {
@@ -205,12 +245,34 @@ public class ConnectionManager : IConnectionManager
     public async Task DisconnectGroupAsync(GroupViewModel group)
     {
         var groupId = group.Group.Id;
+
+        // Both of these run synchronously, *before* ever touching
+        // _groupLocks - and in this order. SwitchLeaderAsync/CatchUpSyncAsync
+        // hold that lock for the entire duration of their connect (including
+        // every transient-failure retry), so waiting for the lock first
+        // would just queue this call silently behind a stuck/retrying
+        // connect until it gives up on its own; cancelling first is what
+        // makes Disconnect actually interrupt it instead, e.g. right after
+        // app startup while a group's server is unreachable and its leader
+        // connect is still retrying. Setting the suppression flag *before*
+        // cancelling (rather than later, inside the gated body below) closes
+        // a race with InitializeGroupAsync's own "did the user just
+        // disconnect this group?" check: that check only runs after the
+        // in-flight SwitchLeaderAsync call has observed the cancellation and
+        // returned, which can only happen after this line, so the flag is
+        // guaranteed visible by then - no dependency on how quickly this
+        // method goes on to actually acquire the gate.
+        _autoReconnectSuppressed[groupId] = true;
+        if (_connectCancellationSources.TryGetValue(groupId, out var inFlightCts))
+        {
+            inFlightCts.Cancel();
+        }
+
         var gate = _groupLocks.GetOrAdd(groupId, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync();
         try
         {
             CancelPendingReconnect(groupId);
-            _autoReconnectSuppressed[groupId] = true;
 
             // A manual disconnect sticks across an app restart too, not just
             // for the rest of this run - otherwise the group would just
@@ -265,7 +327,19 @@ public class ConnectionManager : IConnectionManager
             return; // a connection for this slot is already in flight/open.
         }
 
-        var session = await ConnectSlotSessionAsync(group, slot, isLeaderSession: false);
+        var groupId = group.Group.Id;
+        using var connectCts = new CancellationTokenSource();
+        _connectCancellationSources[groupId] = connectCts;
+        ArchipelagoSession? session;
+        try
+        {
+            session = await ConnectSlotSessionAsync(group, slot, isLeaderSession: false, connectCts.Token);
+        }
+        finally
+        {
+            _connectCancellationSources.TryRemove(groupId, out _);
+        }
+
         if (session is null)
         {
             return;
@@ -310,6 +384,28 @@ public class ConnectionManager : IConnectionManager
             }
         }
 
+        // A Disconnect click while the block above was still trying to
+        // connect (e.g. an unreachable server stuck retrying) leaves this
+        // group in _autoReconnectSuppressed - honor that immediately instead
+        // of ploughing on into a second connect attempt for that very same
+        // slot (the "give it a second try via catch-up" fallback below) or
+        // any other configured slot's catch-up: the user asked this group to
+        // stop, not to keep retrying under a different name. Only ever set
+        // here for a group actually disconnected during *this* run (see
+        // DisconnectGroupAsync), so a normal AutoConnect=false group from a
+        // previous session is unaffected and still gets its per-slot
+        // catch-up below. InitializeGroupsAsync's own end-of-pass safety net
+        // still closes out the startup-sync progress banner for whatever
+        // slots this skips - and RecordSkippedCatchUp remembers them so a
+        // later manual reconnect (SwitchLeaderAsync) can pick the sync back
+        // up instead of leaving those slots' backlog missed for the rest of
+        // the run.
+        if (_autoReconnectSuppressed.ContainsKey(group.Group.Id))
+        {
+            RecordSkippedCatchUp(group, group.Group.Slots.Select(s => s.Id).Where(id => !reportedSlotIds.Contains(id)));
+            return;
+        }
+
         foreach (var slot in group.Group.Slots.ToList())
         {
             if (reportedSlotIds.Contains(slot.Id))
@@ -324,6 +420,61 @@ public class ConnectionManager : IConnectionManager
 
             await CatchUpSyncAsync(group, slot);
             RaiseSlotInitialSyncCompleted(group, slot);
+            reportedSlotIds.Add(slot.Id);
+
+            if (_autoReconnectSuppressed.ContainsKey(group.Group.Id))
+            {
+                RecordSkippedCatchUp(group, group.Group.Slots.Select(s => s.Id).Where(id => !reportedSlotIds.Contains(id)));
+                return;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Remembers, for a group whose startup sync was cut short by a manual
+    /// Disconnect (see <see cref="InitializeGroupAsync"/>), which configured
+    /// slots never got their catch-up - so a later successful
+    /// <see cref="SwitchLeaderAsync"/> for this group can resume it (see
+    /// <c>ResumeSkippedCatchUpAsync</c>) instead of those slots' missed
+    /// backlog staying missed for the rest of the run.
+    /// </summary>
+    private void RecordSkippedCatchUp(GroupViewModel group, IEnumerable<Guid> skippedSlotIds)
+    {
+        var groupId = group.Group.Id;
+        var list = skippedSlotIds.ToList();
+        if (list.Count == 0)
+        {
+            _skippedCatchUpSlots.TryRemove(groupId, out _);
+            return;
+        }
+
+        _skippedCatchUpSlots[groupId] = list;
+    }
+
+    /// <summary>
+    /// Runs the catch-up sync that <see cref="InitializeGroupAsync"/> had to
+    /// abandon for these slots (see <see cref="RecordSkippedCatchUp"/>),
+    /// called right after a fresh manual leader connect succeeds for the
+    /// same group. Skips <paramref name="newLeaderId"/> itself - it just
+    /// received its own full backlog via login - and any slot since removed
+    /// from the group.
+    /// </summary>
+    private async Task ResumeSkippedCatchUpAsync(GroupViewModel group, IReadOnlyList<Guid> pendingSlotIds, Guid newLeaderId)
+    {
+        foreach (var slotId in pendingSlotIds)
+        {
+            if (slotId == newLeaderId)
+            {
+                continue;
+            }
+
+            var slot = FindSlot(group, slotId);
+            if (slot is null)
+            {
+                continue;
+            }
+
+            await CatchUpSyncAsync(group, slot);
         }
     }
 
@@ -414,7 +565,7 @@ public class ConnectionManager : IConnectionManager
     /// caller shortly after this returns). Returns null (having already
     /// reported the failure) if the connection or login fails.
     /// </summary>
-    private async Task<ArchipelagoSession?> ConnectSlotSessionAsync(GroupViewModel group, SlotProfile slot, bool isLeaderSession)
+    private async Task<ArchipelagoSession?> ConnectSlotSessionAsync(GroupViewModel group, SlotProfile slot, bool isLeaderSession, CancellationToken cancellationToken = default)
     {
         // Up to MaxTransientConnectRetries extra attempts, each with a
         // brand-new session, if the connect/login throws something that
@@ -427,8 +578,23 @@ public class ConnectionManager : IConnectionManager
         // error for what's usually a one-off blip. A genuine login
         // rejection (bad password etc.) never throws - it comes back as a
         // LoginFailure result instead, handled below and never retried.
+        //
+        // cancellationToken (from DisconnectGroupAsync, via the per-group
+        // entry in _connectCancellationSources) lets a manual disconnect cut
+        // this short. The underlying library's ConnectAsync()/LoginAsync()
+        // accept no token of their own, so an already-in-flight call can't
+        // be aborted mid-flight - cancellation is instead checked at every
+        // natural checkpoint (top of each attempt, right after each of
+        // those two calls returns, and during the between-retries delay),
+        // which is enough to stop retrying and unwind promptly the moment
+        // the current attempt concludes one way or another.
         for (var attempt = 1; attempt <= 1 + MaxTransientConnectRetries; attempt++)
         {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return null;
+            }
+
             ArchipelagoSession session;
             try
             {
@@ -484,6 +650,17 @@ public class ConnectionManager : IConnectionManager
             {
                 await session.ConnectAsync();
 
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    // Disconnected while the connect itself was in flight -
+                    // the library gives no way to abort that call early, but
+                    // this is the first chance to notice afterward; skip
+                    // logging in and tear the attempt back down instead of
+                    // finishing a handshake nobody wants anymore.
+                    TryCloseSocket(session);
+                    return null;
+                }
+
                 // Most rooms share one password for every slot (group.Group.Password);
                 // slot.Password is only set when a slot was added with an explicit
                 // override for a custom-hosted room that uses a different
@@ -497,6 +674,12 @@ public class ConnectionManager : IConnectionManager
                     ArchipelagoProtocolVersion,
                     tags: new[] { "Tracker", "AP", "Poly" },
                     password: string.IsNullOrEmpty(effectivePassword) ? null : effectivePassword);
+
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    TryCloseSocket(session);
+                    return null;
+                }
 
                 if (loginResult is not LoginSuccessful)
                 {
@@ -521,7 +704,18 @@ public class ConnectionManager : IConnectionManager
                 _messageHistoryService.HandleError(
                     group,
                     $"Connecting {slot.SlotName} hit a transient error ({ex.GetType().Name}), retrying ({attempt}/{MaxTransientConnectRetries})...");
-                await Task.Delay(TransientConnectRetryDelay);
+
+                try
+                {
+                    await Task.Delay(TransientConnectRetryDelay, cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Cancelled during the backoff pause itself - stop
+                    // retrying immediately rather than waiting it out.
+                    return null;
+                }
+
                 continue;
             }
             catch (Exception ex)
