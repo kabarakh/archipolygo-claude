@@ -1,0 +1,82 @@
+name: Release builds
+
+# Fires only for real GitHub Releases (created via the "Releases" UI/API and
+# published, not left as a draft) - not on every push/tag, so ordinary
+# development doesn't trigger a build. Each publish produces one self-
+# contained, single-file build per OS and attaches it to that same release
+# as a downloadable .zip.
+on:
+  release:
+    types: [published]
+
+# Needed so the job below can upload assets to the release that triggered it.
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.asset_name }})
+    # A single ubuntu runner builds all three OS targets - .NET's
+    # self-contained publish is cross-compiling by design (it just downloads
+    # the target OS's runtime pack from NuGet), so no actual Windows/macOS
+    # runner is needed just to produce those builds.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: win-x64
+            asset_name: windows-x64
+          - rid: linux-x64
+            asset_name: linux-x64
+          - rid: osx-x64
+            asset_name: macos-x64
+          - rid: osx-arm64
+            asset_name: macos-arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      # --self-contained true / -p:PublishSingleFile=true here override the
+      # csproj's own SelfContained=false - deliberately: a release download
+      # should run without the user having a matching .NET runtime already
+      # installed, but everyday local `dotnet build`/`dotnet run` during
+      # development stays framework-dependent (faster, smaller) via the
+      # project defaults.
+      #
+      # -p:DebugType=none drops the separate .pdb from the published output,
+      # since it's only useful for debugging a build from source and would
+      # otherwise sit unused next to the executable in every download.
+      - name: Publish (${{ matrix.rid }})
+        run: >
+          dotnet publish AvaloniaApplication1/AvaloniaApplication1.csproj
+          -c Release
+          -r ${{ matrix.rid }}
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:DebugType=none
+          -o publish/${{ matrix.rid }}
+
+      # zip (not PowerShell's Compress-Archive, even for the Windows build -
+      # this all still runs on the ubuntu runner) so the Linux/macOS
+      # executable's +x bit is preserved inside the archive and survives an
+      # unzip on those platforms.
+      - name: Package ${{ matrix.rid }} build
+        run: |
+          cd publish/${{ matrix.rid }}
+          zip -r "../../Archipolygo-${{ github.event.release.tag_name }}-${{ matrix.asset_name }}.zip" .
+
+      - name: Attach to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          files: Archipolygo-${{ github.event.release.tag_name }}-${{ matrix.asset_name }}.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
