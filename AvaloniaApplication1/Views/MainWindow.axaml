@@ -177,35 +177,51 @@
                                     </ComboBox>
                                 </StackPanel>
 
-                                <!-- SelectionMode="Multiple" (ctrl/shift-click, like Explorer)
-                                     so several lines can be selected and copied at once - see
-                                     OnEventsListKeyDown. -->
-                                <ListBox Grid.Row="2" ItemsSource="{Binding VisibleEvents}" SelectionMode="Multiple"
-                                         KeyDown="OnEventsListKeyDown" Loaded="OnEventsListLoaded">
-                                    <ListBox.ItemTemplate>
-                                        <DataTemplate DataType="m:EventEntry">
-                                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                                <TextBlock Text="{Binding Timestamp, StringFormat='HH:mm:ss'}" Opacity="0.6"/>
-                                                <TextBlock Text="NEW" FontWeight="Bold" Foreground="OrangeRed"
-                                                           IsVisible="{Binding IsNewSinceLastSession}"/>
-                                                <TextBlock Text="{Binding Type}" Opacity="0.6"/>
-                                                <ItemsControl ItemsSource="{Binding EffectiveSegments}">
-                                                    <ItemsControl.ItemsPanel>
-                                                        <ItemsPanelTemplate>
-                                                            <WrapPanel/>
-                                                        </ItemsPanelTemplate>
-                                                    </ItemsControl.ItemsPanel>
-                                                    <ItemsControl.ItemTemplate>
-                                                        <DataTemplate DataType="m:EventTextSegment">
-                                                            <TextBlock Text="{Binding Text}" TextWrapping="Wrap"
-                                                                       Foreground="{Binding Kind, Converter={StaticResource SegmentKindToBrushConverter}}"/>
-                                                        </DataTemplate>
-                                                    </ItemsControl.ItemTemplate>
-                                                </ItemsControl>
-                                            </StackPanel>
-                                        </DataTemplate>
-                                    </ListBox.ItemTemplate>
-                                </ListBox>
+                                <!-- Grid rather than the ListBox alone, so the "jump to
+                                     newest" button (below) can float over the bottom-right
+                                     corner of the list instead of taking its own row - see
+                                     OnEventsListLoaded/OnEventsScrollViewerScrollChanged for
+                                     why the button exists at all: once a row has ever been
+                                     selected, Avalonia's own ListBox/virtualizing panel keeps
+                                     re-scrolling to keep it in view on every new event,
+                                     fighting the auto-scroll-to-end below no matter how that's
+                                     scheduled - clearing the selection is what actually stops
+                                     it, so the button does that plus a final ScrollToEnd(). -->
+                                <Grid Grid.Row="2">
+                                    <!-- SelectionMode="Multiple" (ctrl/shift-click, like Explorer)
+                                         so several lines can be selected and copied at once - see
+                                         OnEventsListKeyDown. -->
+                                    <ListBox ItemsSource="{Binding VisibleEvents}" SelectionMode="Multiple"
+                                             KeyDown="OnEventsListKeyDown" Loaded="OnEventsListLoaded">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate DataType="m:EventEntry">
+                                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                                    <TextBlock Text="{Binding Timestamp, StringFormat='HH:mm:ss'}" Opacity="0.6"/>
+                                                    <TextBlock Text="NEW" FontWeight="Bold" Foreground="OrangeRed"
+                                                               IsVisible="{Binding IsNewSinceLastSession}"/>
+                                                    <TextBlock Text="{Binding Type}" Opacity="0.6"/>
+                                                    <ItemsControl ItemsSource="{Binding EffectiveSegments}">
+                                                        <ItemsControl.ItemsPanel>
+                                                            <ItemsPanelTemplate>
+                                                                <WrapPanel/>
+                                                            </ItemsPanelTemplate>
+                                                        </ItemsControl.ItemsPanel>
+                                                        <ItemsControl.ItemTemplate>
+                                                            <DataTemplate DataType="m:EventTextSegment">
+                                                                <TextBlock Text="{Binding Text}" TextWrapping="Wrap"
+                                                                           Foreground="{Binding Kind, Converter={StaticResource SegmentKindToBrushConverter}}"/>
+                                                            </DataTemplate>
+                                                        </ItemsControl.ItemTemplate>
+                                                    </ItemsControl>
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+
+                                    <Button x:Name="JumpToBottomButton" Content="↓ Jump to newest"
+                                            HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                            Margin="0,0,16,12" IsVisible="False"/>
+                                </Grid>
                             </Grid>
 
                             <!-- ── Content row: Hints / Items panels ──

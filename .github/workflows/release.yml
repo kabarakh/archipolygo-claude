@@ -53,6 +53,13 @@ jobs:
       # -p:DebugType=none drops the separate .pdb from the published output,
       # since it's only useful for debugging a build from source and would
       # otherwise sit unused next to the executable in every download.
+      #
+      # -p:InformationalVersion overrides the csproj's "dev" default with the
+      # release tag that triggered this workflow, embedding it into the
+      # published assembly as an AssemblyInformationalVersionAttribute - see
+      # Services/AppVersionInfo.cs, which reads it back at runtime to show
+      # the version in Settings. Only this release build ever sees a real
+      # version number this way; every local dotnet build/run keeps "dev".
       - name: Publish (${{ matrix.rid }})
         run: >
           dotnet publish AvaloniaApplication1/AvaloniaApplication1.csproj
@@ -62,6 +69,7 @@ jobs:
           -p:PublishSingleFile=true
           -p:IncludeNativeLibrariesForSelfExtract=true
           -p:DebugType=none
+          -p:InformationalVersion=${{ github.event.release.tag_name }}
           -o publish/${{ matrix.rid }}
 
       # zip (not PowerShell's Compress-Archive, even for the Windows build -

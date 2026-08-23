@@ -1,4 +1,5 @@
 using Archipolygo.Models;
+using Archipolygo.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace Archipolygo.ViewModels;
@@ -9,6 +10,13 @@ namespace Archipolygo.ViewModels;
 /// </summary>
 public partial class SettingsViewModel : ViewModelBase
 {
+    /// <summary>
+    /// "dev" for a local build, the release tag for a published one - see
+    /// <see cref="AppVersionInfo"/>. Never changes at runtime, so a plain
+    /// property is enough; no <c>[ObservableProperty]</c> needed.
+    /// </summary>
+    public string AppVersion => AppVersionInfo.Current;
+
     [ObservableProperty]
     private bool _defaultAutoConnect;
 

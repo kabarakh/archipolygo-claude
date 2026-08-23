@@ -178,20 +178,31 @@ public partial class MainWindow : Window
     /// <summary>
     /// Keeps the events list scrolled to the bottom as new events arrive, so
     /// the most recent message/event is always visible without the user
-    /// having to scroll manually.
+    /// having to scroll manually - and wires up the floating "Jump to
+    /// newest" button (see <see cref="Views.MainWindow"/>'s XAML) for the one
+    /// case that can't be fixed automatically: once any row has ever been
+    /// selected (or even just focused, e.g. by a click a later ctrl-click
+    /// only "deselects"), Avalonia's own ListBox/virtualizing panel keeps
+    /// re-scrolling to keep that row in view on every subsequent layout pass
+    /// - deferring our own ScrollToEnd() to a later dispatcher priority does
+    /// not reliably win that race, since the panel's own re-arrange can
+    /// happen more than once and at varying priorities. Clearing the
+    /// selection entirely removes anything for the panel to "keep in view",
+    /// which is what actually stops it - so the button does that, then
+    /// scrolls to the end once more for good measure.
     ///
-    /// This reacts to the <see cref="ScrollViewer.ScrollChanged"/> event
-    /// rather than the events collection or a fixed delay: while a tab is
-    /// not the selected one, Avalonia skips layout for its (hidden) content,
-    /// so its <see cref="ScrollViewer.Extent"/> does not grow as new events
-    /// arrive - only <see cref="ScrollViewer.Offset"/> would need to follow
-    /// it, and there is nothing to follow yet. The moment the tab becomes
-    /// visible again, a layout pass finally catches the content up to its
-    /// real size, which is exactly when <see cref="ScrollViewer.ExtentDelta"/>
-    /// becomes positive - so reacting to that, instead of guessing how long
-    /// any particular layout pass takes, is what actually fixes "wasn't
-    /// scrolled to the end after switching back", regardless of how much
-    /// content arrived or how long the log is.
+    /// The plain auto-scroll below reacts to the
+    /// <see cref="ScrollViewer.ScrollChanged"/> event rather than the events
+    /// collection or a fixed delay: while a tab is not the selected one,
+    /// Avalonia skips layout for its (hidden) content, so its
+    /// <see cref="ScrollViewer.Extent"/> does not grow as new events arrive -
+    /// only <see cref="ScrollViewer.Offset"/> would need to follow it, and
+    /// there is nothing to follow yet. The moment the tab becomes visible
+    /// again, a layout pass finally catches the content up to its real size,
+    /// which is exactly when <see cref="ScrollViewer.ExtentDelta"/> becomes
+    /// positive - so reacting to that, instead of guessing how long any
+    /// particular layout pass takes, is what fixes "wasn't scrolled to the
+    /// end after switching back" for the common (nothing selected) case.
     /// </summary>
     private void OnEventsListLoaded(object? sender, RoutedEventArgs e)
     {
@@ -200,7 +211,17 @@ public partial class MainWindow : Window
             return;
         }
 
+        // The button lives as the ListBox's sibling in the wrapping overlay
+        // Grid (see MainWindow.axaml) - found by name rather than by type
+        // alone since each tab gets its own instance of this whole subtree
+        // (a per-tab DataTemplate), so there's no single compile-time-named
+        // field to reference directly the way a top-level control would have.
+        var jumpButton = (listBox.Parent as Panel)?.Children
+            .OfType<Button>()
+            .FirstOrDefault(b => b.Name == "JumpToBottomButton");
+
         ScrollViewer? attachedScrollViewer = null;
+        EventHandler<ScrollChangedEventArgs>? scrollChangedHandler = null;
 
         void Attach()
         {
@@ -215,7 +236,8 @@ public partial class MainWindow : Window
                 return;
             }
 
-            attachedScrollViewer.ScrollChanged += OnEventsScrollViewerScrollChanged;
+            scrollChangedHandler = (s, args) => OnEventsScrollViewerScrollChanged(s, args, jumpButton);
+            attachedScrollViewer.ScrollChanged += scrollChangedHandler;
             attachedScrollViewer.ScrollToEnd();
         }
 
@@ -226,33 +248,48 @@ public partial class MainWindow : Window
         Attach();
         listBox.TemplateApplied += (_, _) => Attach();
 
+        if (jumpButton is not null)
+        {
+            jumpButton.Click += (_, _) =>
+            {
+                listBox.SelectedIndex = -1;
+                attachedScrollViewer?.ScrollToEnd();
+            };
+        }
+
         listBox.Unloaded += (_, _) =>
         {
-            if (attachedScrollViewer is not null)
+            if (attachedScrollViewer is not null && scrollChangedHandler is not null)
             {
-                attachedScrollViewer.ScrollChanged -= OnEventsScrollViewerScrollChanged;
+                attachedScrollViewer.ScrollChanged -= scrollChangedHandler;
             }
         };
     }
 
-    private static void OnEventsScrollViewerScrollChanged(object? sender, ScrollChangedEventArgs e)
+    /// <summary>
+    /// Auto-scrolls to the end when new content grows the list (see
+    /// <see cref="OnEventsListLoaded"/>), and keeps <paramref name="jumpButton"/>
+    /// visible exactly while the view isn't already at the bottom - on every
+    /// scroll change, not just growth, so it also reacts to the user
+    /// scrolling up manually.
+    /// </summary>
+    private static void OnEventsScrollViewerScrollChanged(object? sender, ScrollChangedEventArgs e, Button? jumpButton)
     {
-        if (sender is not ScrollViewer scrollViewer || e.ExtentDelta.Y <= 0)
+        if (sender is not ScrollViewer scrollViewer)
         {
             return;
         }
 
-        // Deferred rather than called inline: once a row in the list has ever
-        // been selected (or even just focused, e.g. by a click that a
-        // ctrl-click later "deselects"), Avalonia's own ListBox/virtualizing
-        // panel does a second, later re-arrange pass that re-scrolls to keep
-        // that row in view - which runs *after* this handler and silently
-        // undoes a same-tick ScrollToEnd(), so the list stops following new
-        // events the moment anything has been clicked. Posting at Background
-        // priority runs our scroll-to-end after that internal re-arrange
-        // pass (Render priority) has already happened, so it wins instead of
-        // being immediately overridden - independent of whatever is or isn't
-        // currently selected.
-        Dispatcher.UIThread.Post(scrollViewer.ScrollToEnd, DispatcherPriority.Background);
+        if (e.ExtentDelta.Y > 0)
+        {
+            Dispatcher.UIThread.Post(scrollViewer.ScrollToEnd, DispatcherPriority.Background);
+        }
+
+        if (jumpButton is not null)
+        {
+            const double AtBottomTolerance = 2.0;
+            var distanceFromBottom = scrollViewer.Extent.Height - scrollViewer.Viewport.Height - scrollViewer.Offset.Y;
+            jumpButton.IsVisible = distanceFromBottom > AtBottomTolerance;
+        }
     }
 }

@@ -13,6 +13,16 @@
         <PublishSingleFile>true</PublishSingleFile>
         <SelfContained>false</SelfContained>
         <Optimize>true</Optimize>
+
+        <!-- Read at runtime via AssemblyInformationalVersionAttribute (see
+             Services/AppVersionInfo.cs) to show the app's version in the UI.
+             "dev" is what every local `dotnet build`/`dotnet run` sees;
+             release.yml overrides this on the `dotnet publish` command line
+             with the actual release tag, so only that build ever shows a
+             real version number. Deliberately InformationalVersion, not
+             Version/AssemblyVersion - those must be valid numeric versions,
+             which "dev" isn't. -->
+        <InformationalVersion>dev</InformationalVersion>
     </PropertyGroup>
 
     <ItemGroup>
