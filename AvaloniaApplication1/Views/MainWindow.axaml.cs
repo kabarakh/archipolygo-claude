@@ -7,6 +7,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Archipolygo.Models;
 using Archipolygo.ViewModels;
@@ -236,9 +237,22 @@ public partial class MainWindow : Window
 
     private static void OnEventsScrollViewerScrollChanged(object? sender, ScrollChangedEventArgs e)
     {
-        if (sender is ScrollViewer scrollViewer && e.ExtentDelta.Y > 0)
+        if (sender is not ScrollViewer scrollViewer || e.ExtentDelta.Y <= 0)
         {
-            scrollViewer.ScrollToEnd();
+            return;
         }
+
+        // Deferred rather than called inline: once a row in the list has ever
+        // been selected (or even just focused, e.g. by a click that a
+        // ctrl-click later "deselects"), Avalonia's own ListBox/virtualizing
+        // panel does a second, later re-arrange pass that re-scrolls to keep
+        // that row in view - which runs *after* this handler and silently
+        // undoes a same-tick ScrollToEnd(), so the list stops following new
+        // events the moment anything has been clicked. Posting at Background
+        // priority runs our scroll-to-end after that internal re-arrange
+        // pass (Render priority) has already happened, so it wins instead of
+        // being immediately overridden - independent of whatever is or isn't
+        // currently selected.
+        Dispatcher.UIThread.Post(scrollViewer.ScrollToEnd, DispatcherPriority.Background);
     }
 }
