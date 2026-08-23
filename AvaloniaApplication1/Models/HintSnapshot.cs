@@ -1,3 +1,4 @@
+using System;
 using Archipelago.MultiClient.Net.Enums;
 
 namespace Archipolygo.Models;
@@ -11,6 +12,9 @@ namespace Archipolygo.Models;
 public class HintSnapshot
 {
     public required string Key { get; init; }
+
+    /// <summary>Id of the <see cref="SlotProfile"/> this hint snapshot is for.</summary>
+    public Guid SlotId { get; init; }
 
     public int ReceivingPlayer { get; init; }
 

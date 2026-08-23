@@ -1,11 +1,20 @@
+using System;
+
 namespace Archipolygo.Models;
 
 /// <summary>
-/// A single item the slot has received, shown in the received-items panel.
+/// A single item a slot has received, shown in the received-items panel.
 /// Immutable once created; the list itself grows as items arrive.
 /// </summary>
 public class ReceivedItemEntry
 {
+    /// <summary>
+    /// Id of the <see cref="SlotProfile"/> this item was received by (see
+    /// <see cref="EventEntry.SlotId"/> - same merged-list-plus-filter
+    /// approach applies to the received-items list since Phase 6).
+    /// </summary>
+    public Guid SlotId { get; init; }
+
     public required string ItemName { get; init; }
     public required string LocationName { get; init; }
 

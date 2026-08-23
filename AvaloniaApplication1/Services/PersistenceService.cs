@@ -3,23 +3,47 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Archipolygo.Models;
 
 namespace Archipolygo.Services;
 
 /// <summary>
-/// Loads/saves connection profiles and the sync state (last seen
-/// item/hint progress) as JSON under %AppData%/Archipolygo.
+/// Loads/saves server connection groups (and the sync state - last seen
+/// item/hint progress - per slot) as JSON under %AppData%/Archipolygo.
 /// </summary>
 public class PersistenceService : IPersistenceService
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
-        WriteIndented = true
+        WriteIndented = true,
+
+        // ServerConnectionGroup.Slots is a get-only ObservableCollection
+        // property (no setter, so the deserialized list's own slots can't
+        // just be assigned wholesale - the existing GroupViewModel/UI
+        // bindings need to keep observing the same collection instance).
+        // Without this, System.Text.Json's default behaviour for a
+        // get-only collection property is to serialize it fine but silently
+        // skip populating it back on deserialize, i.e. every group would
+        // come back from disk with zero slots and (since InitializeGroupAsync
+        // requires Slots.Count > 0) never auto-connect either. Populate
+        // fills the already-constructed collection in place instead of
+        // trying to replace it.
+        PreferredObjectCreationHandling = JsonObjectCreationHandling.Populate
     };
 
     private readonly string _appDataDirectory;
-    private readonly string _profilesFilePath;
+    private readonly string _groupsFilePath;
+
+    /// <summary>
+    /// Pre-Phase-6 flat profile list ("one ServerProfile = one independent
+    /// connection, Host+Port+SlotName+Password all on one record"). Only
+    /// ever read once, by <see cref="MigrateLegacyProfilesIfNeeded"/>, to
+    /// build the new group/slot shape the first time this version of the app
+    /// runs against an older data directory.
+    /// </summary>
+    private readonly string _legacyProfilesFilePath;
+
     private readonly string _syncStateDirectory;
     private readonly string _settingsFilePath;
 
@@ -27,7 +51,8 @@ public class PersistenceService : IPersistenceService
     {
         var baseDirectory = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
         _appDataDirectory = Path.Combine(baseDirectory, "Archipolygo");
-        _profilesFilePath = Path.Combine(_appDataDirectory, "profiles.json");
+        _groupsFilePath = Path.Combine(_appDataDirectory, "groups.json");
+        _legacyProfilesFilePath = Path.Combine(_appDataDirectory, "profiles.json");
         _syncStateDirectory = Path.Combine(_appDataDirectory, "sync-state");
         _settingsFilePath = Path.Combine(_appDataDirectory, "settings.json");
 
@@ -35,48 +60,55 @@ public class PersistenceService : IPersistenceService
         Directory.CreateDirectory(_syncStateDirectory);
     }
 
-    public List<ServerProfile> LoadProfiles()
+    public List<ServerConnectionGroup> LoadGroups()
     {
-        if (!File.Exists(_profilesFilePath))
+        if (!File.Exists(_groupsFilePath))
         {
-            return new List<ServerProfile>();
+            var migrated = MigrateLegacyProfilesIfNeeded();
+            if (migrated is not null)
+            {
+                SaveGroups(migrated);
+                return migrated;
+            }
+
+            return new List<ServerConnectionGroup>();
         }
 
         try
         {
-            var json = File.ReadAllText(_profilesFilePath);
-            return JsonSerializer.Deserialize<List<ServerProfile>>(json, JsonOptions) ?? new List<ServerProfile>();
+            var json = File.ReadAllText(_groupsFilePath);
+            return JsonSerializer.Deserialize<List<ServerConnectionGroup>>(json, JsonOptions) ?? new List<ServerConnectionGroup>();
         }
         catch (Exception)
         {
             // Corrupted/incompatible file: prefer an empty list over a crash at startup.
-            return new List<ServerProfile>();
+            return new List<ServerConnectionGroup>();
         }
     }
 
-    public void SaveProfiles(IEnumerable<ServerProfile> profiles)
+    public void SaveGroups(IEnumerable<ServerConnectionGroup> groups)
     {
-        var json = JsonSerializer.Serialize(profiles.ToList(), JsonOptions);
-        File.WriteAllText(_profilesFilePath, json);
+        var json = JsonSerializer.Serialize(groups.ToList(), JsonOptions);
+        File.WriteAllText(_groupsFilePath, json);
     }
 
-    public ProfileSyncState LoadSyncState(Guid profileId)
+    public ProfileSyncState LoadSyncState(Guid slotId)
     {
-        var path = GetSyncStateFilePath(profileId);
+        var path = GetSyncStateFilePath(slotId);
         if (!File.Exists(path))
         {
-            return new ProfileSyncState { ProfileId = profileId };
+            return new ProfileSyncState { ProfileId = slotId };
         }
 
         try
         {
             var json = File.ReadAllText(path);
             return JsonSerializer.Deserialize<ProfileSyncState>(json, JsonOptions)
-                   ?? new ProfileSyncState { ProfileId = profileId };
+                   ?? new ProfileSyncState { ProfileId = slotId };
         }
         catch (Exception)
         {
-            return new ProfileSyncState { ProfileId = profileId };
+            return new ProfileSyncState { ProfileId = slotId };
         }
     }
 
@@ -111,6 +143,92 @@ public class PersistenceService : IPersistenceService
         File.WriteAllText(_settingsFilePath, json);
     }
 
-    private string GetSyncStateFilePath(Guid profileId) =>
-        Path.Combine(_syncStateDirectory, $"{profileId}.json");
+    /// <summary>
+    /// One-time migration from the pre-Phase-6 flat profile list to the new
+    /// group/slot shape: profiles sharing the same Host+Port (case-insensitive
+    /// host) become one <see cref="ServerConnectionGroup"/>, each keeping its
+    /// original <c>Id</c> as its new <see cref="SlotProfile.Id"/> so the
+    /// already-persisted <see cref="ProfileSyncState"/> per profile (last
+    /// seen item index, seen hint ids) still applies without any changes.
+    /// The group takes the Name/Password of the first profile in each
+    /// Host+Port bucket (order as read from the old file); if profiles in the
+    /// same bucket happened to have different passwords, the others are
+    /// silently dropped in favour of the first - room passwords realistically
+    /// don't differ per slot on the same server. Returns null if there is no
+    /// legacy file to migrate (fresh install, or already migrated before).
+    /// </summary>
+    private List<ServerConnectionGroup>? MigrateLegacyProfilesIfNeeded()
+    {
+        if (!File.Exists(_legacyProfilesFilePath))
+        {
+            return null;
+        }
+
+        List<LegacyServerProfile>? legacyProfiles;
+        try
+        {
+            var json = File.ReadAllText(_legacyProfilesFilePath);
+            legacyProfiles = JsonSerializer.Deserialize<List<LegacyServerProfile>>(json, JsonOptions);
+        }
+        catch (Exception)
+        {
+            legacyProfiles = null;
+        }
+
+        if (legacyProfiles is null || legacyProfiles.Count == 0)
+        {
+            return new List<ServerConnectionGroup>();
+        }
+
+        var groups = new List<ServerConnectionGroup>();
+
+        foreach (var bucket in legacyProfiles.GroupBy(p => (Host: p.Host.Trim().ToLowerInvariant(), p.Port)))
+        {
+            var first = bucket.First();
+            var group = new ServerConnectionGroup
+            {
+                Id = Guid.NewGuid(),
+                Name = first.Name,
+                Host = first.Host,
+                Port = first.Port,
+                Password = first.Password
+            };
+
+            foreach (var legacy in bucket)
+            {
+                var slot = new SlotProfile
+                {
+                    Id = legacy.Id,
+                    GroupId = group.Id,
+                    SlotName = legacy.SlotName
+                };
+                group.Slots.Add(slot);
+
+                if (legacy.AutoConnect && group.PreferredLeaderSlotId is null)
+                {
+                    group.AutoConnect = true;
+                    group.PreferredLeaderSlotId = slot.Id;
+                }
+            }
+
+            groups.Add(group);
+        }
+
+        return groups;
+    }
+
+    private string GetSyncStateFilePath(Guid slotId) =>
+        Path.Combine(_syncStateDirectory, $"{slotId}.json");
+
+    /// <summary>Shape of the pre-Phase-6 <c>profiles.json</c> file, kept only for one-time migration.</summary>
+    private sealed class LegacyServerProfile
+    {
+        public Guid Id { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string Host { get; set; } = string.Empty;
+        public int Port { get; set; }
+        public string SlotName { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+        public bool AutoConnect { get; set; }
+    }
 }

@@ -16,6 +16,19 @@ public class EventEntry
     public EventType Type { get; init; }
 
     /// <summary>
+    /// Id of the <see cref="SlotProfile"/> this entry is specifically about
+    /// (connect/disconnect, an item received, a hint concerning a configured
+    /// slot), or null for genuinely room-wide entries - plain chat between
+    /// players, which isn't tied to any one of this app's configured slots
+    /// and should stay visible no matter which slot filter is selected.
+    /// Since Phase 6, a <see cref="ViewModels.GroupViewModel"/> holds one
+    /// merged event log for every slot configured on that server, so each
+    /// slot-specific entry needs to say which slot it is about, for the slot
+    /// filter dropdown to work.
+    /// </summary>
+    public Guid? SlotId { get; init; }
+
+    /// <summary>
     /// True if this entry represents something that arrived since the last
     /// time this profile was connected (see <see cref="ProfileSyncState"/>).
     /// </summary>
@@ -41,7 +54,7 @@ public class EventEntry
     /// to e.g. chat banter between two other players, or a hint that's
     /// neither received by nor to be found by this slot. Used to decide
     /// whether the entry should count towards the tab's unread-event badge
-    /// (see <see cref="ViewModels.TabViewModel.UnreadEventCount"/>); defaults
+    /// (see <see cref="ViewModels.GroupViewModel.UnreadEventCount"/>); defaults
     /// to true since most event types (connect/disconnect/error/item
     /// received) are inherently about this slot.
     /// </summary>

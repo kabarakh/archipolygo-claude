@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using Archipelago.MultiClient.Net.Enums;
 using Archipelago.MultiClient.Net.Models;
 using Avalonia.Threading;
 using Archipolygo.Models;
@@ -10,78 +11,78 @@ namespace Archipolygo.Services;
 
 public class MessageHistoryService : IMessageHistoryService
 {
-    private readonly IPersistenceService _persistenceService;
     private readonly IProfileSyncStateStore _syncStateStore;
     private readonly int _eventHistoryLimit;
 
     public MessageHistoryService(IPersistenceService persistenceService, IProfileSyncStateStore syncStateStore)
     {
-        _persistenceService = persistenceService;
         _syncStateStore = syncStateStore;
         // Read once at startup; a changed limit takes effect after a restart.
         _eventHistoryLimit = Math.Max(1, persistenceService.LoadSettings().EventHistoryLimit);
     }
 
-    public void HandleConnected(TabViewModel tab)
+    public void HandleConnected(GroupViewModel group, SlotProfile slot)
     {
-        var slotName = tab.ServerProfile.SlotName;
-        AddEvent(tab, new EventEntry
+        var slotName = slot.SlotName;
+        AddEvent(group, new EventEntry
         {
+            SlotId = slot.Id,
             Type = EventType.Connected,
             Text = $"Connected as {slotName}.",
             Segments = EventSegmentBuilder.BuildConnectedSegments(slotName)
         });
     }
 
-    public void HandleDisconnected(TabViewModel tab, string reason)
+    public void HandleDisconnected(GroupViewModel group, SlotProfile slot, string reason)
     {
-        var slotName = tab.ServerProfile.SlotName;
-        AddEvent(tab, new EventEntry
+        var slotName = slot.SlotName;
+        AddEvent(group, new EventEntry
         {
+            SlotId = slot.Id,
             Type = EventType.Disconnected,
             Text = $"Disconnected as {slotName} ({reason}).",
             Segments = EventSegmentBuilder.BuildDisconnectedSegments(slotName, reason)
         });
     }
 
-    public void HandleError(TabViewModel tab, string message) =>
-        AddEvent(tab, new EventEntry { Type = EventType.Error, Text = message });
+    public void HandleError(GroupViewModel group, string message) =>
+        AddEvent(group, new EventEntry { Type = EventType.Error, Text = message });
 
-    public void HandleChatMessage(TabViewModel tab, string text, IReadOnlyList<EventTextSegment> segments, EventType eventType = EventType.Chat)
+    public void HandleChatMessage(GroupViewModel group, string text, IReadOnlyList<EventTextSegment> segments, Guid? slotId, EventType eventType = EventType.Chat)
     {
-        // Only messages that actually name this tab's own slot (e.g. someone
-        // sending/finding an item for/by it, or it being mentioned) should
-        // count towards the unread badge - plain banter between other
-        // players, or server messages that don't involve this slot at all,
-        // should not.
+        // Only messages that actually name one of this group's configured
+        // slots (e.g. someone sending/finding an item for/by it, or it being
+        // mentioned) should count towards the unread badge - plain banter
+        // between other players should not.
         var concernsOwnSlot = false;
         foreach (var segment in segments)
         {
-            if (segment.Kind == EventTextSegmentKind.OwnSlotName)
+            if (segment.Kind is EventTextSegmentKind.OwnSlotName or EventTextSegmentKind.ConnectedSlotName)
             {
                 concernsOwnSlot = true;
                 break;
             }
         }
 
-        AddEvent(tab, new EventEntry { Type = eventType, Text = text, Segments = segments, ConcernsOwnSlot = concernsOwnSlot });
+        AddEvent(group, new EventEntry { SlotId = slotId, Type = eventType, Text = text, Segments = segments, ConcernsOwnSlot = concernsOwnSlot });
     }
 
-    public void HandleItemsReceivedSinceLastConnection(TabViewModel tab, ServerProfile profile, ReadOnlyCollection<ItemInfo> allItemsReceived)
+    public void HandleItemsReceivedSinceLastConnection(GroupViewModel group, SlotProfile slot, ReadOnlyCollection<ItemInfo> allItemsReceived)
     {
-        var syncState = _syncStateStore.Get(profile.Id);
+        var syncState = _syncStateStore.Get(slot.Id);
 
         for (var i = syncState.LastSeenItemIndex; i < allItemsReceived.Count; i++)
         {
             var item = allItemsReceived[i];
-            AddEvent(tab, new EventEntry
+            AddEvent(group, new EventEntry
             {
+                SlotId = slot.Id,
                 Type = EventType.ItemReceived,
                 Text = $"Received {item.ItemDisplayName} ({item.LocationDisplayName}) since last connection",
                 Segments = EventSegmentBuilder.BuildItemReceivedSegments(item.ItemDisplayName, item.Flags, item.LocationDisplayName),
                 // Everything from the last persisted index onward is "new since last
                 // session" by definition - these are items that arrived while this
-                // client wasn't connected (or hadn't shown them yet).
+                // slot wasn't the leader (or hadn't shown them yet).
                 IsNewSinceLastSession = true
             });
         }
@@ -89,18 +90,18 @@ public class MessageHistoryService : IMessageHistoryService
         AdvanceSyncState(syncState, allItemsReceived.Count);
     }
 
-    public void AdvanceItemSyncState(ServerProfile profile, ReadOnlyCollection<ItemInfo> allItemsReceived)
+    public void AdvanceItemSyncState(SlotProfile slot, ReadOnlyCollection<ItemInfo> allItemsReceived)
     {
         // No log entry here on purpose: the live "X sent Y to Z" chat-log
         // line (see HandleChatMessage) already announces items received
         // while connected. Still need to keep the persisted index moving,
         // though, so a later reconnect doesn't re-announce these as "since
         // last connection".
-        var syncState = _syncStateStore.Get(profile.Id);
+        var syncState = _syncStateStore.Get(slot.Id);
         AdvanceSyncState(syncState, allItemsReceived.Count);
     }
 
-    public void TrackReceivedItem(TabViewModel tab, ReadOnlyCollection<ItemInfo> allItemsReceived,
+    public void TrackReceivedItem(GroupViewModel group, SlotProfile slot, ReadOnlyCollection<ItemInfo> allItemsReceived,
                                    string senderName, EventTextSegmentKind senderKind)
     {
         if (allItemsReceived.Count == 0)
@@ -109,6 +110,7 @@ public class MessageHistoryService : IMessageHistoryService
         var item = allItemsReceived[allItemsReceived.Count - 1];
         var entry = new ReceivedItemEntry
         {
+            SlotId       = slot.Id,
             ItemName     = item.ItemDisplayName,
             LocationName = item.LocationDisplayName,
             SenderName   = senderName,
@@ -116,12 +118,47 @@ public class MessageHistoryService : IMessageHistoryService
             SenderKind   = senderKind,
         };
 
-        Dispatcher.UIThread.Post(() => tab.ReceivedItems.Add(entry));
+        Dispatcher.UIThread.Post(() => group.ReceivedItems.Add(entry));
     }
 
-    public void ClearReceivedItems(TabViewModel tab)
+    public void HandleObservedItemForSlot(GroupViewModel group, SlotProfile targetSlot, string itemDisplayName,
+                                           string locationDisplayName, ItemFlags itemFlags,
+                                           string senderName, EventTextSegmentKind senderKind)
     {
-        Dispatcher.UIThread.Post(() => tab.ReceivedItems.Clear());
+        AddEvent(group, new EventEntry
+        {
+            SlotId = targetSlot.Id,
+            Type = EventType.ItemReceived,
+            Text = $"{senderName} sent {itemDisplayName} to {targetSlot.SlotName} ({locationDisplayName})",
+            Segments = EventSegmentBuilder.BuildItemReceivedSegments(itemDisplayName, itemFlags, locationDisplayName),
+            ConcernsOwnSlot = true
+        });
+
+        var entry = new ReceivedItemEntry
+        {
+            SlotId       = targetSlot.Id,
+            ItemName     = itemDisplayName,
+            LocationName = locationDisplayName,
+            SenderName   = senderName,
+            ItemKind     = EventSegmentBuilder.ClassifyItemFlags(itemFlags),
+            SenderKind   = senderKind,
+        };
+
+        Dispatcher.UIThread.Post(() => group.ReceivedItems.Add(entry));
+    }
+
+    public void ClearReceivedItemsForSlot(GroupViewModel group, Guid slotId)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            for (var i = group.ReceivedItems.Count - 1; i >= 0; i--)
+            {
+                if (group.ReceivedItems[i].SlotId == slotId)
+                {
+                    group.ReceivedItems.RemoveAt(i);
+                }
+            }
+        });
     }
 
     private void AdvanceSyncState(ProfileSyncState syncState, int newCount)
@@ -133,17 +170,17 @@ public class MessageHistoryService : IMessageHistoryService
         }
     }
 
-    private void AddEvent(TabViewModel tab, EventEntry entry)
+    private void AddEvent(GroupViewModel group, EventEntry entry)
     {
         // Archipelago callbacks can arrive on a background/socket thread;
         // ObservableCollection mutations must happen on the UI thread.
         Dispatcher.UIThread.Post(() =>
         {
-            tab.Events.Add(entry);
+            group.Events.Add(entry);
 
-            while (tab.Events.Count > _eventHistoryLimit)
+            while (group.Events.Count > _eventHistoryLimit)
             {
-                tab.Events.RemoveAt(0);
+                group.Events.RemoveAt(0);
             }
         });
     }

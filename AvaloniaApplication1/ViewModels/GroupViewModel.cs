@@ -1,0 +1,588 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Collections.Specialized;
+using System.ComponentModel;
+using System.Linq;
+using System.Threading.Tasks;
+using Archipolygo.Models;
+using Archipolygo.Services;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+
+namespace Archipolygo.ViewModels;
+
+/// <summary>
+/// Represents a tab in the MainWindow, i.e. one Archipelago server. Since
+/// Phase 6, a server can have several configured slots but only ever one
+/// live connection (the "leader", see <see cref="LeaderSlotId"/>); this view
+/// model holds one merged event log, hint list and received-items list for
+/// every slot configured on the server, each entry tagged with which slot it
+/// is about (see <see cref="EventEntry.SlotId"/> and friends) so the slot
+/// filter dropdown can narrow the view down to one slot. Actual connection
+/// handling is delegated to <see cref="IConnectionManager"/>.
+/// </summary>
+public partial class GroupViewModel : ViewModelBase
+{
+    private readonly IConnectionManager _connectionManager;
+
+    /// <summary>Guards <see cref="OnSelectedChatSlotChanged"/> while a switch/initial-select is already applying, so it doesn't re-enter itself.</summary>
+    private bool _applyingLeaderChange;
+
+    [ObservableProperty]
+    private ServerConnectionGroup _group;
+
+    [ObservableProperty]
+    private ConnectionState _connectionState = ConnectionState.Disconnected;
+
+    /// <summary>
+    /// Id of the <see cref="SlotProfile"/> that currently holds the one live,
+    /// persistent connection for this server ("leader"), or null if none.
+    /// </summary>
+    [ObservableProperty]
+    private Guid? _leaderSlotId;
+
+    /// <summary>
+    /// Bound to the account dropdown. Selecting a different slot here is the
+    /// one action that triggers a disconnect/reconnect (see
+    /// <see cref="OnSelectedChatSlotChanged"/>). Kept separate from
+    /// <see cref="LeaderSlotId"/> so the dropdown can reflect "switch in
+    /// progress" without flapping back and forth while the handshake is
+    /// still running. The dropdown's ItemsSource (<see cref="Slots"/>) never
+    /// contains a null entry, so the user can never actually select null
+    /// here - null only ever arrives programmatically, from
+    /// <see cref="SetLeaderStateWithoutTriggeringSwitch"/> after a real
+    /// disconnect (guarded, see <see cref="OnSelectedChatSlotChanged"/>) or
+    /// as a spurious rebinding artifact, which is ignored rather than
+    /// treated as a disconnect request - see the Disconnect button/command
+    /// for that instead.
+    /// </summary>
+    [ObservableProperty]
+    private SlotProfile? _selectedChatSlot;
+
+    /// <summary>Narrows <see cref="VisibleEvents"/> down to one configured slot; null = show all slots mixed together (the default). Independent of the Hints/Items slot filters below.</summary>
+    [ObservableProperty]
+    private SlotProfile? _selectedEventsSlotFilter;
+
+    /// <summary>Narrows <see cref="VisibleHints"/> down to one configured slot; null = show all slots mixed together (the default). Independent of the Events/Items slot filters.</summary>
+    [ObservableProperty]
+    private SlotProfile? _selectedHintsSlotFilter;
+
+    /// <summary>Narrows <see cref="VisibleReceivedItems"/> down to one configured slot; null = show all slots mixed together (the default). Independent of the Events/Hints slot filters.</summary>
+    [ObservableProperty]
+    private SlotProfile? _selectedItemsSlotFilter;
+
+    [ObservableProperty]
+    private int _unreadEventCount;
+
+    [ObservableProperty]
+    private bool _isSelected;
+
+    [ObservableProperty]
+    private HintFilter _selectedHintFilter = HintFilter.Unfound;
+
+    [ObservableProperty]
+    private HintRoleFilter _selectedHintRoleFilter = HintRoleFilter.All;
+
+    [ObservableProperty]
+    private EventRelevanceFilter _selectedEventRelevanceFilter = EventRelevanceFilter.All;
+
+    [ObservableProperty]
+    private EventCategoryFilter _selectedEventCategoryFilter = EventCategoryFilter.All;
+
+    [ObservableProperty]
+    private RightPanelView _selectedRightPanel = RightPanelView.Hints;
+
+    [ObservableProperty]
+    private ItemCategoryFilter _selectedItemCategoryFilter = ItemCategoryFilter.All;
+
+    [ObservableProperty]
+    private string _itemSearchText = string.Empty;
+
+    [ObservableProperty]
+    private string _messageToSend = string.Empty;
+
+    public ObservableCollection<EventEntry> Events { get; } = new();
+
+    public ObservableCollection<HintEntry> Hints { get; } = new();
+
+    public ObservableCollection<ReceivedItemEntry> ReceivedItems { get; } = new();
+
+    /// <summary>
+    /// Every configured slot on this server, for the "Chat as" dropdown -
+    /// ordered with the current leader (see <see cref="LeaderSlotId"/>)
+    /// first and every other slot alphabetically by name, rather than raw
+    /// <see cref="Group"/> insertion order (see <see cref="RefreshSlotOrder"/>).
+    /// A separately maintained collection rather than a passthrough to
+    /// <c>Group.Slots</c>, since it needs its own order independent of that
+    /// collection's.
+    /// </summary>
+    public ObservableCollection<SlotProfile> Slots { get; } = new();
+
+    public bool IsLeaderConnected => LeaderSlotId is not null && ConnectionState == ConnectionState.Connected;
+
+    public bool CanDisconnect => LeaderSlotId is not null || ConnectionState is ConnectionState.Connecting or ConnectionState.Reconnecting;
+
+    /// <summary>
+    /// Hints filtered by found/unfound, role ("mine" = concerns any configured
+    /// slot, i.e. <see cref="EventTextSegmentKind.OwnSlotName"/> or
+    /// <see cref="EventTextSegmentKind.ConnectedSlotName"/>), the Hints slot
+    /// filter dropdown, and the search box. The dimensions combine independently.
+    /// </summary>
+    public IEnumerable<HintEntry> VisibleHints
+    {
+        get
+        {
+            IEnumerable<HintEntry> hints = Hints;
+
+            if (SelectedHintFilter == HintFilter.Unfound)
+                hints = hints.Where(h => !h.Found);
+
+            hints = SelectedHintRoleFilter switch
+            {
+                HintRoleFilter.IFind    => hints.Where(h => IsMine(h.FindingPlayerKind)),
+                HintRoleFilter.IReceive => hints.Where(h => IsMine(h.ReceivingPlayerKind)),
+                _                       => hints,
+            };
+
+            if (SelectedHintsSlotFilter is not null)
+                hints = hints.Where(h => h.SlotId == SelectedHintsSlotFilter.Id);
+
+            if (!string.IsNullOrEmpty(ItemSearchText))
+                hints = hints.Where(h => h.ItemName.Contains(ItemSearchText, StringComparison.OrdinalIgnoreCase));
+
+            return hints;
+        }
+    }
+
+    private static bool IsMine(EventTextSegmentKind kind) =>
+        kind is EventTextSegmentKind.OwnSlotName or EventTextSegmentKind.ConnectedSlotName;
+
+    public int UnfoundHintCount => Hints.Count(h => !h.Found);
+
+    public int UnfoundHintIFindCount => Hints.Count(h => !h.Found && IsMine(h.FindingPlayerKind));
+
+    public int UnfoundHintIReceiveCount => Hints.Count(h => !h.Found && IsMine(h.ReceivingPlayerKind));
+
+    public string HintsPanelButtonText => UnfoundHintCount > 0 ? $"Hints ({UnfoundHintCount})" : "Hints";
+
+    public string HintsIFindButtonText => UnfoundHintIFindCount > 0 ? $"My location ({UnfoundHintIFindCount})" : "My location";
+
+    public string HintsIReceiveButtonText => UnfoundHintIReceiveCount > 0 ? $"My item ({UnfoundHintIReceiveCount})" : "My item";
+
+    /// <summary>
+    /// <see cref="Events"/> filtered by relevance, category and the Events
+    /// slot filter dropdown. Room-wide chat lines (<see cref="EventEntry.SlotId"/>
+    /// is null) always pass the slot filter, since they aren't tied to any
+    /// one configured slot in the first place.
+    /// </summary>
+    public IEnumerable<EventEntry> VisibleEvents
+    {
+        get
+        {
+            IEnumerable<EventEntry> events = Events;
+
+            if (SelectedEventRelevanceFilter == EventRelevanceFilter.ConcernsMe)
+            {
+                events = events.Where(e => e.ConcernsOwnSlot);
+            }
+
+            events = SelectedEventCategoryFilter switch
+            {
+                EventCategoryFilter.Hints => events.Where(e => e.Type == EventType.HintReceived),
+                EventCategoryFilter.Items => events.Where(e => e.Type == EventType.ItemReceived),
+                _ => events,
+            };
+
+            if (SelectedEventsSlotFilter is not null)
+            {
+                var filterId = SelectedEventsSlotFilter.Id;
+                events = events.Where(e => e.SlotId is null || e.SlotId == filterId);
+            }
+
+            return events;
+        }
+    }
+
+    public IEnumerable<ReceivedItemEntry> VisibleReceivedItems
+    {
+        get
+        {
+            IEnumerable<ReceivedItemEntry> items = ReceivedItems;
+
+            items = SelectedItemCategoryFilter switch
+            {
+                ItemCategoryFilter.Progress => items.Where(i => i.ItemKind == EventTextSegmentKind.ItemProgression),
+                ItemCategoryFilter.Useful   => items.Where(i => i.ItemKind == EventTextSegmentKind.ItemUseful),
+                ItemCategoryFilter.Normal   => items.Where(i => i.ItemKind == EventTextSegmentKind.ItemOther),
+                ItemCategoryFilter.Trap     => items.Where(i => i.ItemKind == EventTextSegmentKind.ItemTrap),
+                _                           => items,
+            };
+
+            if (SelectedItemsSlotFilter is not null)
+                items = items.Where(i => i.SlotId == SelectedItemsSlotFilter.Id);
+
+            if (!string.IsNullOrEmpty(ItemSearchText))
+            {
+                items = items.Where(i =>
+                    i.ItemName.Contains(ItemSearchText, StringComparison.OrdinalIgnoreCase));
+            }
+
+            return items;
+        }
+    }
+
+    public bool HasUnreadEvents => UnreadEventCount > 0;
+
+    public string HeaderText => Group.Name;
+
+    /// <summary>
+    /// <see cref="Slots"/> plus a leading null entry representing "All
+    /// slots", shared as the <c>ItemsSource</c> for all three independent
+    /// slot filter dropdowns (<see cref="SelectedEventsSlotFilter"/>,
+    /// <see cref="SelectedHintsSlotFilter"/>, <see cref="SelectedItemsSlotFilter"/>
+    /// - each binds its own <c>SelectedItem</c> to this same list); a
+    /// <see cref="Converters.SlotFilterDisplayConverter"/> turns the null
+    /// entry into an "All slots" label. The leading null aside, ordered the
+    /// same way as <see cref="Slots"/> - leader first, then alphabetical -
+    /// kept in sync by the same <see cref="RefreshSlotOrder"/> rebuild
+    /// rather than recomputed on every access, so the dropdowns update live
+    /// when a slot is added/removed or the leader changes.
+    /// </summary>
+    public ObservableCollection<SlotProfile?> SlotFilterOptions { get; } = new() { null };
+
+    public GroupViewModel(ServerConnectionGroup group, IConnectionManager connectionManager)
+    {
+        _group = group;
+        _connectionManager = connectionManager;
+
+        Events.CollectionChanged += OnEventsCollectionChanged;
+        Hints.CollectionChanged += OnHintsCollectionChanged;
+        ReceivedItems.CollectionChanged += (_, _) => OnPropertyChanged(nameof(VisibleReceivedItems));
+        Group.PropertyChanged += OnGroupPropertyChanged;
+
+        RefreshSlotOrder();
+
+        Group.Slots.CollectionChanged += OnSlotsCollectionChanged;
+    }
+
+    private void OnSlotsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) => RefreshSlotOrder();
+
+    /// <summary>
+    /// Rebuilds <see cref="Slots"/> (the "Chat as" dropdown) and, after its
+    /// fixed leading "All slots" null entry, <see cref="SlotFilterOptions"/>
+    /// from <see cref="Group"/>'s configured slots - sorted so the current
+    /// leader (<see cref="LeaderSlotId"/>) always comes first and every
+    /// other slot follows alphabetically by name, rather than raw insertion
+    /// order, which stops being readable once a server has more than a
+    /// handful of slots.
+    ///
+    /// A full rebuild rather than an incremental add/remove patch, since
+    /// this also needs to re-run whenever <see cref="LeaderSlotId"/> itself
+    /// changes (see <see cref="OnLeaderSlotIdChanged"/>), not just when a
+    /// slot is added or removed - and with realistically at most a few
+    /// dozen slots, re-sorting the whole list each time is cheap. Clearing
+    /// and re-adding items only briefly clears the dropdowns' SelectedItem,
+    /// which flows back into <see cref="SelectedChatSlot"/> as a transient
+    /// null - already harmless, see the "spurious null" guard in
+    /// <see cref="OnSelectedChatSlotChanged"/>, which exists for exactly
+    /// this kind of rebinding artifact.
+    /// </summary>
+    private void RefreshSlotOrder()
+    {
+        var ordered = Group.Slots
+            .OrderBy(s => s.Id == LeaderSlotId ? 0 : 1)
+            .ThenBy(s => s.SlotName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        Slots.Clear();
+        foreach (var slot in ordered)
+        {
+            Slots.Add(slot);
+        }
+
+        while (SlotFilterOptions.Count > 1)
+        {
+            SlotFilterOptions.RemoveAt(SlotFilterOptions.Count - 1);
+        }
+
+        foreach (var slot in ordered)
+        {
+            SlotFilterOptions.Add(slot);
+        }
+    }
+
+    partial void OnGroupChanged(ServerConnectionGroup? oldValue, ServerConnectionGroup newValue)
+    {
+        if (oldValue is not null)
+        {
+            oldValue.PropertyChanged -= OnGroupPropertyChanged;
+        }
+
+        newValue.PropertyChanged += OnGroupPropertyChanged;
+        OnPropertyChanged(nameof(HeaderText));
+        OnPropertyChanged(nameof(Slots));
+    }
+
+    partial void OnConnectionStateChanged(ConnectionState value)
+    {
+        OnPropertyChanged(nameof(IsLeaderConnected));
+        OnPropertyChanged(nameof(CanDisconnect));
+        SendMessageCommand.NotifyCanExecuteChanged();
+        DisconnectCommand.NotifyCanExecuteChanged();
+    }
+
+    partial void OnLeaderSlotIdChanged(Guid? value)
+    {
+        OnPropertyChanged(nameof(IsLeaderConnected));
+        OnPropertyChanged(nameof(CanDisconnect));
+        SendMessageCommand.NotifyCanExecuteChanged();
+        DisconnectCommand.NotifyCanExecuteChanged();
+
+        // The leader just changed, so it might need to move to the front of
+        // Slots/SlotFilterOptions - see RefreshSlotOrder.
+        RefreshSlotOrder();
+    }
+
+    /// <summary>
+    /// The one action that starts a disconnect/reconnect: picking a
+    /// different account to chat as. Ignored while a previous switch is
+    /// still being applied to avoid re-entering the switch for the same
+    /// change twice (see <see cref="ApplyLeaderSelectionAsync"/>, which
+    /// sets/clears <see cref="_applyingLeaderChange"/> around the actual
+    /// await). A <paramref name="newValue"/> of null here is never a real
+    /// user selection (the dropdown's ItemsSource never contains a null
+    /// entry) - it's a spurious rebinding artifact, e.g. when a tab's
+    /// visual tree is reattached on tab switch. Restoring the previous
+    /// value instead of disconnecting is what keeps an already-connected
+    /// tab connected across tab switches; use the actual Disconnect
+    /// button/command for a real disconnect.
+    /// </summary>
+    partial void OnSelectedChatSlotChanged(SlotProfile? oldValue, SlotProfile? newValue)
+    {
+        if (_applyingLeaderChange)
+        {
+            return;
+        }
+
+        if (newValue is null)
+        {
+            _applyingLeaderChange = true;
+            try
+            {
+                SelectedChatSlot = oldValue;
+            }
+            finally
+            {
+                _applyingLeaderChange = false;
+            }
+
+            return;
+        }
+
+        _ = ApplyLeaderSelectionAsync(newValue);
+    }
+
+    private async Task ApplyLeaderSelectionAsync(SlotProfile targetSlot)
+    {
+        _applyingLeaderChange = true;
+        try
+        {
+            await _connectionManager.SwitchLeaderAsync(this, targetSlot);
+        }
+        finally
+        {
+            _applyingLeaderChange = false;
+        }
+    }
+
+    partial void OnIsSelectedChanged(bool value)
+    {
+        if (value)
+        {
+            UnreadEventCount = 0;
+        }
+    }
+
+    partial void OnUnreadEventCountChanged(int value) => OnPropertyChanged(nameof(HasUnreadEvents));
+
+    partial void OnSelectedHintFilterChanged(HintFilter value) => OnPropertyChanged(nameof(VisibleHints));
+
+    partial void OnSelectedHintRoleFilterChanged(HintRoleFilter value) => OnPropertyChanged(nameof(VisibleHints));
+
+    partial void OnSelectedItemCategoryFilterChanged(ItemCategoryFilter value) => OnPropertyChanged(nameof(VisibleReceivedItems));
+
+    partial void OnSelectedEventsSlotFilterChanged(SlotProfile? value) => OnPropertyChanged(nameof(VisibleEvents));
+
+    partial void OnSelectedHintsSlotFilterChanged(SlotProfile? value) => OnPropertyChanged(nameof(VisibleHints));
+
+    partial void OnSelectedItemsSlotFilterChanged(SlotProfile? value) => OnPropertyChanged(nameof(VisibleReceivedItems));
+
+    partial void OnItemSearchTextChanged(string value)
+    {
+        OnPropertyChanged(nameof(VisibleHints));
+        OnPropertyChanged(nameof(VisibleReceivedItems));
+    }
+
+    partial void OnSelectedEventRelevanceFilterChanged(EventRelevanceFilter value) => OnPropertyChanged(nameof(VisibleEvents));
+
+    partial void OnSelectedEventCategoryFilterChanged(EventCategoryFilter value) => OnPropertyChanged(nameof(VisibleEvents));
+
+    private void OnEventsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        OnPropertyChanged(nameof(VisibleEvents));
+
+        if (e.Action != NotifyCollectionChangedAction.Add || IsSelected || e.NewItems is null)
+        {
+            return;
+        }
+
+        var relevantCount = 0;
+        foreach (var item in e.NewItems)
+        {
+            if (item is EventEntry { ConcernsOwnSlot: true })
+            {
+                relevantCount++;
+            }
+        }
+
+        UnreadEventCount += relevantCount;
+    }
+
+    private void OnHintsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (e.NewItems is not null)
+        {
+            foreach (var item in e.NewItems)
+            {
+                if (item is HintEntry hint)
+                {
+                    hint.PropertyChanged += OnHintEntryPropertyChanged;
+                }
+            }
+        }
+
+        RaiseHintAggregatesChanged();
+    }
+
+    private void OnHintEntryPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(HintEntry.Found))
+        {
+            RaiseHintAggregatesChanged();
+        }
+    }
+
+    private void OnGroupPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(ServerConnectionGroup.Name))
+        {
+            OnPropertyChanged(nameof(HeaderText));
+        }
+    }
+
+    private void RaiseHintAggregatesChanged()
+    {
+        OnPropertyChanged(nameof(VisibleHints));
+        OnPropertyChanged(nameof(UnfoundHintCount));
+        OnPropertyChanged(nameof(UnfoundHintIFindCount));
+        OnPropertyChanged(nameof(UnfoundHintIReceiveCount));
+        OnPropertyChanged(nameof(HintsPanelButtonText));
+        OnPropertyChanged(nameof(HintsIFindButtonText));
+        OnPropertyChanged(nameof(HintsIReceiveButtonText));
+    }
+
+    [RelayCommand(CanExecute = nameof(CanDisconnect))]
+    private Task DisconnectAsync() =>
+        // ConnectionManager.DisconnectGroupAsync itself calls
+        // SetLeaderStateWithoutTriggeringSwitch(null, null) once the
+        // disconnect completes, which resets SelectedChatSlot (so the
+        // dropdown reflects "not connected") without re-entering
+        // OnSelectedChatSlotChanged - nothing more to do here.
+        _connectionManager.DisconnectGroupAsync(this);
+
+    [RelayCommand(CanExecute = nameof(IsLeaderConnected))]
+    private async Task SendMessageAsync()
+    {
+        var text = MessageToSend;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return;
+        }
+
+        MessageToSend = string.Empty;
+        await _connectionManager.SendMessageAsync(this, text);
+    }
+
+    [RelayCommand]
+    private void ShowAllHints() => SelectedHintFilter = HintFilter.All;
+
+    [RelayCommand]
+    private void ShowUnfoundHints() => SelectedHintFilter = HintFilter.Unfound;
+
+    [RelayCommand]
+    private void ShowHintsPanel() => SelectedRightPanel = RightPanelView.Hints;
+
+    [RelayCommand]
+    private void ShowReceivedItemsPanel() => SelectedRightPanel = RightPanelView.ReceivedItems;
+
+    [RelayCommand]
+    private void ShowAllItemCategories() => SelectedItemCategoryFilter = ItemCategoryFilter.All;
+
+    [RelayCommand]
+    private void ShowProgressItems() => SelectedItemCategoryFilter = ItemCategoryFilter.Progress;
+
+    [RelayCommand]
+    private void ShowUsefulItems() => SelectedItemCategoryFilter = ItemCategoryFilter.Useful;
+
+    [RelayCommand]
+    private void ShowNormalItems() => SelectedItemCategoryFilter = ItemCategoryFilter.Normal;
+
+    [RelayCommand]
+    private void ShowTrapItems() => SelectedItemCategoryFilter = ItemCategoryFilter.Trap;
+
+    [RelayCommand]
+    private void ShowAllHintRoles() => SelectedHintRoleFilter = HintRoleFilter.All;
+
+    [RelayCommand]
+    private void ShowHintsIFind() => SelectedHintRoleFilter = HintRoleFilter.IFind;
+
+    [RelayCommand]
+    private void ShowHintsIReceive() => SelectedHintRoleFilter = HintRoleFilter.IReceive;
+
+    [RelayCommand]
+    private void ShowAllEventsRelevance() => SelectedEventRelevanceFilter = EventRelevanceFilter.All;
+
+    [RelayCommand]
+    private void ShowOwnEventsOnly() => SelectedEventRelevanceFilter = EventRelevanceFilter.ConcernsMe;
+
+    [RelayCommand]
+    private void ShowAllEventCategories() => SelectedEventCategoryFilter = EventCategoryFilter.All;
+
+    [RelayCommand]
+    private void ShowHintEventsOnly() => SelectedEventCategoryFilter = EventCategoryFilter.Hints;
+
+    [RelayCommand]
+    private void ShowItemEventsOnly() => SelectedEventCategoryFilter = EventCategoryFilter.Items;
+
+    /// <summary>
+    /// Sets <see cref="SelectedChatSlot"/>/<see cref="LeaderSlotId"/> without
+    /// running <see cref="OnSelectedChatSlotChanged"/>'s switch logic - used
+    /// by <see cref="Services.ConnectionManager"/> itself once a switch has
+    /// actually completed (or failed), so the dropdown reflects reality
+    /// instead of assuming the requested switch always succeeds.
+    /// </summary>
+    public void SetLeaderStateWithoutTriggeringSwitch(Guid? leaderSlotId, SlotProfile? chatSlot)
+    {
+        _applyingLeaderChange = true;
+        try
+        {
+            LeaderSlotId = leaderSlotId;
+            SelectedChatSlot = chatSlot;
+        }
+        finally
+        {
+            _applyingLeaderChange = false;
+        }
+    }
+}

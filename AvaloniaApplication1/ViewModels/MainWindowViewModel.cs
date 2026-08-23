@@ -15,10 +15,35 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly IPersistenceService _persistenceService;
     private readonly IConnectionManager _connectionManager;
 
-    public ObservableCollection<TabViewModel> Tabs { get; } = new();
+    public ObservableCollection<GroupViewModel> Groups { get; } = new();
 
     [ObservableProperty]
-    private TabViewModel? _selectedTab;
+    private GroupViewModel? _selectedGroup;
+
+    /// <summary>Total number of configured slots being processed by the current startup sync pass (see <see cref="InitializeGroupsAsync"/>) - across every group, not just one.</summary>
+    [ObservableProperty]
+    private int _startupSyncTotal;
+
+    /// <summary>How many of <see cref="StartupSyncTotal"/> have finished so far - see <see cref="IConnectionManager.SlotInitialSyncCompleted"/>.</summary>
+    [ObservableProperty]
+    private int _startupSyncCompleted;
+
+    /// <summary>Whether the startup sync status banner should be visible - true only while there's still at least one unfinished slot from a pass that actually found any.</summary>
+    public bool IsStartupSyncing => StartupSyncTotal > 0 && StartupSyncCompleted < StartupSyncTotal;
+
+    public string StartupSyncStatusText => $"Catching up slots: {StartupSyncCompleted}/{StartupSyncTotal}";
+
+    partial void OnStartupSyncTotalChanged(int value)
+    {
+        OnPropertyChanged(nameof(IsStartupSyncing));
+        OnPropertyChanged(nameof(StartupSyncStatusText));
+    }
+
+    partial void OnStartupSyncCompletedChanged(int value)
+    {
+        OnPropertyChanged(nameof(IsStartupSyncing));
+        OnPropertyChanged(nameof(StartupSyncStatusText));
+    }
 
     /// <summary>
     /// Design-time only: used by the <c>&lt;Design.DataContext&gt;</c> in
@@ -32,14 +57,6 @@ public partial class MainWindowViewModel : ViewModelBase
     {
     }
 
-    /// <summary>
-    /// Wires up a design-time-only <see cref="IConnectionManager"/> using one
-    /// shared <see cref="ProfileSyncStateStore"/> instance for both
-    /// dependencies, the same way <see cref="App"/> does via the real DI
-    /// container - HintService and MessageHistoryService must not each get
-    /// their own independently-loaded sync-state cache, or whichever saves
-    /// last would overwrite the other's already-persisted field.
-    /// </summary>
     private static IConnectionManager CreateDesignTimeConnectionManager()
     {
         var syncStateStore = new ProfileSyncStateStore(new PersistenceService());
@@ -58,30 +75,41 @@ public partial class MainWindowViewModel : ViewModelBase
         _persistenceService = persistenceService;
         _connectionManager = connectionManager;
 
-        foreach (var profile in _persistenceService.LoadProfiles())
+        // Keeps AutoConnect/PreferredLeaderSlotId changes made by
+        // ConnectionManager itself (see IConnectionManager.GroupPersistNeeded)
+        // durable across a restart - e.g. connecting a leader via the account
+        // dropdown, not just the actions already routed through this class's
+        // own PersistGroups() calls below. ConnectionManager always raises
+        // this on the UI thread, so it's safe to enumerate Groups here.
+        _connectionManager.GroupPersistNeeded += _ => PersistGroups();
+
+        // Drives the startup "Catching up slots: N/M" banner - see
+        // InitializeGroupsAsync, which sets StartupSyncTotal before kicking
+        // the whole pass off. Always raised on the UI thread, so this is
+        // safe to update the observable property directly from.
+        _connectionManager.SlotInitialSyncCompleted += (_, _) => StartupSyncCompleted++;
+
+        foreach (var group in _persistenceService.LoadGroups())
         {
-            Tabs.Add(new TabViewModel(profile, _connectionManager));
+            Groups.Add(new GroupViewModel(group, _connectionManager));
         }
 
-        RegroupTabs();
+        SelectedGroup = Groups.Count > 0 ? Groups[0] : null;
 
-        SelectedTab = Tabs.Count > 0 ? Tabs[0] : null;
-
-        foreach (var tab in Tabs)
-        {
-            if (tab.ServerProfile.AutoConnect)
-            {
-                _ = _connectionManager.ConnectAsync(tab);
-            }
-        }
+        // Sequential on purpose, with a spacing delay between groups (see
+        // ConnectionManager.StartupGroupSpacing) - several servers each
+        // auto-connecting their leader and then catching up every other
+        // configured slot at once would otherwise hit all of them with a
+        // burst of simultaneous handshakes.
+        _ = InitializeGroupsAsync();
     }
 
     /// <summary>
-    /// Keeps each tab's IsSelected flag in sync with the active tab so that
-    /// only the active tab's incoming events are excluded from the unread
-    /// marker (see <see cref="TabViewModel.HasUnreadEvents"/>).
+    /// Keeps each group's IsSelected flag in sync with the active tab so
+    /// that only the active tab's incoming events are excluded from the
+    /// unread marker (see <see cref="GroupViewModel.HasUnreadEvents"/>).
     /// </summary>
-    partial void OnSelectedTabChanged(TabViewModel? oldValue, TabViewModel? newValue)
+    partial void OnSelectedGroupChanged(GroupViewModel? oldValue, GroupViewModel? newValue)
     {
         if (oldValue is not null)
         {
@@ -94,110 +122,263 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    /// <summary>
-    /// Adds a newly created or edited profile, or updates the existing tab,
-    /// and persists the profile list.
-    /// </summary>
-    public void AddOrUpdateProfile(ServerProfile profile)
+    private async Task InitializeGroupsAsync()
     {
-        var existingTab = FindTabByProfileId(profile.Id);
-        if (existingTab is not null)
+        var groupsSnapshot = Groups.ToList();
+
+        // Total across every group up front, so the banner can show a
+        // stable "N/M" from the very first completion instead of a moving
+        // target - see IConnectionManager.SlotInitialSyncCompleted.
+        StartupSyncTotal = groupsSnapshot.Sum(g => g.Group.Slots.Count);
+        StartupSyncCompleted = 0;
+
+        for (var i = 0; i < groupsSnapshot.Count; i++)
         {
-            existingTab.ServerProfile = profile;
-        }
-        else
-        {
-            var tab = new TabViewModel(profile, _connectionManager);
-            Tabs.Add(tab);
-            SelectedTab = tab;
+            await _connectionManager.InitializeGroupAsync(groupsSnapshot[i]);
+
+            if (i < groupsSnapshot.Count - 1)
+            {
+                await Task.Delay(ConnectionManager.StartupGroupSpacing);
+            }
         }
 
-        // Host/Port may have changed (new profile, or an edit), so tabs may
-        // need to move to stay grouped by Host+Port.
-        RegroupTabs();
-
-        PersistProfiles();
+        // Safety net so the banner always disappears once the whole pass is
+        // done, even if a slot was added/removed mid-pass and the completion
+        // count ended up not landing exactly on StartupSyncTotal.
+        StartupSyncCompleted = StartupSyncTotal;
     }
 
     /// <summary>
-    /// All currently known profiles (one per tab); used by the connection
-    /// editor to detect exact Host+Port+SlotName duplicates, e.g. when
-    /// duplicating a connection.
+    /// Creates a brand-new server (group) with its first slot, and connects
+    /// that slot as the group's leader right away - it's the only slot
+    /// there is, so there's nothing to choose between, and connecting
+    /// immediately also means <see cref="GroupViewModel.SelectedChatSlot"/>
+    /// (the "Chat as:" dropdown) ends up defaulting to it via the normal
+    /// leader-switch bookkeeping (see <see cref="IConnectionManager.SwitchLeaderAsync"/>).
+    /// This is separate from <paramref name="autoConnect"/>, which only
+    /// controls whether this group reconnects automatically at the *next*
+    /// app start (or after an unexpected drop) - see <see cref="ServerConnectionGroup.AutoConnect"/>.
     /// </summary>
-    public IReadOnlyList<ServerProfile> GetAllProfiles() => Tabs.Select(t => t.ServerProfile).ToList();
+    public void AddNewGroup(string name, string host, int port, string password, string slotName, bool autoConnect)
+    {
+        var group = new ServerConnectionGroup
+        {
+            Name = name,
+            Host = host,
+            Port = port,
+            Password = password,
+            AutoConnect = autoConnect
+        };
+
+        var slot = new SlotProfile { GroupId = group.Id, SlotName = slotName };
+        group.Slots.Add(slot);
+
+        if (autoConnect)
+        {
+            group.PreferredLeaderSlotId = slot.Id;
+        }
+
+        var groupViewModel = new GroupViewModel(group, _connectionManager);
+        Groups.Add(groupViewModel);
+        SelectedGroup = groupViewModel;
+        PersistGroups();
+
+        _ = _connectionManager.SwitchLeaderAsync(groupViewModel, slot);
+    }
+
+    /// <summary>
+    /// Adds one or more new slots to an already-existing server in one go
+    /// (see <see cref="Views.ConnectionEditorWindow"/>'s staged-slots
+    /// picker) - one <see cref="PersistGroups"/> call for the whole batch
+    /// rather than one per slot. If the server currently has a leader,
+    /// runs a brief catch-up sync for each new slot so it starts out with
+    /// an up-to-date backlog (see Umsetzungsplan.md, Phase 6) - this is the
+    /// one case where adding a slot does trigger network activity right
+    /// away. Each <see cref="StagedSlot"/> carries its own optional
+    /// per-slot password override (see <see cref="SlotProfile.Password"/>),
+    /// null/empty meaning just use the group's shared password.
+    /// </summary>
+    public void AddSlotsToGroup(GroupViewModel groupViewModel, IReadOnlyList<StagedSlot> slotsToAdd)
+    {
+        if (slotsToAdd.Count == 0)
+        {
+            return;
+        }
+
+        var addedSlots = new List<SlotProfile>(slotsToAdd.Count);
+        foreach (var staged in slotsToAdd)
+        {
+            var slot = new SlotProfile
+            {
+                GroupId = groupViewModel.Group.Id,
+                SlotName = staged.SlotName,
+                Password = string.IsNullOrWhiteSpace(staged.Password) ? null : staged.Password
+            };
+            groupViewModel.Group.Slots.Add(slot);
+            addedSlots.Add(slot);
+        }
+
+        PersistGroups();
+
+        if (groupViewModel.LeaderSlotId is not null)
+        {
+            _ = CatchUpNewSlotsSequentiallyAsync(groupViewModel, addedSlots);
+        }
+    }
+
+    /// <summary>
+    /// Runs <see cref="IConnectionManager.CatchUpSyncAsync"/> for each of
+    /// several newly-added slots one at a time rather than all at once -
+    /// firing them all concurrently (each briefly opening its own session
+    /// to the same room) is exactly the kind of simultaneous-handshake
+    /// burst <see cref="ConnectionManager.StartupGroupSpacing"/> already
+    /// avoids between different servers at startup, and an Archipelago
+    /// server can rate-limit or outright reject that many connection
+    /// attempts landing on it at once from several slots of the same room.
+    /// </summary>
+    private async Task CatchUpNewSlotsSequentiallyAsync(GroupViewModel groupViewModel, IReadOnlyList<SlotProfile> slots)
+    {
+        foreach (var slot in slots)
+        {
+            await _connectionManager.CatchUpSyncAsync(groupViewModel, slot);
+        }
+    }
+
+    /// <summary>
+    /// Room players not yet configured as a slot on <paramref name="groupViewModel"/>,
+    /// for the "Add slot" dialog's picker (see <see cref="Views.ConnectionEditorWindow"/>).
+    /// May briefly open/close a connection under the hood if the server has
+    /// no live session right now - see <see cref="IConnectionManager.GetRoomPlayersAsync"/>.
+    /// </summary>
+    public async Task<IReadOnlyList<PlayerChoice>> GetAvailableSlotsToAddAsync(GroupViewModel groupViewModel)
+    {
+        var players = await _connectionManager.GetRoomPlayersAsync(groupViewModel);
+        var configuredNames = new HashSet<string>(
+            groupViewModel.Group.Slots.Select(s => s.SlotName),
+            StringComparer.OrdinalIgnoreCase);
+
+        return players
+            .Where(p => !configuredNames.Contains(p.Name))
+            .Select(p => new PlayerChoice
+            {
+                SlotName = p.Name,
+                DisplayText = string.Equals(p.Name, p.Alias, StringComparison.Ordinal) ? p.Name : $"{p.Name} ({p.Alias})"
+            })
+            .ToList();
+    }
+
+    /// <summary>Edits a server's Name/Host/Port/Password/AutoConnect/default leader.</summary>
+    public void UpdateGroup(GroupViewModel groupViewModel, string name, string host, int port, string password, bool autoConnect, Guid? preferredLeaderSlotId)
+    {
+        groupViewModel.Group.Name = name;
+        groupViewModel.Group.Host = host;
+        groupViewModel.Group.Port = port;
+        groupViewModel.Group.Password = password;
+        groupViewModel.Group.AutoConnect = autoConnect;
+        groupViewModel.Group.PreferredLeaderSlotId = preferredLeaderSlotId;
+        PersistGroups();
+    }
+
+    public void RenameSlot(SlotProfile slot, string newName)
+    {
+        slot.SlotName = newName;
+        PersistGroups();
+    }
+
+    /// <summary>
+    /// Removes one already-configured slot from a server (see
+    /// <see cref="Views.ConnectionEditorWindow"/>'s slot-management list) -
+    /// unlike every other change made through that dialog, this takes effect
+    /// immediately rather than waiting for its Save button, since there's no
+    /// clean way to undo the disconnect below on Cancel.
+    ///
+    /// If the removed slot is the current leader, disconnects it first
+    /// (<see cref="IConnectionManager.DisconnectGroupAsync"/> also clears
+    /// <see cref="GroupViewModel.LeaderSlotId"/>/<see cref="GroupViewModel.SelectedChatSlot"/>
+    /// through its normal guarded path) rather than pulling its
+    /// configuration out from under a live session. The three independent
+    /// slot filters and the group's own default-leader preference are reset
+    /// too if they were pointing at this slot, so nothing is left dangling.
+    /// </summary>
+    public async Task RemoveSlotFromGroup(GroupViewModel groupViewModel, SlotProfile slot)
+    {
+        if (groupViewModel.LeaderSlotId == slot.Id)
+        {
+            await _connectionManager.DisconnectGroupAsync(groupViewModel);
+        }
+
+        if (groupViewModel.SelectedEventsSlotFilter == slot)
+        {
+            groupViewModel.SelectedEventsSlotFilter = null;
+        }
+
+        if (groupViewModel.SelectedHintsSlotFilter == slot)
+        {
+            groupViewModel.SelectedHintsSlotFilter = null;
+        }
+
+        if (groupViewModel.SelectedItemsSlotFilter == slot)
+        {
+            groupViewModel.SelectedItemsSlotFilter = null;
+        }
+
+        if (groupViewModel.Group.PreferredLeaderSlotId == slot.Id)
+        {
+            groupViewModel.Group.PreferredLeaderSlotId = null;
+        }
+
+        groupViewModel.Group.Slots.Remove(slot);
+        PersistGroups();
+    }
+
+    /// <summary>
+    /// Every currently configured server; used by the connection editor to
+    /// detect duplicate Host+Port (when creating a new server) or duplicate
+    /// slot names within a server (when adding/renaming a slot).
+    /// </summary>
+    public IReadOnlyList<ServerConnectionGroup> GetAllGroups() => Groups.Select(g => g.Group).ToList();
 
     public AppSettings LoadSettings() => _persistenceService.LoadSettings();
 
     public void SaveSettings(AppSettings settings) => _persistenceService.SaveSettings(settings);
 
     /// <summary>
-    /// Disconnects every tab that is currently connected/connecting; each
-    /// disconnect sticks (no AutoConnect bring-back) until the user
-    /// reconnects that tab manually, same as the per-tab Disconnect button.
+    /// Disconnects every server that currently has a leader; each disconnect
+    /// sticks (no AutoConnect bring-back) until the user reconnects that
+    /// server manually, same as the per-server Disconnect button.
     /// </summary>
     [RelayCommand]
-    private async Task DisconnectAllTabsAsync()
+    private async Task DisconnectAllGroupsAsync()
     {
-        var tabsToDisconnect = Tabs.Where(t => t.CanDisconnect).ToList();
-        foreach (var tab in tabsToDisconnect)
+        var groupsToDisconnect = Groups.Where(g => g.LeaderSlotId is not null).ToList();
+        foreach (var groupViewModel in groupsToDisconnect)
         {
-            await _connectionManager.DisconnectAsync(tab);
+            await _connectionManager.DisconnectGroupAsync(groupViewModel);
         }
     }
 
     [RelayCommand]
-    private async Task RemoveSelectedTabAsync()
+    private async Task RemoveSelectedGroupAsync()
     {
-        if (SelectedTab is null)
+        if (SelectedGroup is null)
         {
             return;
         }
 
-        var tabToRemove = SelectedTab;
+        var groupToRemove = SelectedGroup;
 
-        if (tabToRemove.CanDisconnect)
+        if (groupToRemove.LeaderSlotId is not null)
         {
-            await _connectionManager.DisconnectAsync(tabToRemove);
+            await _connectionManager.DisconnectGroupAsync(groupToRemove);
         }
 
-        var index = Tabs.IndexOf(tabToRemove);
-        Tabs.Remove(tabToRemove);
+        var index = Groups.IndexOf(groupToRemove);
+        Groups.Remove(groupToRemove);
 
-        SelectedTab = Tabs.Count > 0 ? Tabs[Math.Min(index, Tabs.Count - 1)] : null;
+        SelectedGroup = Groups.Count > 0 ? Groups[Math.Min(index, Groups.Count - 1)] : null;
 
-        PersistProfiles();
+        PersistGroups();
     }
 
-    private TabViewModel? FindTabByProfileId(Guid id) =>
-        Tabs.FirstOrDefault(t => t.ServerProfile.Id == id);
-
-    /// <summary>
-    /// Reorders <see cref="Tabs"/> in place so that tabs sharing the same
-    /// Host+Port are always adjacent, while otherwise preserving relative
-    /// order as much as possible (LINQ's GroupBy is stable, and so is this
-    /// loop, since it always moves a tab forward to its target slot without
-    /// touching the relative order of the tabs after it).
-    /// <see cref="ObservableCollection{T}.Move"/> is used instead of a
-    /// clear-and-rebuild so that <see cref="SelectedTab"/> and the
-    /// TabControl's selection are not disturbed.
-    /// </summary>
-    private void RegroupTabs()
-    {
-        var desiredOrder = Tabs
-            .GroupBy(t => (t.ServerProfile.Host, t.ServerProfile.Port))
-            .SelectMany(group => group)
-            .ToList();
-
-        for (var targetIndex = 0; targetIndex < desiredOrder.Count; targetIndex++)
-        {
-            var tab = desiredOrder[targetIndex];
-            var currentIndex = Tabs.IndexOf(tab);
-            if (currentIndex != targetIndex)
-            {
-                Tabs.Move(currentIndex, targetIndex);
-            }
-        }
-    }
-
-    private void PersistProfiles() => _persistenceService.SaveProfiles(GetAllProfiles());
+    private void PersistGroups() => _persistenceService.SaveGroups(GetAllGroups());
 }

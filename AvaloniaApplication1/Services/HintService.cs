@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using Avalonia.Threading;
 using Archipolygo.Models;
@@ -15,23 +14,24 @@ public class HintService : IHintService
         _syncStateStore = syncStateStore;
     }
 
-    public void SyncHints(TabViewModel tab, ServerProfile profile, IReadOnlyList<HintSnapshot> hints)
+    public void SyncHints(GroupViewModel group, IReadOnlyList<HintSnapshot> hints)
     {
-        var syncState = _syncStateStore.Get(profile.Id);
-
-        // The whole diff runs on the UI thread: tab.Hints is owned by the UI and
+        // The whole diff runs on the UI thread: group.Hints is owned by the UI and
         // must not be enumerated from a background thread while a previous,
-        // still-pending dispatched Add for the same tab could be applied
+        // still-pending dispatched Add for the same group could be applied
         // concurrently (TrackHints can fire again in quick succession).
         Dispatcher.UIThread.Post(() =>
         {
             var existingByKey = new Dictionary<string, HintEntry>();
-            foreach (var entry in tab.Hints)
+            foreach (var entry in group.Hints)
             {
                 existingByKey[entry.Key] = entry;
             }
 
-            var stateChanged = false;
+            // A hint batch covers the whole room; different snapshots can
+            // concern different configured slots, so the "already seen"
+            // sync state is looked up per snapshot rather than once per call.
+            var changedStates = new HashSet<ProfileSyncState>();
 
             foreach (var snapshot in hints)
             {
@@ -41,7 +41,7 @@ public class HintService : IHintService
                     {
                         // HintEntry is an ObservableObject, so this updates the UI in
                         // place without needing to remove/re-add the item. The
-                        // VisibleHints filter on TabViewModel will hide it automatically
+                        // VisibleHints filter on GroupViewModel will hide it automatically
                         // when the hint filter is set to Unfound.
                         existing.Found = snapshot.Found;
                     }
@@ -49,7 +49,9 @@ public class HintService : IHintService
                     continue;
                 }
 
-                // First time we've seen this hint. Always add it to tab.Hints so
+                var syncState = _syncStateStore.Get(snapshot.SlotId);
+
+                // First time we've seen this hint. Always add it to group.Hints so
                 // the "show found" button can reveal it - VisibleHints filters by
                 // Found at display time. Only generate an event-log entry for
                 // unfound hints though: already-found hints at login time are
@@ -61,6 +63,7 @@ public class HintService : IHintService
                 var newEntry = new HintEntry
                 {
                     Key = snapshot.Key,
+                    SlotId = snapshot.SlotId,
                     ReceivingPlayer = snapshot.ReceivingPlayer,
                     FindingPlayer = snapshot.FindingPlayer,
                     ReceivingPlayerName = snapshot.ReceivingPlayerName,
@@ -75,12 +78,13 @@ public class HintService : IHintService
                     FindingPlayerKind = snapshot.FindingPlayerKind
                 };
 
-                tab.Hints.Add(newEntry);
+                group.Hints.Add(newEntry);
 
                 if (!snapshot.Found)
                 {
-                    tab.Events.Add(new EventEntry
+                    group.Events.Add(new EventEntry
                     {
+                        SlotId = snapshot.SlotId,
                         Type = EventType.HintReceived,
                         Text = $"Hint: {newEntry.ItemName} ({newEntry.FindingPlayerName} -> {newEntry.ReceivingPlayerName}, {newEntry.LocationName})",
                         Segments = EventSegmentBuilder.BuildHintReceivedSegments(
@@ -89,23 +93,24 @@ public class HintService : IHintService
                             newEntry.ReceivingPlayerName, snapshot.ReceivingPlayerKind,
                             newEntry.LocationName),
                         IsNewSinceLastSession = newEntry.IsNewSinceLastSession,
-                        // Only a hint where this slot is the one receiving the item or
-                        // the one who has to find it actually concerns it - TrackHints
-                        // can also report hints between two other players.
-                        ConcernsOwnSlot = snapshot.ReceivingPlayerKind == EventTextSegmentKind.OwnSlotName ||
-                                          snapshot.FindingPlayerKind == EventTextSegmentKind.OwnSlotName
+                        // Only a hint where one of this group's configured slots is
+                        // the one receiving the item or the one who has to find it
+                        // actually concerns "me" - TrackHints reports every hint in
+                        // the room, including ones between two unrelated players.
+                        ConcernsOwnSlot = snapshot.ReceivingPlayerKind is EventTextSegmentKind.OwnSlotName or EventTextSegmentKind.ConnectedSlotName ||
+                                          snapshot.FindingPlayerKind is EventTextSegmentKind.OwnSlotName or EventTextSegmentKind.ConnectedSlotName
                     });
                 }
 
                 if (syncState.SeenHintIds.Add(snapshot.Key))
                 {
-                    stateChanged = true;
+                    changedStates.Add(syncState);
                 }
             }
 
-            if (stateChanged)
+            foreach (var state in changedStates)
             {
-                _syncStateStore.Save(syncState);
+                _syncStateStore.Save(state);
             }
         });
     }

@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using Archipelago.MultiClient.Net.Enums;
 using Archipelago.MultiClient.Net.Models;
 using Archipolygo.Models;
 using Archipolygo.ViewModels;
@@ -8,17 +10,18 @@ namespace Archipolygo.Services;
 
 /// <summary>
 /// Converts raw data coming from an Archipelago session into <see cref="EventEntry"/>
-/// instances and appends them to a tab's event log. Also tracks, per profile,
-/// which items have already been shown so that items received while offline
-/// can be flagged as new on the next login (see <see cref="ProfileSyncState"/>).
+/// instances and appends them to a group's merged event log. Also tracks, per
+/// slot, which items have already been shown so that items received while
+/// that slot wasn't the leader can be flagged as new the next time it becomes
+/// the leader or gets a catch-up sync (see <see cref="ProfileSyncState"/>).
 /// </summary>
 public interface IMessageHistoryService
 {
-    void HandleConnected(TabViewModel tab);
+    void HandleConnected(GroupViewModel group, SlotProfile slot);
 
-    void HandleDisconnected(TabViewModel tab, string reason);
+    void HandleDisconnected(GroupViewModel group, SlotProfile slot, string reason);
 
-    void HandleError(TabViewModel tab, string message);
+    void HandleError(GroupViewModel group, string message);
 
     /// <summary>
     /// <paramref name="segments"/> carries the same text split into colorable
@@ -26,6 +29,10 @@ public interface IMessageHistoryService
     /// classification is available, in which case the entry falls back to
     /// plain text (see <see cref="EventEntry.EffectiveSegments"/>).
     /// </summary>
+    /// <param name="slotId">
+    /// Null for genuinely room-wide chat (not tied to any one configured
+    /// slot); see <see cref="EventEntry.SlotId"/>.
+    /// </param>
     /// <param name="eventType">
     /// Most messages on the session's <c>MessageLog</c> are plain chat, but
     /// some (item sends, item cheats) describe an item changing hands rather
@@ -34,51 +41,57 @@ public interface IMessageHistoryService
     /// "Chat" - see <see cref="Archipelago.MultiClient.Net.MessageLog.Messages.ItemSendLogMessage"/>.
     /// Defaults to <see cref="EventType.Chat"/>.
     /// </param>
-    void HandleChatMessage(TabViewModel tab, string text, IReadOnlyList<EventTextSegment> segments, EventType eventType = EventType.Chat);
+    void HandleChatMessage(GroupViewModel group, string text, IReadOnlyList<EventTextSegment> segments, Guid? slotId, EventType eventType = EventType.Chat);
 
     /// <summary>
     /// Called with the items that were waiting on the server from before this
-    /// connection attempt (i.e. received while offline, or otherwise not yet
-    /// shown to this client). Appends an <see cref="EventEntry"/> for every
-    /// item beyond the last persisted index, marked as received since the
-    /// last connection, and advances/saves that index. Only meant to be
-    /// called once per successful connect/reconnect, before any live item
-    /// arrives - see <see cref="AdvanceItemSyncState"/> for those.
+    /// connection attempt for <paramref name="slot"/> (i.e. received while it
+    /// wasn't the leader, or otherwise not yet shown). Appends an
+    /// <see cref="EventEntry"/> for every item beyond the last persisted
+    /// index, marked as received since the last connection, and
+    /// advances/saves that index. Only meant to be called once per
+    /// successful connect/catch-up for a slot, before any live item arrives.
     /// </summary>
-    void HandleItemsReceivedSinceLastConnection(TabViewModel tab, ServerProfile profile, ReadOnlyCollection<ItemInfo> allItemsReceived);
+    void HandleItemsReceivedSinceLastConnection(GroupViewModel group, SlotProfile slot, ReadOnlyCollection<ItemInfo> allItemsReceived);
 
     /// <summary>
-    /// Called for items received live while already connected. The normal
-    /// Archipelago "X sent Y to Z" chat-log line (see
+    /// Called for items received live while <paramref name="slot"/> is the
+    /// leader. The normal Archipelago "X sent Y to Z" chat-log line (see
     /// <see cref="HandleChatMessage"/>) already announces these, so this only
-    /// advances/saves the persisted last-seen-item index - it does not append
-    /// another log entry - to make sure a later reconnect doesn't re-announce
-    /// items that were already shown live.
+    /// advances/saves the persisted last-seen-item index for that slot.
     /// </summary>
-    void AdvanceItemSyncState(ServerProfile profile, ReadOnlyCollection<ItemInfo> allItemsReceived);
+    void AdvanceItemSyncState(SlotProfile slot, ReadOnlyCollection<ItemInfo> allItemsReceived);
 
     /// <summary>
     /// Appends the most-recently-arrived item (the last element of
-    /// <paramref name="allItemsReceived"/>) to the tab's received-items panel.
-    /// Called for every <c>ItemReceived</c> event, regardless of whether the
-    /// item is backlog or live.
+    /// <paramref name="allItemsReceived"/>) to the group's received-items
+    /// panel, tagged for <paramref name="slot"/>. Called for every
+    /// <c>ItemReceived</c> event on the leader's own session, regardless of
+    /// whether the item is backlog or live.
     /// </summary>
-    /// <param name="senderName">
-    /// Display name of the player whose location check produced this item,
-    /// resolved by the caller via <c>session.Players.GetPlayerAlias</c>.
-    /// </param>
-    /// <param name="senderKind">
-    /// Segment kind for <paramref name="senderName"/> (own / connected / other slot).
-    /// </param>
-    void TrackReceivedItem(TabViewModel tab, ReadOnlyCollection<ItemInfo> allItemsReceived,
+    void TrackReceivedItem(GroupViewModel group, SlotProfile slot, ReadOnlyCollection<ItemInfo> allItemsReceived,
                            string senderName, EventTextSegmentKind senderKind);
 
     /// <summary>
-    /// Clears the tab's received-items list in preparation for a new
-    /// connection attempt. Should be called before subscribing to
-    /// <c>ItemReceived</c> so that reconnects start with a clean slate
-    /// (the server re-delivers the full history on every connect, so the
-    /// list is rebuilt from scratch each time).
+    /// Appends a single item to the received-items panel for a configured
+    /// slot that is <em>not</em> currently the leader, observed passively
+    /// from the leader's chat/log broadcast (see <see cref="ConnectionManager"/>)
+    /// rather than from that slot's own (nonexistent) session. Deliberately
+    /// does not touch that slot's persisted <c>LastSeenItemIndex</c> - there
+    /// is no authoritative running count to advance outside of a real login
+    /// for that slot, so a later catch-up sync may harmlessly re-show this
+    /// same item as "received since last connection" once more.
     /// </summary>
-    void ClearReceivedItems(TabViewModel tab);
+    void HandleObservedItemForSlot(GroupViewModel group, SlotProfile targetSlot, string itemDisplayName,
+                                    string locationDisplayName, ItemFlags itemFlags,
+                                    string senderName, EventTextSegmentKind senderKind);
+
+    /// <summary>
+    /// Clears only <paramref name="slot"/>'s entries from the group's
+    /// received-items panel, in preparation for a fresh connection attempt
+    /// for that slot (the server re-delivers that slot's full item history on
+    /// every connect, so its portion of the list is rebuilt from scratch each
+    /// time - other slots' entries in the same merged list are untouched).
+    /// </summary>
+    void ClearReceivedItemsForSlot(GroupViewModel group, Guid slotId);
 }

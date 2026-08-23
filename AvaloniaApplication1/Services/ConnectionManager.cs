@@ -1,12 +1,14 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Archipelago.MultiClient.Net;
 using Archipelago.MultiClient.Net.Enums;
 using Archipelago.MultiClient.Net.Helpers;
 using Archipelago.MultiClient.Net.MessageLog.Messages;
+using Archipelago.MultiClient.Net.MessageLog.Parts;
 using Archipelago.MultiClient.Net.Models;
 using Archipolygo.Models;
 using Archipolygo.ViewModels;
@@ -15,82 +17,102 @@ using Avalonia.Threading;
 namespace Archipolygo.Services;
 
 /// <summary>
-/// Owns one <see cref="ArchipelagoSession"/> per connected profile and wires its
-/// events to <see cref="IMessageHistoryService"/> and <see cref="IHintService"/>.
-/// Built to hold several concurrent sessions (see Phase 3). Also handles sending
-/// chat messages (Phase 5) and auto-reconnecting profiles whose
-/// <see cref="ServerProfile.AutoConnect"/> is set after an unexpected disconnect.
+/// Owns, per <see cref="ServerConnectionGroup"/>, at most one persistent
+/// <see cref="ArchipelagoSession"/> at a time (the "leader") plus occasional
+/// short-lived extra sessions used only to catch a non-leader slot up on
+/// backlog (see <see cref="CatchUpSyncAsync"/>). Wires session events to
+/// <see cref="IMessageHistoryService"/> and <see cref="IHintService"/>.
+///
+/// Phase 6 rewrite: previously one <see cref="ArchipelagoSession"/> existed
+/// per profile/tab, all of them independent and simultaneous. Now a server
+/// with several configured slots keeps only one live connection at a time
+/// (the "leader"); switching which slot is the leader is the only action
+/// that opens/closes a socket. Non-leader slots stay current passively:
+/// item-send and hint broadcasts on the leader's session already cover the
+/// whole room (see <see cref="OnLeaderMessageReceived"/> and
+/// <see cref="OnHintsUpdated"/>), and a brief "catch-up" connection (see
+/// <see cref="CatchUpSyncAsync"/>) closes whatever gap accumulated while no
+/// slot in the group was connected at all (app startup, or a slot just
+/// added). See Umsetzungsplan.md, Phase 6, for the full design rationale.
 /// </summary>
 public class ConnectionManager : IConnectionManager
 {
-    // Backoff schedule for auto-reconnect attempts; the last value repeats for further attempts.
+    // Backoff schedule for leader auto-reconnect attempts; the last value repeats for further attempts.
     private static readonly int[] ReconnectDelaysSeconds = { 5, 10, 30 };
 
-    // Minimum time between the *start* of two consecutive connection
-    // attempts (across all tabs), so opening the app with several
-    // AutoConnect tabs - or several tabs auto-reconnecting at once - doesn't
-    // hit the Archipelago server with a burst of simultaneous handshakes.
-    // See EnqueueConnect/ProcessConnectQueueAsync.
-    private static readonly TimeSpan ConnectAttemptSpacing = TimeSpan.FromSeconds(3);
+    // Spacing between the *start* of two consecutive groups' startup connect
+    // attempts, so opening the app with several AutoConnect servers doesn't
+    // hit them all with a burst of simultaneous handshakes. See
+    // MainWindowViewModel, which awaits InitializeGroupAsync per group with
+    // this delay between calls.
+    public static readonly TimeSpan StartupGroupSpacing = TimeSpan.FromSeconds(3);
 
-    // How long after a successful login to keep treating newly received items
-    // as connect-time backlog rather than as live receipts. The server sends
-    // the initial ReceivedItems backlog as a separate WebSocket message after
-    // the Connected packet, so LoginAsync's task can resolve (and our async
-    // continuation can run) before all backlog items have fired ItemReceived.
-    // Setting hasAnnouncedConnection = true immediately would race against the
-    // socket thread still delivering those items - the continuation could flip
-    // the flag between two consecutive ItemReceived calls inside the same
-    // PerformResynchronization burst, silently suppressing everything after the
-    // first item. A brief delay ensures the entire synchronous burst finishes
-    // before any item is treated as live. Two seconds is generous; in practice
-    // the burst completes in milliseconds.
+    // How long to keep treating newly received items as backlog rather than
+    // live receipts after a successful leader login (see original rationale
+    // below), and how long a catch-up session waits after login before
+    // closing itself, to make sure the backlog burst has fully landed.
+    //
+    // The server sends the initial ReceivedItems backlog as a separate
+    // WebSocket message after the Connected packet, so LoginAsync's task can
+    // resolve (and our async continuation can run) before all backlog items
+    // have fired ItemReceived. Setting hasAnnouncedConnection = true
+    // immediately would race against the socket thread still delivering
+    // those items - the continuation could flip the flag between two
+    // consecutive ItemReceived calls inside the same burst, silently
+    // suppressing everything after the first item. A brief delay ensures the
+    // entire synchronous burst finishes first. Two seconds is generous; in
+    // practice the burst completes in milliseconds.
     private static readonly TimeSpan ItemBacklogGracePeriod = TimeSpan.FromSeconds(2);
 
     // The Archipelago network-protocol version this client implements (used
     // in the login handshake) - not this app's own version number.
     private static readonly Version ArchipelagoProtocolVersion = new(0, 6, 7);
 
+    // How many times ConnectSlotSessionAsync will attempt a connect+login
+    // that keeps failing with what looks like a transient hiccup (see
+    // IsTransientConnectFailure) before giving up and reporting it as a real
+    // failure - 1 initial attempt plus this many retries.
+    private const int MaxTransientConnectRetries = 2;
+
+    // Pause between a transient-looking failed attempt and the next retry -
+    // long enough to let a one-off network/timing blip clear, short enough
+    // that a genuinely broken connection still fails within a few seconds.
+    private static readonly TimeSpan TransientConnectRetryDelay = TimeSpan.FromSeconds(2);
+
     private readonly IMessageHistoryService _messageHistoryService;
     private readonly IHintService _hintService;
+
+    // Keyed by SlotProfile.Id. A session exists here while that slot has ANY
+    // active connection - as the group's leader, or as a short-lived
+    // catch-up/switch-target session in flight. At most two entries can
+    // exist for the same group at once (old leader + new leader during a
+    // switch, or leader + one catch-up dip), and only ever briefly.
     private readonly ConcurrentDictionary<Guid, ArchipelagoSession> _sessions = new();
+
+    // GroupId -> the SlotProfile.Id that currently holds the persistent
+    // leader connection. Absent = the group has no leader right now.
+    private readonly ConcurrentDictionary<Guid, Guid> _leaderSlotByGroup = new();
+
+    // GroupId -> a lock serializing SwitchLeaderAsync/DisconnectGroupAsync
+    // for that group, so a switch and a disconnect (or two switches) can
+    // never race each other for the same server.
+    private readonly ConcurrentDictionary<Guid, SemaphoreSlim> _groupLocks = new();
+
     private readonly ConcurrentDictionary<Guid, CancellationTokenSource> _reconnectTokens = new();
 
-    // Serializes connection attempts across all tabs with ConnectAttemptSpacing
-    // between the start of one and the start of the next. Guarded by _queueLock.
-    private readonly List<TabViewModel> _connectQueue = new();
-    private readonly object _queueLock = new();
-    private bool _queueRunning;
-
-    // Marks a profile whose queued connect attempt should be skipped without
-    // ever starting a handshake, because the user disconnected the tab while
-    // it was still waiting its turn (see DisconnectAsync). Cleared again at
-    // the start of the next ConnectAsync call for that profile.
-    private readonly ConcurrentDictionary<Guid, bool> _queueSkip = new();
-
-    // Present for a profile only while ConnectNowAsync's handshake
-    // (ConnectAsync/LoginAsync) is actually in flight for it. Lets
-    // DisconnectAsync interrupt that wait immediately so the rest of the
-    // connect queue isn't blocked behind a connection nobody wants anymore -
-    // the next queued slot is "brought to the front" right away instead of
-    // waiting for this attempt to time out on its own.
-    private readonly ConcurrentDictionary<Guid, TaskCompletionSource<bool>> _cancellationSignals = new();
-
-    // Mirrors _sessions' keys while connected; used to find other tabs' own
-    // slot ids on the same Archipelago server instance (same host+port), so
-    // incoming chat messages can color "also tracked by this app" names
-    // differently from other multiworld players (see EventSegmentBuilder).
-    private readonly ConcurrentDictionary<Guid, ServerProfile> _sessionProfiles = new();
-
-    // Set right before a deliberate DisconnectAsync and only cleared again by a
-    // subsequent explicit ConnectAsync (Connect button, duplicate, startup
-    // auto-connect, ...). Deliberately NOT consumed/removed by OnSocketClosed:
-    // some socket implementations fire SocketClosed more than once for a single
-    // deliberate close (e.g. a graceful-close event followed by the underlying
-    // transport actually dropping), and a one-shot flag would only suppress the
-    // first of those, letting AutoConnect reconnect on the second. Used as a set
-    // (the bool value is always true); presence means "stay disconnected".
+    // Set right before a deliberate DisconnectGroupAsync and only cleared
+    // again by a subsequent explicit SwitchLeaderAsync (account dropdown,
+    // startup). Deliberately not consumed/removed by OnSocketClosed, mirroring
+    // the pre-Phase-6 design: some socket implementations fire SocketClosed
+    // more than once for a single deliberate close, and a one-shot flag would
+    // only suppress the first of those.
     private readonly ConcurrentDictionary<Guid, bool> _autoReconnectSuppressed = new();
+
+    /// <inheritdoc/>
+    public event Action<GroupViewModel>? GroupPersistNeeded;
+
+    /// <inheritdoc/>
+    public event Action<GroupViewModel, SlotProfile>? SlotInitialSyncCompleted;
 
     public ConnectionManager(IMessageHistoryService messageHistoryService, IHintService hintService)
     {
@@ -98,237 +120,461 @@ public class ConnectionManager : IConnectionManager
         _hintService = hintService;
     }
 
-    public Task ConnectAsync(TabViewModel tab)
+    public async Task SwitchLeaderAsync(GroupViewModel group, SlotProfile targetSlot)
     {
-        var profile = tab.ServerProfile;
-
-        if (_sessions.ContainsKey(profile.Id))
+        var groupId = group.Group.Id;
+        var gate = _groupLocks.GetOrAdd(groupId, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync();
+        try
         {
-            return Task.CompletedTask;
-        }
-
-        lock (_queueLock)
-        {
-            // Already waiting in the queue or actively connecting - nothing more to do.
-            if (_connectQueue.Contains(tab) || _cancellationSignals.ContainsKey(profile.Id))
+            if (_leaderSlotByGroup.TryGetValue(groupId, out var currentLeaderId) && currentLeaderId == targetSlot.Id)
             {
-                return Task.CompletedTask;
+                return; // already the leader - nothing to do.
             }
-        }
 
-        // A manual (re-)connect attempt always takes over from any pending
-        // auto-reconnect loop for this profile, and lifts a previous manual
-        // disconnect's suppression so AutoConnect can take effect again on
-        // the next unexpected drop.
-        CancelPendingReconnect(profile.Id);
-        _autoReconnectSuppressed.TryRemove(profile.Id, out _);
-        _queueSkip.TryRemove(profile.Id, out _);
+            // A manual switch always wins over a pending auto-reconnect loop
+            // for this group, and lifts a previous manual disconnect's
+            // suppression so auto-reconnect can take effect again later.
+            CancelPendingReconnect(groupId);
+            _autoReconnectSuppressed.TryRemove(groupId, out _);
 
-        EnqueueConnect(tab);
-        return Task.CompletedTask;
-    }
+            SetConnectionState(group, ConnectionState.Connecting);
 
-    /// <summary>
-    /// Adds <paramref name="tab"/> to the connect queue (see
-    /// <see cref="ConnectAttemptSpacing"/>) and starts
-    /// <see cref="ProcessConnectQueueAsync"/> if it isn't already running.
-    /// </summary>
-    private void EnqueueConnect(TabViewModel tab)
-    {
-        SetConnectionState(tab, ConnectionState.Queued);
+            // Connect the new leader FIRST, and only close the old one once
+            // that succeeds - a deliberate brief overlap (both sessions are
+            // live for a moment) so the switch has no visible gap, at the
+            // cost of a chat message that arrives in exactly that window
+            // possibly not showing up in the log (see Umsetzungsplan.md).
+            var newSession = await ConnectSlotSessionAsync(group, targetSlot, isLeaderSession: true);
 
-        lock (_queueLock)
-        {
-            _connectQueue.Add(tab);
-
-            if (_queueRunning)
+            if (newSession is null)
             {
+                // Already reported via _messageHistoryService.HandleError and
+                // ConnectionState.Error inside ConnectSlotSessionAsync. The
+                // previous leader (if any) was never touched, so restore the
+                // dropdown/leader bookkeeping to reflect that instead of
+                // leaving it pointing at a slot that never actually connected.
+                var stillLeaderId = _leaderSlotByGroup.TryGetValue(groupId, out var stillLeader) ? (Guid?)stillLeader : null;
+                var stillLeaderSlot = stillLeaderId is null ? null : FindSlot(group, stillLeaderId.Value);
+                Dispatcher.UIThread.Post(() => group.SetLeaderStateWithoutTriggeringSwitch(stillLeaderId, stillLeaderSlot));
                 return;
             }
 
-            _queueRunning = true;
-        }
+            var previousLeaderId = _leaderSlotByGroup.TryGetValue(groupId, out var prev) ? (Guid?)prev : null;
+            _leaderSlotByGroup[groupId] = targetSlot.Id;
+            Dispatcher.UIThread.Post(() => group.SetLeaderStateWithoutTriggeringSwitch(targetSlot.Id, targetSlot));
+            SetConnectionState(group, ConnectionState.Connected);
 
-        _ = ProcessConnectQueueAsync();
-    }
-
-    /// <summary>
-    /// Processes the connect queue one tab at a time, waiting
-    /// <see cref="ConnectAttemptSpacing"/> between the end of one attempt and
-    /// the start of the next (but never after the last queued attempt).
-    /// </summary>
-    private async Task ProcessConnectQueueAsync()
-    {
-        while (true)
-        {
-            TabViewModel next;
-            lock (_queueLock)
+            // A successful leader connection - by any means: the account
+            // dropdown, a brand-new server's first slot, or an
+            // unexpected-drop auto-reconnect - is itself what should bring
+            // this group back at the next app start, so it's remembered
+            // here rather than requiring a separate "Auto-connect" opt-in.
+            // Posted to the UI thread like every other group mutation above,
+            // both because AutoConnect/PreferredLeaderSlotId are themselves
+            // observable properties and so that GroupPersistNeeded's
+            // subscriber can safely enumerate the Groups collection.
+            if (!group.Group.AutoConnect || group.Group.PreferredLeaderSlotId != targetSlot.Id)
             {
-                if (_connectQueue.Count == 0)
+                Dispatcher.UIThread.Post(() =>
                 {
-                    _queueRunning = false;
-                    return;
-                }
-
-                next = _connectQueue[0];
-                _connectQueue.RemoveAt(0);
+                    group.Group.AutoConnect = true;
+                    group.Group.PreferredLeaderSlotId = targetSlot.Id;
+                    GroupPersistNeeded?.Invoke(group);
+                });
             }
 
-            // Disconnected while still waiting its turn - skip it entirely;
-            // no connection was attempted, so no spacing delay is charged
-            // for it either, and the next queued slot is reached right away.
-            if (_queueSkip.TryRemove(next.ServerProfile.Id, out _))
+            if (previousLeaderId is not null && previousLeaderId != targetSlot.Id &&
+                _sessions.TryRemove(previousLeaderId.Value, out var oldSession))
+            {
+                var previousSlot = FindSlot(group, previousLeaderId.Value);
+                if (previousSlot is not null)
+                {
+                    _messageHistoryService.HandleDisconnected(group, previousSlot, "switched account");
+                }
+
+                TryCloseSocket(oldSession);
+            }
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    public async Task DisconnectGroupAsync(GroupViewModel group)
+    {
+        var groupId = group.Group.Id;
+        var gate = _groupLocks.GetOrAdd(groupId, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync();
+        try
+        {
+            CancelPendingReconnect(groupId);
+            _autoReconnectSuppressed[groupId] = true;
+
+            // A manual disconnect sticks across an app restart too, not just
+            // for the rest of this run - otherwise the group would just
+            // reconnect the next time the app starts, which is exactly what
+            // AutoConnect/PreferredLeaderSlotId being set means. Posted to
+            // the UI thread for the same reasons as in SwitchLeaderAsync.
+            if (group.Group.AutoConnect)
+            {
+                Dispatcher.UIThread.Post(() =>
+                {
+                    group.Group.AutoConnect = false;
+                    GroupPersistNeeded?.Invoke(group);
+                });
+            }
+
+            if (!_leaderSlotByGroup.TryRemove(groupId, out var leaderSlotId))
+            {
+                SetConnectionState(group, ConnectionState.Disconnected);
+                Dispatcher.UIThread.Post(() => group.SetLeaderStateWithoutTriggeringSwitch(null, null));
+                return;
+            }
+
+            if (_sessions.TryRemove(leaderSlotId, out var session))
+            {
+                TryCloseSocket(session);
+            }
+
+            var leaderSlot = FindSlot(group, leaderSlotId);
+            if (leaderSlot is not null)
+            {
+                _messageHistoryService.HandleDisconnected(group, leaderSlot, "disconnected by user");
+            }
+
+            SetConnectionState(group, ConnectionState.Disconnected);
+            Dispatcher.UIThread.Post(() => group.SetLeaderStateWithoutTriggeringSwitch(null, null));
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    public async Task CatchUpSyncAsync(GroupViewModel group, SlotProfile slot)
+    {
+        if (_leaderSlotByGroup.TryGetValue(group.Group.Id, out var leaderId) && leaderId == slot.Id)
+        {
+            return; // already the leader - already fully live, nothing to catch up.
+        }
+
+        if (_sessions.ContainsKey(slot.Id))
+        {
+            return; // a connection for this slot is already in flight/open.
+        }
+
+        var session = await ConnectSlotSessionAsync(group, slot, isLeaderSession: false);
+        if (session is null)
+        {
+            return;
+        }
+
+        // Give the backlog burst (items delivered just after login, and the
+        // first TrackHints callback) a moment to fully land before tearing
+        // this temporary session back down.
+        await Task.Delay(ItemBacklogGracePeriod);
+
+        if (_sessions.TryRemove(slot.Id, out var stillTracked) && stillTracked == session)
+        {
+            TryCloseSocket(session);
+        }
+    }
+
+    public async Task InitializeGroupAsync(GroupViewModel group)
+    {
+        // Tracks which slots have already had SlotInitialSyncCompleted
+        // raised for them, so each configured slot is reported exactly
+        // once - whichever of the two paths below actually finishes it.
+        var reportedSlotIds = new HashSet<Guid>();
+
+        if (group.Group.AutoConnect && group.Group.Slots.Count > 0)
+        {
+            var preferredId = group.Group.PreferredLeaderSlotId;
+            var startupLeader = (preferredId is not null ? FindSlot(group, preferredId.Value) : null)
+                                 ?? group.Group.Slots[0];
+
+            await SwitchLeaderAsync(group, startupLeader);
+
+            // Only report completion here if the leader connect actually
+            // stuck. If it failed, fall through to the loop below instead -
+            // its existing "is this slot the current leader" check won't
+            // match, so it gives that same slot a second attempt via a
+            // plain catch-up connection, and reports completion whenever
+            // that resolves (success or not).
+            if (_leaderSlotByGroup.TryGetValue(group.Group.Id, out var leaderId) && leaderId == startupLeader.Id)
+            {
+                reportedSlotIds.Add(startupLeader.Id);
+                RaiseSlotInitialSyncCompleted(group, startupLeader);
+            }
+        }
+
+        foreach (var slot in group.Group.Slots.ToList())
+        {
+            if (reportedSlotIds.Contains(slot.Id))
             {
                 continue;
             }
 
-            await ConnectNowAsync(next);
-
-            bool moreQueued;
-            lock (_queueLock)
+            if (_leaderSlotByGroup.TryGetValue(group.Group.Id, out var leaderId) && leaderId == slot.Id)
             {
-                moreQueued = _connectQueue.Count > 0;
+                continue;
             }
 
-            if (moreQueued)
+            await CatchUpSyncAsync(group, slot);
+            RaiseSlotInitialSyncCompleted(group, slot);
+        }
+    }
+
+    private void RaiseSlotInitialSyncCompleted(GroupViewModel group, SlotProfile slot) =>
+        Dispatcher.UIThread.Post(() => SlotInitialSyncCompleted?.Invoke(group, slot));
+
+    public async Task<IReadOnlyList<Archipelago.MultiClient.Net.Helpers.PlayerInfo>> GetRoomPlayersAsync(GroupViewModel group)
+    {
+        var groupId = group.Group.Id;
+
+        // Prefer an already-open session (the leader, or a catch-up dip
+        // already in flight) over opening a redundant extra connection just
+        // to read the roster.
+        if (_leaderSlotByGroup.TryGetValue(groupId, out var leaderId) && _sessions.TryGetValue(leaderId, out var leaderSession))
+        {
+            return FilterToRealPlayers(leaderSession.Players.AllPlayers);
+        }
+
+        foreach (var slot in group.Group.Slots)
+        {
+            if (_sessions.TryGetValue(slot.Id, out var existingSession))
             {
-                await Task.Delay(ConnectAttemptSpacing);
+                return FilterToRealPlayers(existingSession.Players.AllPlayers);
             }
         }
+
+        // Nothing connected right now - open a brief temporary session using
+        // whichever slot is already configured, purely to read the room's
+        // current player list, then close it again immediately. Has the same
+        // side effects as a catch-up sync for that one slot (harmless/
+        // desirable on its own); it just doesn't wait out the full backlog
+        // grace period before tearing down again.
+        var probeSlot = group.Group.Slots.FirstOrDefault();
+        if (probeSlot is null)
+        {
+            return Array.Empty<Archipelago.MultiClient.Net.Helpers.PlayerInfo>();
+        }
+
+        var session = await ConnectSlotSessionAsync(group, probeSlot, isLeaderSession: false);
+        if (session is null)
+        {
+            return Array.Empty<Archipelago.MultiClient.Net.Helpers.PlayerInfo>();
+        }
+
+        var players = FilterToRealPlayers(session.Players.AllPlayers);
+
+        if (_sessions.TryRemove(probeSlot.Id, out var stillTracked) && stillTracked == session)
+        {
+            TryCloseSocket(session);
+        }
+
+        return players;
     }
 
     /// <summary>
-    /// Performs the actual connection attempt for <paramref name="tab"/>:
-    /// opens the websocket and logs in. Only ever called from
-    /// <see cref="ProcessConnectQueueAsync"/>, one tab at a time.
+    /// Drops entries from a room's player list that can't actually be
+    /// configured as a slot here: slot 0, reserved by the Archipelago
+    /// protocol for the server process itself rather than any real player
+    /// (commonly surfaced as a player literally named "Server"), and
+    /// item-link groups (<see cref="Archipelago.MultiClient.Net.Helpers.PlayerInfo.IsGroup"/>) -
+    /// virtual meta-slots representing several real slots' linked items,
+    /// which can't be logged into on their own. Without this, both used to
+    /// show up as pickable "players" in the "Add slot" dialog, and once
+    /// added that way, as a bogus "Server"/group entry in the account
+    /// dropdown and slot filters too.
     /// </summary>
-    private async Task ConnectNowAsync(TabViewModel tab)
+    private static IReadOnlyList<Archipelago.MultiClient.Net.Helpers.PlayerInfo> FilterToRealPlayers(
+        IEnumerable<Archipelago.MultiClient.Net.Helpers.PlayerInfo> players) =>
+        players.Where(p => p.Slot != 0 && !p.IsGroup).ToList();
+
+    public Task SendMessageAsync(GroupViewModel group, string text)
     {
-        var profile = tab.ServerProfile;
-
-        // Registered for the duration of the handshake so DisconnectAsync can
-        // interrupt the await below without waiting for the server to
-        // actually respond (see field comment on _cancellationSignals).
-        var cancelTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _cancellationSignals[profile.Id] = cancelTcs;
-
-        SetConnectionState(tab, ConnectionState.Connecting);
-
-        ArchipelagoSession session;
-        try
+        if (!string.IsNullOrWhiteSpace(text) &&
+            _leaderSlotByGroup.TryGetValue(group.Group.Id, out var leaderId) &&
+            _sessions.TryGetValue(leaderId, out var session))
         {
-            session = ArchipelagoSessionFactory.CreateSession(profile.Host, profile.Port);
-        }
-        catch (Exception ex)
-        {
-            _cancellationSignals.TryRemove(profile.Id, out _);
-            SetConnectionState(tab, ConnectionState.Error);
-            _messageHistoryService.HandleError(tab, $"Could not create session: {ex.Message}");
-            return;
+            session.Say(text);
         }
 
-        // Set to true once this connection reaches ConnectionState.Connected
-        // (see below); read by the ItemReceived handler so that the backlog
-        // delivered while logging in is shown as "received since last
-        // connection", while items arriving later, truly live, are not
-        // logged again here - the "X sent Y to Z" chat-log line below
-        // already announces those. Captured by reference, so the handler
-        // always sees the up-to-date value.
-        var hasAnnouncedConnection = false;
-
-        // Subscriptions must happen before connecting so that no early items/messages are missed.
-        session.Socket.SocketClosed += reason => OnSocketClosed(tab, profile.Id, reason);
-        session.Socket.ErrorReceived += (_, message) => _messageHistoryService.HandleError(tab, message);
-        session.MessageLog.OnMessageReceived += logMessage => _messageHistoryService.HandleChatMessage(
-            tab,
-            logMessage.ToString(),
-            EventSegmentBuilder.BuildChatSegments(logMessage, GetOtherConnectedSlotIds(profile)),
-            // "X sent Y to Z" (and the cheat-console/hint-completion variants,
-            // which derive from the same base class) describe an item
-            // changing hands, not something someone typed - file those under
-            // the "Item" log filter rather than "Chat".
-            logMessage is ItemSendLogMessage ? EventType.ItemReceived : EventType.Chat);
-        // Clear the received-items list before subscribing. The server re-delivers
-        // the full item history on every connect (via PerformResynchronization),
-        // so we rebuild from scratch each time. Dispatching before the subscription
-        // ensures the clear runs on the UI thread before any item-added posts
-        // arrive (the Dispatcher queue is FIFO and nothing is subscribed yet).
-        _messageHistoryService.ClearReceivedItems(tab);
-
-        session.Items.ItemReceived += helper => OnItemReceived(tab, profile, helper, hasAnnouncedConnection);
-
-        try
-        {
-            var connectTask = session.ConnectAsync();
-            if (await Task.WhenAny(connectTask, cancelTcs.Task) == cancelTcs.Task)
-            {
-                // Disconnected while still waiting for the server's RoomInfo -
-                // don't keep the queue waiting on it; drop the socket once the
-                // call does eventually return (or right away if it already has).
-                _ = connectTask.ContinueWith(_ => TryCloseSocket(session), TaskScheduler.Default);
-                return;
-            }
-
-            await connectTask; // surfaces a connect-time exception, if any
-
-            var loginTask = session.LoginAsync(
-                string.Empty, // generic tracker client: no specific game implementation
-                profile.SlotName,
-                ItemsHandlingFlags.AllItems,
-                ArchipelagoProtocolVersion,
-                tags: new[] { "Tracker", "AP", "Poly" },
-                password: string.IsNullOrEmpty(profile.Password) ? null : profile.Password);
-
-            if (await Task.WhenAny(loginTask, cancelTcs.Task) == cancelTcs.Task)
-            {
-                _ = loginTask.ContinueWith(_ => TryCloseSocket(session), TaskScheduler.Default);
-                return;
-            }
-
-            var loginResult = await loginTask;
-
-            if (loginResult is not LoginSuccessful)
-            {
-                var failure = (LoginFailure)loginResult;
-                var errorText = string.Join("; ", failure.Errors);
-                SetConnectionState(tab, ConnectionState.Error);
-                _messageHistoryService.HandleError(tab, $"Login failed: {errorText}");
-                return;
-            }
-        }
-        catch (Exception ex)
-        {
-            SetConnectionState(tab, ConnectionState.Error);
-            _messageHistoryService.HandleError(tab, $"Connection failed: {ex.Message}");
-            return;
-        }
-        finally
-        {
-            _cancellationSignals.TryRemove(profile.Id, out _);
-        }
-
-        _sessions[profile.Id] = session;
-        _sessionProfiles[profile.Id] = profile;
-
-        // Registered after a successful login: fires immediately with the
-        // currently unlocked hints, then again on every later change.
-        session.Hints.TrackHints(
-            hints => OnHintsUpdated(tab, profile, session, hints),
-            retrieveCurrentlyUnlockedHints: true);
-
-        SetConnectionState(tab, ConnectionState.Connected);
-        _messageHistoryService.HandleConnected(tab);
-
-        // Do NOT flip hasAnnouncedConnection synchronously here. The server
-        // delivers the initial ReceivedItems backlog as a separate message
-        // after Connected, so the socket thread may still be mid-burst inside
-        // PerformResynchronization when our async continuation resumes. If we
-        // set the flag now, items firing on the socket thread after the first
-        // one see isLive=true and get silently swallowed (index advances, no
-        // log entry). The grace period lets the synchronous burst finish first.
-        _ = Task.Delay(ItemBacklogGracePeriod)
-                .ContinueWith(_ => hasAnnouncedConnection = true, TaskScheduler.Default);
+        return Task.CompletedTask;
     }
+
+    /// <summary>
+    /// Opens and logs in a session for <paramref name="slot"/> and wires up
+    /// its event handlers. Used for both leader connections (which stay open
+    /// and get the chat/log broadcast subscription) and catch-up dips
+    /// (<paramref name="isLeaderSession"/> = false, torn down again by the
+    /// caller shortly after this returns). Returns null (having already
+    /// reported the failure) if the connection or login fails.
+    /// </summary>
+    private async Task<ArchipelagoSession?> ConnectSlotSessionAsync(GroupViewModel group, SlotProfile slot, bool isLeaderSession)
+    {
+        // Up to MaxTransientConnectRetries extra attempts, each with a
+        // brand-new session, if the connect/login throws something that
+        // looks like a transient hiccup rather than a real rejection - see
+        // IsTransientConnectFailure. This is what covers "Connection failed
+        // for X: A task was canceled" when switching leader shortly after
+        // another slot on the same server just reconnected: the exact root
+        // cause was never fully pinned down, but a canceled/timed-out
+        // handshake is safe to just retry rather than surfacing a scary
+        // error for what's usually a one-off blip. A genuine login
+        // rejection (bad password etc.) never throws - it comes back as a
+        // LoginFailure result instead, handled below and never retried.
+        for (var attempt = 1; attempt <= 1 + MaxTransientConnectRetries; attempt++)
+        {
+            ArchipelagoSession session;
+            try
+            {
+                session = ArchipelagoSessionFactory.CreateSession(group.Group.Host, group.Group.Port);
+            }
+            catch (Exception ex)
+            {
+                if (isLeaderSession)
+                {
+                    SetConnectionState(group, ConnectionState.Error);
+                }
+
+                _messageHistoryService.HandleError(group, $"Could not create session for {slot.SlotName}: {ex.Message}");
+                return null;
+            }
+
+            // Set to true once the backlog grace period has elapsed after a
+            // successful leader login; read by OnItemReceived so the backlog
+            // delivered while logging in is shown as "received since last
+            // connection", while items arriving later, truly live, are not
+            // logged again there - the "X sent Y to Z" chat-log line already
+            // announces those. Captured by reference, so the handler always sees
+            // the up-to-date value. Irrelevant for catch-up sessions (isLeaderSession
+            // false), which always treat everything as backlog - see OnItemReceived.
+            // Declared fresh inside the loop body each attempt, so a retry's
+            // closures capture that attempt's own flag, not a stale one from
+            // a previous, abandoned session.
+            var hasAnnouncedConnection = false;
+
+            session.Socket.SocketClosed += reason => OnSocketClosed(group, slot, reason);
+            session.Socket.ErrorReceived += (_, message) => _messageHistoryService.HandleError(group, $"[{slot.SlotName}] {message}");
+
+            if (isLeaderSession)
+            {
+                // Only the leader's session stays open long enough for this to
+                // matter - see OnLeaderMessageReceived for how non-leader slots
+                // stay current passively from this same subscription.
+                session.MessageLog.OnMessageReceived += logMessage => OnLeaderMessageReceived(group, session, slot, logMessage);
+            }
+
+            // Clear this slot's portion of the received-items panel before
+            // subscribing. The server re-delivers the full item history on every
+            // connect (via PerformResynchronization), so this slot's entries are
+            // rebuilt from scratch each time; other slots' entries in the same
+            // merged list are untouched. Dispatching before the subscription
+            // ensures the clear runs on the UI thread before any item-added posts
+            // arrive for this slot.
+            _messageHistoryService.ClearReceivedItemsForSlot(group, slot.Id);
+
+            session.Items.ItemReceived += helper => OnItemReceived(group, slot, session, helper, isLeaderSession, hasAnnouncedConnection);
+
+            try
+            {
+                await session.ConnectAsync();
+
+                // Most rooms share one password for every slot (group.Group.Password);
+                // slot.Password is only set when a slot was added with an explicit
+                // override for a custom-hosted room that uses a different
+                // password per slot (see Views/ConnectionEditorWindow "Add slot").
+                var effectivePassword = !string.IsNullOrEmpty(slot.Password) ? slot.Password : group.Group.Password;
+
+                var loginResult = await session.LoginAsync(
+                    string.Empty, // generic tracker client: no specific game implementation
+                    slot.SlotName,
+                    ItemsHandlingFlags.AllItems,
+                    ArchipelagoProtocolVersion,
+                    tags: new[] { "Tracker", "AP", "Poly" },
+                    password: string.IsNullOrEmpty(effectivePassword) ? null : effectivePassword);
+
+                if (loginResult is not LoginSuccessful)
+                {
+                    var failure = (LoginFailure)loginResult;
+                    var errorText = string.Join("; ", failure.Errors);
+                    if (isLeaderSession)
+                    {
+                        SetConnectionState(group, ConnectionState.Error);
+                    }
+
+                    _messageHistoryService.HandleError(group, $"Login failed for {slot.SlotName}: {errorText}");
+                    TryCloseSocket(session);
+                    return null; // a real rejection, not a transient hiccup - never retried.
+                }
+            }
+            catch (Exception ex) when (IsTransientConnectFailure(ex) && attempt <= MaxTransientConnectRetries)
+            {
+                // This attempt's session is now in an indeterminate state -
+                // discard it and retry with a completely fresh one rather
+                // than reusing it.
+                TryCloseSocket(session);
+                _messageHistoryService.HandleError(
+                    group,
+                    $"Connecting {slot.SlotName} hit a transient error ({ex.GetType().Name}), retrying ({attempt}/{MaxTransientConnectRetries})...");
+                await Task.Delay(TransientConnectRetryDelay);
+                continue;
+            }
+            catch (Exception ex)
+            {
+                if (isLeaderSession)
+                {
+                    SetConnectionState(group, ConnectionState.Error);
+                }
+
+                _messageHistoryService.HandleError(group, $"Connection failed for {slot.SlotName}: {ex.Message}");
+                TryCloseSocket(session);
+                return null;
+            }
+
+            _sessions[slot.Id] = session;
+
+            // Fires immediately with the currently unlocked hints (room-wide -
+            // see OnHintsUpdated), then again on every later change. Subscribing
+            // this for catch-up sessions too is cheap and correct even though
+            // the leader's own subscription already covers the same ground
+            // whenever a leader exists.
+            session.Hints.TrackHints(
+                hints => OnHintsUpdated(group, session, hints),
+                retrieveCurrentlyUnlockedHints: true);
+
+            if (isLeaderSession)
+            {
+                _messageHistoryService.HandleConnected(group, slot);
+            }
+
+            _ = Task.Delay(ItemBacklogGracePeriod)
+                    .ContinueWith(_ => hasAnnouncedConnection = true, TaskScheduler.Default);
+
+            return session;
+        }
+
+        // Unreachable: every loop iteration either returns or, on its very
+        // last allowed attempt, falls into the plain catch block above
+        // (whose exception filter requires attempt <= MaxTransientConnectRetries)
+        // and returns null instead of looping again.
+        return null;
+    }
+
+    /// <summary>
+    /// Exceptions that look like a transient network/timing hiccup - worth
+    /// silently retrying with a fresh session - rather than a real
+    /// connection rejection. <see cref="TaskCanceledException"/> in
+    /// particular is what the underlying library throws for the
+    /// "A task was canceled" failure seen when switching leader shortly
+    /// after another slot on the same server just reconnected.
+    /// </summary>
+    private static bool IsTransientConnectFailure(Exception ex) =>
+        ex is TaskCanceledException or OperationCanceledException or TimeoutException;
 
     private static void TryCloseSocket(ArchipelagoSession session)
     {
@@ -338,112 +584,65 @@ public class ConnectionManager : IConnectionManager
         }
         catch
         {
-            // Best-effort cleanup of an attempt that was already cancelled; nothing more to do.
+            // Best-effort cleanup; nothing more to do.
         }
     }
 
-    public Task DisconnectAsync(TabViewModel tab)
+    private void OnSocketClosed(GroupViewModel group, SlotProfile slot, string reason)
     {
-        var profileId = tab.ServerProfile.Id;
-        CancelPendingReconnect(profileId);
-
-        // Stays set (see field comment) until the user explicitly reconnects,
-        // so AutoConnect cannot bring this profile back by itself.
-        _autoReconnectSuppressed[profileId] = true;
-
-        // No-op unless this tab is actually still sitting in the connect
-        // queue when ProcessConnectQueueAsync reaches it; cleared again at
-        // the start of the next ConnectAsync call either way.
-        _queueSkip[profileId] = true;
-
-        if (_cancellationSignals.TryGetValue(profileId, out var cancelTcs))
-        {
-            // A handshake is currently in flight for this slot - stop the
-            // queue from waiting on it; see field comment on _cancellationSignals.
-            cancelTcs.TrySetResult(true);
-        }
-
-        if (_sessions.TryRemove(profileId, out var session))
-        {
-            _sessionProfiles.TryRemove(profileId, out _);
-            session.Socket.DisconnectAsync();
-
-            // Used to rely on the eventual SocketClosed event to move the tab
-            // to Disconnected and log it - but OnSocketClosed now checks
-            // whether the profile is still present in _sessions (added so
-            // cancelled in-flight handshakes that never finished logging in
-            // don't get a spurious "Disconnected" entry, see its own
-            // comment), and it no longer is by the time the socket actually
-            // finishes closing, since it was just removed above. Without
-            // this, a manual disconnect of an actually-connected tab would
-            // never visibly resolve on its own - the tab would stay stuck
-            // showing "Connected" until a second Disconnect click happened to
-            // hit the no-session fallback below. Do it here instead, right
-            // away; the later SocketClosed firing for this same profile is
-            // now a no-op (wasConnected will correctly be false for it).
-            SetConnectionState(tab, ConnectionState.Disconnected);
-            _messageHistoryService.HandleDisconnected(tab, "disconnected by user");
-            return Task.CompletedTask;
-        }
-
-        SetConnectionState(tab, ConnectionState.Disconnected);
-        return Task.CompletedTask;
-    }
-
-    public Task SendMessageAsync(TabViewModel tab, string text)
-    {
-        if (!string.IsNullOrWhiteSpace(text) && _sessions.TryGetValue(tab.ServerProfile.Id, out var session))
-        {
-            session.Say(text);
-        }
-
-        return Task.CompletedTask;
-    }
-
-    private void OnSocketClosed(TabViewModel tab, Guid profileId, string reason)
-    {
-        var wasConnected = _sessions.TryRemove(profileId, out _);
-        _sessionProfiles.TryRemove(profileId, out _);
-
+        var wasConnected = _sessions.TryRemove(slot.Id, out _);
         if (!wasConnected)
         {
-            // Either the handshake (ConnectAsync/LoginAsync) was still
-            // pending when the socket closed - e.g. a cancelled queued
-            // attempt being torn down, or the server refusing the connection
-            // outright - or this is the deliberate close started by
-            // DisconnectAsync for an already-connected tab, which already
-            // removed the profile from _sessions and handled the
-            // state/logging itself right away (see its comment) rather than
-            // waiting for this event. Either way, nothing left to do: a
-            // handshake failure is already reported via ConnectNowAsync's own
-            // catch block, and a deliberate disconnect reports nothing here
-            // since the user already knows they disconnected it.
+            // Either the handshake was still pending when the socket closed,
+            // or this is a deliberate close (switch/disconnect/catch-up
+            // teardown) that already removed the slot from _sessions and
+            // handled its own logging/state right away - see SwitchLeaderAsync,
+            // DisconnectGroupAsync and CatchUpSyncAsync. Nothing left to do.
             return;
         }
 
-        _messageHistoryService.HandleDisconnected(tab, reason);
+        var groupId = group.Group.Id;
+        var isStillTheLeader = _leaderSlotByGroup.TryGetValue(groupId, out var leaderId) && leaderId == slot.Id;
 
-        if (!_autoReconnectSuppressed.ContainsKey(profileId) && tab.ServerProfile.AutoConnect)
+        if (!isStillTheLeader)
         {
-            SetConnectionState(tab, ConnectionState.Reconnecting);
-            _ = ScheduleReconnectAsync(tab);
+            // A catch-up session that happened to close itself before the
+            // caller's own teardown ran, or a switch/disconnect whose
+            // bookkeeping already moved on. Either way, already handled.
+            return;
+        }
+
+        _messageHistoryService.HandleDisconnected(group, slot, reason);
+        _leaderSlotByGroup.TryRemove(groupId, out _);
+        Dispatcher.UIThread.Post(() => group.SetLeaderStateWithoutTriggeringSwitch(null, null));
+
+        if (!_autoReconnectSuppressed.ContainsKey(groupId) && group.Group.AutoConnect)
+        {
+            SetConnectionState(group, ConnectionState.Reconnecting);
+            _ = ScheduleReconnectAsync(group, slot);
         }
         else
         {
-            SetConnectionState(tab, ConnectionState.Disconnected);
+            SetConnectionState(group, ConnectionState.Disconnected);
         }
     }
 
-    private async Task ScheduleReconnectAsync(TabViewModel tab)
+    /// <summary>
+    /// Tries to bring the leader back as the same slot that just dropped
+    /// unexpectedly (not necessarily <see cref="ServerConnectionGroup.PreferredLeaderSlotId"/> -
+    /// that field only decides who connects at startup; an unexpected drop
+    /// reconnects whoever was actually leader when it happened).
+    /// </summary>
+    private async Task ScheduleReconnectAsync(GroupViewModel group, SlotProfile slot)
     {
-        var profileId = tab.ServerProfile.Id;
+        var groupId = group.Group.Id;
         var cts = new CancellationTokenSource();
-        _reconnectTokens[profileId] = cts;
+        _reconnectTokens[groupId] = cts;
 
         try
         {
             var attempt = 0;
-            while (!cts.IsCancellationRequested && tab.ServerProfile.AutoConnect && !_sessions.ContainsKey(profileId))
+            while (!cts.IsCancellationRequested && group.Group.AutoConnect && !_sessions.ContainsKey(slot.Id))
             {
                 var delaySeconds = ReconnectDelaysSeconds[Math.Min(attempt, ReconnectDelaysSeconds.Length - 1)];
                 await Task.Delay(TimeSpan.FromSeconds(delaySeconds), cts.Token);
@@ -453,93 +652,155 @@ public class ConnectionManager : IConnectionManager
                     break;
                 }
 
-                SetConnectionState(tab, ConnectionState.Reconnecting);
-                await ConnectAsync(tab);
+                SetConnectionState(group, ConnectionState.Reconnecting);
+                await SwitchLeaderAsync(group, slot);
 
                 attempt++;
             }
         }
         catch (TaskCanceledException)
         {
-            // Reconnect loop was cancelled by a manual connect/disconnect; nothing to do.
+            // Reconnect loop was cancelled by a manual switch/disconnect; nothing to do.
         }
         finally
         {
-            _reconnectTokens.TryRemove(profileId, out _);
+            _reconnectTokens.TryRemove(groupId, out _);
         }
     }
 
-    private void CancelPendingReconnect(Guid profileId)
+    private void CancelPendingReconnect(Guid groupId)
     {
-        if (_reconnectTokens.TryRemove(profileId, out var cts))
+        if (_reconnectTokens.TryRemove(groupId, out var cts))
         {
             cts.Cancel();
         }
     }
 
+    private static SlotProfile? FindSlot(GroupViewModel group, Guid slotId) =>
+        group.Group.Slots.FirstOrDefault(s => s.Id == slotId);
+
     /// <summary>
-    /// Slot ids of other tabs that are currently connected to the same
-    /// Archipelago server instance (same host+port) as <paramref name="profile"/>.
-    /// Used to color those players' names differently from other multiworld
-    /// participants in the chat log (see <see cref="EventSegmentBuilder"/>).
+    /// Maps every configured slot in <paramref name="serverGroup"/> to its
+    /// numeric Archipelago slot id in the room, by matching
+    /// <see cref="SlotProfile.SlotName"/> against the room's player roster.
+    /// Rebuilt on every call (one cheap linear scan over a small list)
+    /// rather than cached, so it always reflects the current <c>Slots</c>
+    /// collection even if a slot was added/removed after the leader logged
+    /// in. Lets a slot that has never itself been connected still be
+    /// recognized in chat/item/hint broadcasts observed via another slot's
+    /// session - see <see cref="OnLeaderMessageReceived"/> and
+    /// <see cref="OnHintsUpdated"/>.
     /// </summary>
-    private HashSet<int> GetOtherConnectedSlotIds(ServerProfile profile)
+    private static Dictionary<int, SlotProfile> BuildSlotRoster(ArchipelagoSession session, ServerConnectionGroup serverGroup)
     {
-        var slotIds = new HashSet<int>();
-
-        foreach (var (otherProfileId, otherProfile) in _sessionProfiles)
+        var roster = new Dictionary<int, SlotProfile>();
+        foreach (var slot in serverGroup.Slots)
         {
-            if (otherProfileId == profile.Id)
+            var match = session.Players.AllPlayers.FirstOrDefault(p =>
+                string.Equals(p.Name, slot.SlotName, StringComparison.OrdinalIgnoreCase));
+            if (match is not null)
             {
-                continue;
-            }
-
-            if (!string.Equals(otherProfile.Host, profile.Host, StringComparison.OrdinalIgnoreCase) ||
-                otherProfile.Port != profile.Port)
-            {
-                continue;
-            }
-
-            if (_sessions.TryGetValue(otherProfileId, out var otherSession))
-            {
-                slotIds.Add(otherSession.ConnectionInfo.Slot);
+                roster[match.Slot] = slot;
             }
         }
 
-        return slotIds;
+        return roster;
     }
 
-    private void OnItemReceived(TabViewModel tab, ServerProfile profile, ReceivedItemsHelper helper, bool isLive)
+    private static HashSet<int> SiblingIdsExcludingOwn(Dictionary<int, SlotProfile> roster, int ownNumericSlotId) =>
+        new(roster.Keys.Where(id => id != ownNumericSlotId));
+
+    /// <summary>
+    /// Which single configured slot (if any) a log/chat message is "about",
+    /// for tagging the merged event log entry's <see cref="EventEntry.SlotId"/>
+    /// so the slot filter dropdown can narrow to it. An item-send message
+    /// resolves to its receiving slot; anything else resolves to the first
+    /// configured slot mentioned in the message's parts, if any. Null (shown
+    /// regardless of the slot filter) for messages that don't mention any
+    /// configured slot at all - room-wide banter between unrelated players.
+    /// </summary>
+    private static Guid? ResolvePrimarySlotId(LogMessage logMessage, Dictionary<int, SlotProfile> roster)
     {
+        if (logMessage is ItemSendLogMessage send && roster.TryGetValue(send.Receiver.Slot, out var receivingSlot))
+        {
+            return receivingSlot.Id;
+        }
+
+        foreach (var part in logMessage.Parts)
+        {
+            if (part is PlayerMessagePart playerPart && roster.TryGetValue(playerPart.SlotId, out var matched))
+            {
+                return matched.Id;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Fires for every chat/log line the leader's session receives - which
+    /// covers the whole room, not just the leader's own slot. Appends the
+    /// line to the group's merged event log, and - the core mechanism behind
+    /// Phase 6 - mirrors an item-send broadcast into a non-leader configured
+    /// slot's own received-items panel, so that slot stays current without
+    /// ever needing its own connection.
+    /// </summary>
+    private void OnLeaderMessageReceived(GroupViewModel group, ArchipelagoSession session, SlotProfile leaderSlot, LogMessage logMessage)
+    {
+        var roster = BuildSlotRoster(session, group.Group);
+        var siblingIds = SiblingIdsExcludingOwn(roster, session.ConnectionInfo.Slot);
+
+        var segments = EventSegmentBuilder.BuildChatSegments(logMessage, siblingIds);
+        var slotId = ResolvePrimarySlotId(logMessage, roster);
+        var eventType = logMessage is ItemSendLogMessage ? EventType.ItemReceived : EventType.Chat;
+        _messageHistoryService.HandleChatMessage(group, logMessage.ToString(), segments, slotId, eventType);
+
+        // Confirmed against the installed Archipelago.MultiClient.Net 6.7.1 XML
+        // docs: ItemSendLogMessage exposes the receiving side as `.Receiver`
+        // (a PlayerInfo, with a `.Slot` int), not `.Receiving`.
+        if (logMessage is ItemSendLogMessage itemSend &&
+            itemSend.Receiver.Slot != session.ConnectionInfo.Slot &&
+            roster.TryGetValue(itemSend.Receiver.Slot, out var targetSlot))
+        {
+            var senderKind = EventSegmentBuilder.ClassifyPlayerSlot(itemSend.Item.Player, session.ConnectionInfo.Slot, siblingIds);
+            var senderName = session.Players.GetPlayerAlias(itemSend.Item.Player) ?? string.Empty;
+            _messageHistoryService.HandleObservedItemForSlot(
+                group, targetSlot,
+                itemSend.Item.ItemDisplayName, itemSend.Item.LocationDisplayName, itemSend.Item.Flags,
+                senderName, senderKind);
+        }
+    }
+
+    private void OnItemReceived(GroupViewModel group, SlotProfile slot, ArchipelagoSession session, ReceivedItemsHelper helper, bool isLeaderSession, bool hasAnnouncedConnection)
+    {
+        // A catch-up session always treats everything as backlog - its whole
+        // point is a one-shot "give me your full current state" resync, not
+        // an ongoing live connection.
+        var isLive = isLeaderSession && hasAnnouncedConnection;
+
         if (isLive)
         {
             // Already connected - the chat-log "X sent Y to Z" line handles
             // announcing this one; just keep the persisted index moving.
-            _messageHistoryService.AdvanceItemSyncState(profile, helper.AllItemsReceived);
+            _messageHistoryService.AdvanceItemSyncState(slot, helper.AllItemsReceived);
         }
         else
         {
-            // Still logging in - this is backlog the server had queued up
-            // (received while offline, or simply not shown yet).
-            _messageHistoryService.HandleItemsReceivedSinceLastConnection(tab, profile, helper.AllItemsReceived);
+            _messageHistoryService.HandleItemsReceivedSinceLastConnection(group, slot, helper.AllItemsReceived);
         }
 
-        // Resolve the sender name for the received-items panel.  The item at
-        // the tail of AllItemsReceived is the one that just arrived; its Player
-        // field is the slot index of whoever found and sent it.
         var senderName = string.Empty;
         var senderKind = EventTextSegmentKind.OtherSlotName;
-        if (_sessions.TryGetValue(profile.Id, out var senderSession) && helper.AllItemsReceived.Count > 0)
+        if (helper.AllItemsReceived.Count > 0)
         {
             var latest = helper.AllItemsReceived[helper.AllItemsReceived.Count - 1];
-            senderName = senderSession.Players.GetPlayerAlias(latest.Player) ?? string.Empty;
-            var ownSlot           = senderSession.ConnectionInfo.Slot;
-            var otherConnectedIds = GetOtherConnectedSlotIds(profile);
-            senderKind = EventSegmentBuilder.ClassifyPlayerSlot(latest.Player, ownSlot, otherConnectedIds);
+            senderName = session.Players.GetPlayerAlias(latest.Player) ?? string.Empty;
+            var roster = BuildSlotRoster(session, group.Group);
+            var siblingIds = SiblingIdsExcludingOwn(roster, session.ConnectionInfo.Slot);
+            senderKind = EventSegmentBuilder.ClassifyPlayerSlot(latest.Player, session.ConnectionInfo.Slot, siblingIds);
         }
 
-        // Always track in the received-items panel regardless of live/backlog.
-        _messageHistoryService.TrackReceivedItem(tab, helper.AllItemsReceived, senderName, senderKind);
+        _messageHistoryService.TrackReceivedItem(group, slot, helper.AllItemsReceived, senderName, senderKind);
 
         // Drain the queue as documented by the library; the calls above already
         // read everything they need from AllItemsReceived.
@@ -549,15 +810,44 @@ public class ConnectionManager : IConnectionManager
         }
     }
 
-    private void OnHintsUpdated(TabViewModel tab, ServerProfile profile, ArchipelagoSession session, Hint[] hints)
+    /// <summary>
+    /// Fires whenever the session's full current hint list is available.
+    /// This is room-wide (not scoped to the logged-in slot) - a hint where
+    /// neither the receiving nor finding player resolves to one of this
+    /// group's configured slots is skipped entirely; where one does, the
+    /// hint is routed to that slot (preferring the receiving side if both
+    /// happen to be configured slots of this same group).
+    /// </summary>
+    private void OnHintsUpdated(GroupViewModel group, ArchipelagoSession session, Hint[] hints)
     {
-        var ownSlot = session.ConnectionInfo.Slot;
-        var otherConnectedSlotIds = GetOtherConnectedSlotIds(profile);
+        var roster = BuildSlotRoster(session, group.Group);
+        if (roster.Count == 0 || hints.Length == 0)
+        {
+            return;
+        }
+
+        var ownSlotNumeric = session.ConnectionInfo.Slot;
+        var siblingIds = SiblingIdsExcludingOwn(roster, ownSlotNumeric);
 
         var snapshots = new List<HintSnapshot>(hints.Length);
 
         foreach (var hint in hints)
         {
+            Guid? slotId = null;
+            if (roster.TryGetValue(hint.ReceivingPlayer, out var receivingSlot))
+            {
+                slotId = receivingSlot.Id;
+            }
+            else if (roster.TryGetValue(hint.FindingPlayer, out var findingSlot))
+            {
+                slotId = findingSlot.Id;
+            }
+
+            if (slotId is null)
+            {
+                continue;
+            }
+
             // Items belong to the receiving player's game; locations belong to the
             // finding player's game - the generic tracker login uses an empty game,
             // so the correct game must be looked up per hinted player to resolve names.
@@ -567,6 +857,7 @@ public class ConnectionManager : IConnectionManager
             snapshots.Add(new HintSnapshot
             {
                 Key = $"{hint.ReceivingPlayer}:{hint.FindingPlayer}:{hint.ItemId}:{hint.LocationId}",
+                SlotId = slotId.Value,
                 ReceivingPlayer = hint.ReceivingPlayer,
                 FindingPlayer = hint.FindingPlayer,
                 ReceivingPlayerName = session.Players.GetPlayerAlias(hint.ReceivingPlayer),
@@ -575,14 +866,17 @@ public class ConnectionManager : IConnectionManager
                 LocationName = session.Locations.GetLocationNameFromId(hint.LocationId, findingGame) ?? $"Location #{hint.LocationId}",
                 Found = hint.Found,
                 ItemFlags = hint.ItemFlags,
-                ReceivingPlayerKind = EventSegmentBuilder.ClassifyPlayerSlot(hint.ReceivingPlayer, ownSlot, otherConnectedSlotIds),
-                FindingPlayerKind = EventSegmentBuilder.ClassifyPlayerSlot(hint.FindingPlayer, ownSlot, otherConnectedSlotIds)
+                ReceivingPlayerKind = EventSegmentBuilder.ClassifyPlayerSlot(hint.ReceivingPlayer, ownSlotNumeric, siblingIds),
+                FindingPlayerKind = EventSegmentBuilder.ClassifyPlayerSlot(hint.FindingPlayer, ownSlotNumeric, siblingIds)
             });
         }
 
-        _hintService.SyncHints(tab, profile, snapshots);
+        if (snapshots.Count > 0)
+        {
+            _hintService.SyncHints(group, snapshots);
+        }
     }
 
-    private static void SetConnectionState(TabViewModel tab, ConnectionState state) =>
-        Dispatcher.UIThread.Post(() => tab.ConnectionState = state);
+    private static void SetConnectionState(GroupViewModel group, ConnectionState state) =>
+        Dispatcher.UIThread.Post(() => group.ConnectionState = state);
 }

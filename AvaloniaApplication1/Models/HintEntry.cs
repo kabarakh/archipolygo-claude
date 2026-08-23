@@ -18,6 +18,13 @@ public partial class HintEntry : ObservableObject
     /// </summary>
     public string Key { get; init; } = string.Empty;
 
+    /// <summary>
+    /// Id of the <see cref="SlotProfile"/> this hint entry belongs to (see
+    /// <see cref="EventEntry.SlotId"/> for why - same merged-list-plus-filter
+    /// approach applies to the hint list since Phase 6).
+    /// </summary>
+    public Guid SlotId { get; init; }
+
     public int ReceivingPlayer { get; init; }
 
     public int FindingPlayer { get; init; }

@@ -1,5 +1,8 @@
 using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
@@ -19,14 +22,53 @@ public partial class MainWindow : Window
 
     private MainWindowViewModel ViewModel => (MainWindowViewModel)DataContext!;
 
-    private async void OnAddProfileClick(object? sender, RoutedEventArgs e)
+    private async void OnAddServerClick(object? sender, RoutedEventArgs e)
     {
         var defaultAutoConnect = ViewModel.LoadSettings().DefaultAutoConnect;
-        var editorViewModel = ConnectionEditorViewModel.ForNewProfile(defaultAutoConnect, ViewModel.GetAllProfiles());
-        var profile = await ConnectionEditorWindow.ShowDialogAsync(this, editorViewModel);
-        if (profile is not null)
+        var editorViewModel = ConnectionEditorViewModel.ForNewGroup(defaultAutoConnect, ViewModel.GetAllGroups());
+        var result = await ConnectionEditorWindow.ShowDialogAsync(this, editorViewModel);
+        if (result is not null)
         {
-            ViewModel.AddOrUpdateProfile(profile);
+            ViewModel.AddNewGroup(result.Name, result.Host, result.Port, result.Password, result.SlotName, result.AutoConnect);
+        }
+    }
+
+    private async void OnAddSlotClick(object? sender, RoutedEventArgs e)
+    {
+        var selectedGroup = ViewModel.SelectedGroup;
+        if (selectedGroup is null)
+        {
+            return;
+        }
+
+        // May briefly connect/disconnect under the hood if this server has
+        // no live session right now - see MainWindowViewModel.GetAvailableSlotsToAddAsync.
+        var availablePlayers = await ViewModel.GetAvailableSlotsToAddAsync(selectedGroup);
+
+        var editorViewModel = ConnectionEditorViewModel.ForAddSlot(selectedGroup.Group, availablePlayers);
+        var result = await ConnectionEditorWindow.ShowDialogAsync(this, editorViewModel);
+        if (result is not null)
+        {
+            ViewModel.AddSlotsToGroup(selectedGroup, result.SlotsToAdd);
+        }
+    }
+
+    private async void OnEditServerClick(object? sender, RoutedEventArgs e)
+    {
+        var selectedGroup = ViewModel.SelectedGroup;
+        if (selectedGroup is null)
+        {
+            return;
+        }
+
+        var editorViewModel = ConnectionEditorViewModel.ForEditGroup(
+            selectedGroup.Group,
+            slot => ViewModel.RemoveSlotFromGroup(selectedGroup, slot),
+            ViewModel.GetAllGroups());
+        var result = await ConnectionEditorWindow.ShowDialogAsync(this, editorViewModel);
+        if (result is not null)
+        {
+            ViewModel.UpdateGroup(selectedGroup, result.Name, result.Host, result.Port, result.Password, result.AutoConnect, result.PreferredLeaderSlotId);
         }
     }
 
@@ -40,55 +82,61 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void OnEditProfileClick(object? sender, RoutedEventArgs e)
-    {
-        var selectedTab = ViewModel.SelectedTab;
-        if (selectedTab is null)
-        {
-            return;
-        }
-
-        var editorViewModel = ConnectionEditorViewModel.ForExistingProfile(selectedTab.ServerProfile, ViewModel.GetAllProfiles());
-        var profile = await ConnectionEditorWindow.ShowDialogAsync(this, editorViewModel);
-        if (profile is not null)
-        {
-            ViewModel.AddOrUpdateProfile(profile);
-        }
-    }
-
     /// <summary>
-    /// Opens the editor pre-filled with the selected connection's data so it
-    /// can be saved as a new, separate profile. The editor's duplicate check
-    /// (same Host+Port+SlotName) forces the user to change something before
-    /// the copy can actually be saved.
-    /// </summary>
-    private async void OnDuplicateProfileClick(object? sender, RoutedEventArgs e)
-    {
-        var selectedTab = ViewModel.SelectedTab;
-        if (selectedTab is null)
-        {
-            return;
-        }
-
-        var editorViewModel = ConnectionEditorViewModel.ForDuplicateProfile(selectedTab.ServerProfile, ViewModel.GetAllProfiles());
-        var profile = await ConnectionEditorWindow.ShowDialogAsync(this, editorViewModel);
-        if (profile is not null)
-        {
-            ViewModel.AddOrUpdateProfile(profile);
-        }
-    }
-
-    /// <summary>
-    /// Copies the selected event's text (without the timestamp) to the
-    /// clipboard on Ctrl+C (Windows/Linux) or Cmd+C (macOS, where the
-    /// physical key reports as <see cref="KeyModifiers.Meta"/>).
+    /// Copies every selected event's text (without the timestamp), one per
+    /// line, to the clipboard on Ctrl+C (Windows/Linux) or Cmd+C (macOS,
+    /// where the physical key reports as <see cref="KeyModifiers.Meta"/>).
+    /// The Events ListBox uses <c>SelectionMode="Multiple"</c> so several
+    /// lines can be selected (ctrl/shift-click) before copying.
     /// </summary>
     private async void OnEventsListKeyDown(object? sender, KeyEventArgs e)
     {
-        var isCopyShortcut = e.Key == Key.C &&
-            (e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta));
+        if (!IsCopyShortcut(e) || sender is not ListBox listBox || !HasSelection(listBox))
+        {
+            return;
+        }
 
-        if (!isCopyShortcut || sender is not ListBox { SelectedItem: EventEntry entry })
+        await CopySelectedLinesAsync<EventEntry>(listBox, entry => entry.Text);
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// Same mechanism as <see cref="OnEventsListKeyDown"/>, for the Hints
+    /// list instead - its own selection and clipboard content, unrelated to
+    /// the Events list's. Each copied line reproduces what's shown for that
+    /// hint (item, finder/receiver, location) as a single line of text.
+    /// </summary>
+    private async void OnHintsListKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (!IsCopyShortcut(e) || sender is not ListBox listBox || !HasSelection(listBox))
+        {
+            return;
+        }
+
+        await CopySelectedLinesAsync<HintEntry>(listBox,
+            hint => $"{hint.ItemName}: {hint.FindingPlayerName} -> {hint.ReceivingPlayerName} : {hint.LocationName}");
+        e.Handled = true;
+    }
+
+    private static bool IsCopyShortcut(KeyEventArgs e) =>
+        e.Key == Key.C && (e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta));
+
+    private static bool HasSelection(ListBox listBox) => listBox.SelectedItems is { Count: > 0 };
+
+    /// <summary>
+    /// Builds one line of text per selected item (via <paramref name="toText"/>)
+    /// and copies them all, newline-separated, to the clipboard - in the
+    /// order the items appear in the list, not selection order, so a
+    /// ctrl-clicked-out-of-order selection still copies chronologically.
+    /// </summary>
+    private async Task CopySelectedLinesAsync<T>(ListBox listBox, Func<T, string> toText) where T : class
+    {
+        var selected = new HashSet<object>(listBox.SelectedItems!.Cast<object>());
+        var displayOrder = (listBox.ItemsSource as IEnumerable)?.Cast<object>() ?? Enumerable.Empty<object>();
+        var text = string.Join(Environment.NewLine,
+            displayOrder.OfType<T>().Where(item => selected.Contains(item)).Select(toText));
+
+        if (text.Length == 0)
         {
             return;
         }
@@ -96,8 +144,33 @@ public partial class MainWindow : Window
         var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
         if (clipboard is not null)
         {
-            await clipboard.SetTextAsync(entry.Text);
-            e.Handled = true;
+            await clipboard.SetTextAsync(text);
+        }
+    }
+
+    /// <summary>
+    /// Forces the "Chat as:" ComboBox to display the view model's actual
+    /// current <see cref="GroupViewModel.SelectedChatSlot"/> once this
+    /// particular ComboBox instance has finished loading.
+    ///
+    /// A tab that was never the active one when the app started has this
+    /// whole content template - this ComboBox included - materialized for
+    /// the very first time only when the user actually clicks that tab,
+    /// long after <see cref="GroupViewModel.SelectedChatSlot"/> was already
+    /// set correctly (the leader connected back at startup). A brand-new
+    /// ComboBox reconciling its initial SelectedItem against its ItemsSource
+    /// can come up with no visible selection despite the bound value being
+    /// perfectly fine, the same kind of rebinding artifact already handled
+    /// at the view-model level in <c>GroupViewModel.OnSelectedChatSlotChanged</c>
+    /// - this just also re-asserts it on the view once, so the dropdown
+    /// itself shows the right thing without the user having to reselect it
+    /// by hand.
+    /// </summary>
+    private void OnChatSlotComboBoxLoaded(object? sender, RoutedEventArgs e)
+    {
+        if (sender is ComboBox { DataContext: GroupViewModel group } comboBox)
+        {
+            comboBox.SelectedItem = group.SelectedChatSlot;
         }
     }
 

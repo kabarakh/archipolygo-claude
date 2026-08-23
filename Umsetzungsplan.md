@@ -71,9 +71,51 @@ Konkretisierung von `Archipelago_Avalonia_Projektplan_v2.md` zu ausführbaren Im
 4. `SettingsViewModel` + View: globale Einstellungen (z. B. Standard-AutoConnect, Historie-Limit aus den Erweiterungen vorbereiten).
 5. Testen: Server kurz stoppen/starten, Reconnect-Verhalten beobachten; Nachricht senden und im Serverlog/Chat verifizieren.
 
-## UI: Tab-Gruppierung nach Host/Port
+## Phase 6 – Serverweite Verbindungsbündelung (mehrere Slots, eine Verbindung)
+
+Neue Betriebsart, zusätzlich zum bisherigen Modell: pro Host+Port besteht dauerhaft höchstens eine Verbindung, auch wenn mehrere Slot-Namen für diesen Server konfiguriert sind. Der Tab wird dadurch zum Server statt zum Slot; welcher Slot gerade "man selbst" ist (also mit wem man chattet), wird per Dropdown gewählt und löst als einzige Aktion einen Disconnect/Reconnect aus. Items und Hints aller konfigurierten Slots einer Gruppe bleiben trotzdem aktuell, weil Archipelago Item-Funde und Hint-Erzeugung ohnehin an alle verbundenen Clients im Raum broadcastet (dieselben `LogMessage`-Events, aus denen `EventSegmentBuilder`/`GetOtherConnectedSlotIds` heute schon Slot-Ids herausliest) – es muss also nicht für jeden Slot einzeln eine eigene Verbindung offengehalten werden.
+
+1. Modelle:
+   - Neues Model `ServerConnectionGroup` (Id, Name?, Host, Port, Password) – das Server-Passwort gilt raumweit, nicht pro Slot, und wandert deshalb von `ServerProfile` auf die Gruppe.
+   - `ServerProfile` wird zu `SlotProfile` (Id, GroupId, SlotName, PreferredLeader-Flag) verschlankt; SlotName bleibt das einzige, was einen Slot innerhalb einer Gruppe unterscheidet. `AutoConnect` wird zu einem Flag "ist bevorzugter Start-Leader dieser Gruppe" (pro Gruppe kann nur ein Slot gleichzeitig Leader sein).
+   - `ProfileSyncState` bleibt unverändert pro Slot-Id (`LastSeenItemIndex`, `SeenHintIds`) und funktioniert unverändert weiter, unabhängig davon, ob der jeweilige Slot aktuell Leader ist oder nur passiv über den Leader mitaktualisiert wird.
+   - `PersistenceService`: Migration bestehender `ServerProfile`-Listen zu Gruppe+Slots beim ersten Start nach diesem Update; Profile mit identischem Host+Port werden zu einer Gruppe zusammengeführt. Bei abweichendem `Password` innerhalb einer künftigen Gruppe wird das erste als Gruppen-Password übernommen; der Verbindungs-Editor weist beim nächsten Öffnen auf Abweichungen hin.
+
+2. `ConnectionManager`-Umbau (Kernstück):
+   - Sessions werden ab jetzt pro `GroupId` statt pro Slot-Profil-Id gehalten; es gibt höchstens eine dauerhafte Session pro Gruppe (der "Leader"-Slot).
+   - Neue Kernoperation `SyncSlotAsync(group, slotProfile, keepAlive: bool)`: baut eine Session für den angegebenen Slot auf, wartet Login + Item-/Hint-Backlog ab (bestehende Resync-Logik aus Phase 2/4), aktualisiert `ProfileSyncState` und die Anzeige-Listen dieses Slots; bei `keepAlive == false` wird die Session danach sofort wieder geschlossen. Eine Methode deckt drei Fälle ab:
+     - a) Erstverbindung/"Leader werden" (`keepAlive: true`), wenn eine Gruppe noch keinen Leader hat.
+     - b) Account-Wechsel beim Chatten (`keepAlive: true` für den neuen Slot; anschließend Schließen der alten Leader-Session, siehe unten).
+     - c) Kurzer Catch-up-Sync für einen Nicht-Leader-Slot (`keepAlive: false`) – ausgelöst beim Hinzufügen eines neuen Slots zu einer Gruppe mit bestehendem Leader, und einmalig beim Programmstart für jeden bereits konfigurierten Nicht-Leader-Slot (schließt Lücken aus der Zeit, in der die App komplett geschlossen war). Der Leader bleibt währenddessen durchgehend verbunden; es bestehen kurzzeitig zwei Verbindungen zum selben Server, aber nie dauerhaft mehr als eine.
+   - Passive Aktualisierung der Nicht-Leader-Slots: die Item-/Hint-Broadcast-Nachrichten, die der Leader ohnehin über `Socket.PacketReceived`/`MessageLog` empfängt, werden für jede erkannte Slot-Id, die zu einem konfigurierten Slot dieser Gruppe gehört, zusätzlich in dessen eigene Items-/Hints-Liste plus `ProfileSyncState` eingetragen (inklusive `IsNewSinceLastSession`, nach demselben Muster wie bei einer echten eigenen Verbindung). Die Zuordnung Slot-Name → Slot-Id für einen noch nie selbst verbundenen Slot erfolgt über `session.Players` des Leaders (listet alle Spieler des Raums, nicht nur den eigenen Slot). Das ersetzt einen periodischen Poll vollständig, weil die Daten ohnehin beim Leader ankommen.
+   - `SwitchLeaderAsync(group, targetSlot)` für den Account-Wechsel: baut zuerst die neue Session für `targetSlot` auf; erst wenn Login+Backlog-Resync abgeschlossen sind, wird die alte Leader-Session geschlossen (bewusste kurze Überlappung, damit der Wechsel ohne spürbare Lücke wirkt). Eine Chat-Nachricht, die exakt während dieser Überlappung im Raum auftaucht, könnte dabei theoretisch verpasst werden – als Kompromiss akzeptiert.
+   - Bekannte, bewusst akzeptierte Einschränkung: für Zeiträume, in denen kein einziger Slot einer Gruppe verbunden war, gibt es keine Broadcast-Historie zum Nachträglich-Auslesen (Chat/Log-Nachrichten werden vom Server nicht wie `AllItemsReceived`/Hints gepuffert). Ein Slot ohne jede bisherige eigene Verbindung hat entsprechend erst nach seinem ersten eigenen `SyncSlotAsync`-Aufruf einen vollständigen Stand – analog zum heutigen Verhalten beim allerersten Connect eines Profils.
+
+3. UI-Umbau:
+   - Tabs gruppieren nicht mehr Slot-Profile, sondern `ServerConnectionGroup`s; ein Tab = ein Server. Der bisherige `RegroupTabs`-Sortiermechanismus in `MainWindowViewModel` entfällt dadurch weitgehend – die Gruppierung ist jetzt strukturell, keine Sortier-Heuristik mehr nötig (siehe vorheriger Abschnitt "UI: Tab-Gruppierung nach Host/Port", der durch diese Phase ersetzt wird).
+   - Neues Dropdown vor dem Chat-Eingabefeld im Server-Tab: Liste aller konfigurierten Slots dieser Gruppe, aktuelle Auswahl = aktueller Leader. Auswahl eines anderen Slots ruft `SwitchLeaderAsync` auf; Eingabefeld bleibt deaktiviert, solange der Wechsel noch läuft.
+   - Items- und Hints-Listen zeigen standardmäßig alle konfigurierten Slots der Gruppe gemischt an; neues Filter-Dropdown "Slot: Alle / <SlotName> / …" ergänzt die bestehenden Filter (`HintFilter`, `HintRoleFilter`, `ItemCategoryFilter`, `EventCategoryFilter`, `EventRelevanceFilter`) um diese zusätzliche Dimension.
+   - Neuer Slot wird weiterhin über den bestehenden Verbindungs-Editor (`ConnectionEditorViewModel`/`ConnectionEditorWindow`) angelegt, jetzt im Kontext "Slot zu Server X hinzufügen" statt "neue eigenständige Verbindung"; Host/Port/Password sind vorbelegt und nicht mehr editierbar, sobald ein Slot zu einer bestehenden Gruppe hinzugefügt wird.
+   - Tab-Header zeigt weiterhin Name/HostPort und eine kombinierte Ungelesen-/Hint-Badge über alle Slots der Gruppe hinweg (Summe statt pro Slot).
+
+4. Startverhalten:
+   - Beim Programmstart wird für jede Gruppe zuerst der bevorzugte/zuletzt aktive Slot als Leader verbunden (Preferred-Leader-Flag), anschließend läuft für jeden übrigen konfigurierten Slot der Gruppe einmalig ein Catch-up-Sync (`keepAlive: false`), um Lücken aus der Zeit zu schließen, in der die App geschlossen war.
+   - Ist noch kein Leader für eine Gruppe festgelegt (z. B. beim allerersten Start nach der Migration), wird der erstverbundene Slot automatisch zum Leader.
+
+5. Testen:
+   - Zwei Slots auf demselben Testserver konfigurieren, als Slot A verbinden; von Slot B aus (z. B. offizieller Client in einem zweiten Fenster) Items finden bzw. Hints erzeugen lassen; prüfen, dass Slot B's Ansicht in Archipolygo ohne eigene Verbindung aktuell bleibt.
+   - Account-Wechsel A→B auslösen, währenddessen im Serverlog/Verbindungszähler prüfen, dass kurzzeitig zwei Verbindungen bestehen und danach wieder nur eine.
+   - Neuen dritten Slot zur laufenden Gruppe hinzufügen, während A weiter Leader ist; prüfen, dass der kurze Catch-up-Connect für den neuen Slot dessen Backlog korrekt füllt und A dabei durchgehend verbunden bleibt.
+   - App schließen, währenddessen für einen konfigurierten, nicht laufenden Slot B Items erzeugen lassen (z. B. über einen zweiten Client), App neu starten, prüfen dass der Catch-up-Sync beim Start diese Items nachträgt.
+   - Migration bestehender `ServerProfile`-Daten aus Phase 1–5 gegen echte alte Profildateien prüfen.
+
+Abhängigkeiten: baut auf Phase 2–5 auf (Backlog-Resync, Hint-Tracking, Chat-Versand, Auto-Reconnect) und ersetzt die bisherige 1:1-Zuordnung Tab↔Verbindung aus Phase 1 und 3 grundlegend – eher ein Umbau bestehender Teile als eine rein additive Phase. Sollte nach Phase 5 begonnen werden.
+
+## UI: Tab-Gruppierung nach Host/Port (Stand vor Phase 6)
 
 Tabs werden nicht alphabetisch oder nach Erstellungsreihenfolge angezeigt, sondern so, dass alle Verbindungen mit identischer Host/Port-Kombination immer direkt nebeneinander stehen (z. B. mehrere Slots auf demselben lokalen Server). `MainWindowViewModel` hält dazu `Tabs` weiter als flache `ObservableCollection<TabViewModel>`, ordnet sie aber nach jedem Hinzufügen/Bearbeiten eines Profils per `ObservableCollection.Move` (nicht Clear+Add, um `SelectedTab` zu erhalten) so um, dass nach (Host, Port) gruppiert wird; innerhalb einer Gruppe und zwischen Gruppen bleibt die bisherige Reihenfolge so stabil wie möglich erhalten (`GroupBy` ist stabil).
+
+Dieser Abschnitt beschreibt das Tab-Verhalten vor Phase 6, mit einer Verbindung pro Slot-Profil. Sobald Phase 6 umgesetzt ist, entfällt die Notwendigkeit dieser Sortier-Heuristik, weil ein Tab dann direkt eine `ServerConnectionGroup` ist.
 
 ## Querschnittliche Aufgaben (während aller Phasen)
 
@@ -84,6 +126,6 @@ Tabs werden nicht alphabetisch oder nach Erstellungsreihenfolge angezeigt, sonde
 
 ## Reihenfolge / Abhängigkeiten
 
-Phase 1 → 2 → 3 sind strikt sequenziell (Mehrfachverbindung baut auf Einzelverbindung auf). Phase 4 (Hints) kann teilweise parallel zu Phase 3 begonnen werden, sobald `ConnectionManager` aus Phase 2 steht. Phase 5 ist unabhängig und kann nach Phase 3 erfolgen.
+Phase 1 → 2 → 3 sind strikt sequenziell (Mehrfachverbindung baut auf Einzelverbindung auf). Phase 4 (Hints) kann teilweise parallel zu Phase 3 begonnen werden, sobald `ConnectionManager` aus Phase 2 steht. Phase 5 ist unabhängig und kann nach Phase 3 erfolgen. Phase 6 baut auf Phase 2–5 auf und sollte erst danach begonnen werden (siehe Abhängigkeiten-Hinweis am Ende von Phase 6).
 
-Status: Phasen 1–5 sind implementiert. Phase 6 (Log-Export, Desktop-Benachrichtigungen, Tray-Icon) wurde aus dem Plan gestrichen und wird nicht umgesetzt.
+Status: Phasen 1–5 sind implementiert. Eine ursprünglich vorgesehene andere Phase 6 (Log-Export, Desktop-Benachrichtigungen, Tray-Icon) wurde aus dem Plan gestrichen und wird nicht umgesetzt. Die jetzige Phase 6 (Serverweite Verbindungsbündelung, siehe oben) ist geplant, aber noch nicht umgesetzt.

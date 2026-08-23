@@ -1,37 +1,140 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:Archipolygo.ViewModels"
+        xmlns:m="using:Archipolygo.Models"
         xmlns:conv="using:Avalonia.Data.Converters"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
         x:Class="Archipolygo.Views.ConnectionEditorWindow"
         x:DataType="vm:ConnectionEditorViewModel"
-        Width="360" SizeToContent="Height" CanResize="False"
+        Width="380" SizeToContent="Height" CanResize="False"
         WindowStartupLocation="CenterOwner"
-        Title="Connection Profile">
+        Title="{Binding DialogTitle}">
 
     <Design.DataContext>
         <vm:ConnectionEditorViewModel/>
     </Design.DataContext>
 
     <StackPanel Margin="16" Spacing="8">
-        <TextBlock Text="Name"/>
-        <TextBox Text="{Binding Name}"/>
+        <TextBlock Text="Name" IsVisible="{Binding !IsServerReadOnly}"/>
+        <TextBox Text="{Binding Name}" IsVisible="{Binding !IsServerReadOnly}"/>
 
-        <TextBlock Text="Host"/>
-        <TextBox Text="{Binding Host}"/>
+        <!-- Host and port combined into one field (host:port) so the whole
+             address can be copy/pasted in one piece; TryBuildResult splits
+             it back apart on the last colon. -->
+        <TextBlock Text="Server (host:port)" IsVisible="{Binding !IsServerReadOnly}"/>
+        <TextBox Text="{Binding HostPortInput}" IsVisible="{Binding !IsServerReadOnly}"
+                 Watermark="archipelago.gg:38281"/>
 
-        <TextBlock Text="Port"/>
-        <NumericUpDown Value="{Binding Port}" Minimum="1" Maximum="65535" FormatString="0"/>
+        <!-- When adding a slot to an existing server, the server is shown
+             read-only above (for context) rather than hidden entirely, so
+             the user can see which server they're adding to. -->
+        <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsServerReadOnly}">
+            <TextBlock Text="Server:"/>
+            <TextBlock Text="{Binding HostPortInput}"/>
+        </StackPanel>
 
-        <TextBlock Text="Slot name"/>
-        <TextBox Text="{Binding SlotName}"/>
+        <!-- New server: no room roster exists yet to pick from, so the first
+             slot's name has to be typed. -->
+        <TextBlock Text="Slot name" IsVisible="{Binding ShowSlotName}"/>
+        <TextBox Text="{Binding SlotName}" IsVisible="{Binding ShowSlotName}"/>
 
-        <TextBlock Text="Password"/>
-        <TextBox Text="{Binding Password}" PasswordChar="*"/>
+        <!-- Adding slot(s) to an existing server: pick from the room's
+             actual player roster, optionally give this one slot its own
+             password, and either stop there (confirming the dialog adds
+             just this one) or click "Add to list" to queue it up and pick
+             more - see ConnectionEditorViewModel.StageSelectedPlayer. -->
+        <StackPanel IsVisible="{Binding ShowPlayerPicker}" Spacing="8">
+            <TextBlock Text="Slot"/>
+            <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="8" RowSpacing="4">
+                <ComboBox Grid.Row="0" Grid.Column="0"
+                          ItemsSource="{Binding AvailablePlayers}" SelectedItem="{Binding SelectedPlayer}"
+                          HorizontalAlignment="Stretch">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate DataType="m:PlayerChoice">
+                            <TextBlock Text="{Binding DisplayText}"/>
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+                <Button Grid.Row="0" Grid.Column="1" Content="Add to list"
+                        Command="{Binding StageSelectedPlayerCommand}"/>
+                <TextBox Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
+                         Text="{Binding Password}" PasswordChar="*"
+                         Watermark="Password (only if this slot needs a different one)"/>
+            </Grid>
 
-        <CheckBox Content="Auto-connect" IsChecked="{Binding AutoConnect}"/>
+            <!-- Queued slots, so it's visible that "Add to list" actually
+                 did something instead of the dialog just looking unchanged;
+                 SaveButtonText below reflects the same count. Each entry can
+                 be removed again (e.g. staged by mistake) before confirming.
+                 Capped height + internal scrolling, same reasoning as the
+                 configured-slots list below - a big room's worth of staged
+                 picks must not push the window itself past the screen. -->
+            <ScrollViewer IsVisible="{Binding HasStagedSlots}" MaxHeight="180">
+                <ItemsControl ItemsSource="{Binding StagedSlots}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="m:StagedSlot">
+                            <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6">
+                                    <TextBlock Text="{Binding DisplayText}"/>
+                                    <TextBlock Text="🔒" ToolTip.Tip="Has its own password"
+                                               IsVisible="{Binding Password, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"/>
+                                </StackPanel>
+                                <!-- Click (not Command) - this DataTemplate's own
+                                     DataContext is the StagedSlot, not the
+                                     window's ConnectionEditorViewModel, so the
+                                     command lives on the button's DataContext in
+                                     code-behind instead of a relative binding. -->
+                                <Button Grid.Column="1" Content="✕" Padding="6,0" Click="OnUnstageSlotClick"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </StackPanel>
+
+        <!-- Editing an existing server: manage its already-configured slots
+             - which one auto-connects at startup by default, and remove one
+             entirely. Removing takes effect immediately (see
+             OnRemoveConfiguredSlotClick), not on Save, since a disconnect
+             it may trigger can't cleanly be undone by Cancel. -->
+        <StackPanel IsVisible="{Binding ShowSlotManagement}" Spacing="4">
+            <TextBlock Text="Slots"/>
+            <!-- Capped height + internal scrolling instead of letting this
+                 grow with the room's slot count - the window is
+                 SizeToContent/CanResize="False", so an uncapped list of many
+                 slots used to push the window itself past the top/bottom of
+                 the screen instead of just scrolling in place. -->
+            <ScrollViewer MaxHeight="220">
+                <ItemsControl ItemsSource="{Binding ConfiguredSlotRows}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="m:ConfiguredSlotRow">
+                            <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,2">
+                                <TextBlock Grid.Column="0" Text="{Binding Slot.SlotName}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Text="Default leader" Opacity="0.6" VerticalAlignment="Center"
+                                           Margin="0,0,8,0" IsVisible="{Binding IsDefaultLeader}"/>
+                                <!-- Click (not Command), same reason as
+                                     OnUnstageSlotClick above: this template's own
+                                     DataContext is the ConfiguredSlotRow, not the
+                                     window's ConnectionEditorViewModel. -->
+                                <Button Grid.Column="1" Content="Make default" Margin="0,0,8,0"
+                                        IsVisible="{Binding !IsDefaultLeader}" Click="OnMakeDefaultLeaderClick"/>
+                                <Button Grid.Column="2" Content="✕" Padding="6,0" Click="OnRemoveConfiguredSlotClick"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </StackPanel>
+
+        <!-- The room's shared password (NewGroup/EditGroup only) - AddSlot
+             instead has its own per-slot password field inline with the
+             picker above. -->
+        <TextBlock Text="Password" IsVisible="{Binding !ShowPlayerPicker}"/>
+        <TextBox Text="{Binding Password}" PasswordChar="*" IsVisible="{Binding !ShowPlayerPicker}"/>
+
+        <CheckBox Content="Auto-connect" IsChecked="{Binding AutoConnect}" IsVisible="{Binding ShowAutoConnect}"/>
 
         <TextBlock Text="{Binding ValidationError}"
                    Foreground="Red"
@@ -40,7 +143,7 @@
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,8,0,0">
             <Button Content="Cancel" Click="OnCancelClick"/>
-            <Button Content="Save" Click="OnSaveClick" IsDefault="True"/>
+            <Button Content="{Binding SaveButtonText}" Click="OnSaveClick" IsDefault="True"/>
         </StackPanel>
     </StackPanel>
 </Window>

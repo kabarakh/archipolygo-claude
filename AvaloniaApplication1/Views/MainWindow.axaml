@@ -15,6 +15,7 @@
         <conv:EventTextSegmentKindToBrushConverter x:Key="SegmentKindToBrushConverter"/>
         <conv:EnumEqualsConverter x:Key="EnumEqualsConverter"/>
         <conv:ConnectionStateToBrushConverter x:Key="ConnectionStateToBrushConverter"/>
+        <conv:SlotFilterDisplayConverter x:Key="SlotFilterDisplayConverter"/>
     </Window.Resources>
 
     <Window.Styles>
@@ -51,17 +52,34 @@
     <DockPanel>
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="8" Spacing="8" VerticalAlignment="Center">
             <Image Source="/Assets/project-logo.png" Width="28" Height="28" VerticalAlignment="Center"/>
-            <Button Content="Add connection..." Click="OnAddProfileClick"/>
-            <Button Content="Edit selected..." Click="OnEditProfileClick"/>
-            <Button Content="Duplicate selected..." Click="OnDuplicateProfileClick"/>
-            <Button Content="Remove selected" Command="{Binding RemoveSelectedTabCommand}"/>
-            <Button Content="Disconnect all" Command="{Binding DisconnectAllTabsCommand}"/>
+            <Button Content="Add server..." Click="OnAddServerClick"/>
+            <Button Content="Add slot..." Click="OnAddSlotClick"/>
+            <Button Content="Edit server..." Click="OnEditServerClick"/>
+            <Button Content="Remove server" Command="{Binding RemoveSelectedGroupCommand}"/>
+            <Button Content="Disconnect all" Command="{Binding DisconnectAllGroupsCommand}"/>
             <Button Content="Settings..." Click="OnSettingsClick"/>
         </StackPanel>
 
-        <TabControl ItemsSource="{Binding Tabs}" SelectedItem="{Binding SelectedTab}">
+        <!-- Startup-only progress indicator - visible while
+             MainWindowViewModel.InitializeGroupsAsync is still working
+             through every configured slot's initial catch-up sync (leader
+             connects and non-leader catch-up dips alike); disappears again
+             once that one-time startup pass finishes. The bar itself is
+             purely cosmetic (Value/Maximum mirror the same two counts as
+             the text underneath) - it's there so progress reads as a
+             visibly filling bar rather than just a changing number. -->
+        <Border DockPanel.Dock="Top" Background="#332196F3" Padding="8,4"
+                IsVisible="{Binding IsStartupSyncing}">
+            <StackPanel Spacing="2">
+                <TextBlock Text="{Binding StartupSyncStatusText}" FontSize="12"/>
+                <ProgressBar Minimum="0" Maximum="{Binding StartupSyncTotal}" Value="{Binding StartupSyncCompleted}"
+                             Height="4" HorizontalAlignment="Stretch"/>
+            </StackPanel>
+        </Border>
+
+        <TabControl ItemsSource="{Binding Groups}" SelectedItem="{Binding SelectedGroup}">
             <TabControl.ItemTemplate>
-                <DataTemplate DataType="vm:TabViewModel">
+                <DataTemplate DataType="vm:GroupViewModel">
                     <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                         <Ellipse Width="8" Height="8" VerticalAlignment="Center"
                                  Fill="{Binding ConnectionState, Converter={StaticResource ConnectionStateToBrushConverter}}"/>
@@ -72,38 +90,50 @@
                                        FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <TextBlock Text="{Binding HeaderText}"/>
-                        <!-- Only shown while not connected, so the tab itself
-                             surfaces "disconnected"/"queued"/"connecting"/
-                             "reconnecting"/"error" without needing to select it. -->
+                        <!-- Only shown while there's no live leader connection,
+                             so the tab itself surfaces "disconnected"/
+                             "connecting"/"reconnecting"/"error" without
+                             needing to select it. -->
                         <TextBlock Text="{Binding ConnectionState}" FontSize="11" Opacity="0.7"
-                                   VerticalAlignment="Center" IsVisible="{Binding !IsConnected}"/>
+                                   VerticalAlignment="Center" IsVisible="{Binding !IsLeaderConnected}"/>
                     </StackPanel>
                 </DataTemplate>
             </TabControl.ItemTemplate>
             <TabControl.ContentTemplate>
-                <DataTemplate DataType="vm:TabViewModel">
-                    <Grid Margin="16" RowDefinitions="Auto,Auto,*,Auto">
+                <DataTemplate DataType="vm:GroupViewModel">
+                    <Grid Margin="16" RowDefinitions="Auto,*,Auto">
+                        <!-- Connection status and the one action that affects it
+                             (Disconnect) - the account dropdown that actually
+                             switches the live connection lives down by the message
+                             box instead, where it's used (see Grid.Row="2" below). -->
                         <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                            <TextBlock Text="{Binding ServerProfile.HostPort}"/>
-                            <TextBlock Text="-"/>
-                            <TextBlock Text="{Binding ConnectionState}" FontWeight="Bold"/>
-                        </StackPanel>
-
-                        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="0,8,0,8">
-                            <Button Content="Connect" Command="{Binding ConnectCommand}"/>
-                            <Button Content="Disconnect" Command="{Binding DisconnectCommand}"/>
+                            <!-- Explicit VerticalAlignment="Center" on each text
+                                 element: without it, a horizontal StackPanel
+                                 stretches every child to the row's full height
+                                 (set by the tallest child, the Button, whose
+                                 padding makes it taller than plain text), and
+                                 TextBlock content defaults to top-aligned
+                                 within that stretched bounds - which visibly
+                                 sits higher than the button's own (centered)
+                                 label. -->
+                            <TextBlock Text="{Binding Group.HostPort}" VerticalAlignment="Center"/>
+                            <TextBlock Text="-" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding ConnectionState}" FontWeight="Bold" VerticalAlignment="Center"/>
+                            <Button Content="Disconnect" Command="{Binding DisconnectCommand}" Margin="8,0,0,0"/>
                         </StackPanel>
 
                         <!-- RowDefinitions: header row (Auto) + content row (*).
-                             The header row holds the "Events" label and the
-                             Hints/Items panel selector side-by-side so both
-                             columns start their filter rows at the same height. -->
-                        <Grid Grid.Row="2" ColumnDefinitions="2*,8,1*" RowDefinitions="Auto,*">
+                             The header row just holds the "Events" label and
+                             the Hints/Items panel selector side-by-side; each
+                             column's own "Show:" slot-filter dropdown lives
+                             one row down instead (see the Grid.Row="1"/"2"
+                             skeletons below), so both dropdowns end up on the
+                             same row, lined up with each other under the
+                             filter-toggle buttons. -->
+                        <Grid Grid.Row="1" ColumnDefinitions="2*,8,1*" RowDefinitions="Auto,*">
 
                             <!-- ── Header row ── -->
-                            <TextBlock Grid.Row="0" Grid.Column="0"
-                                       Text="Events" FontWeight="Bold"
-                                       VerticalAlignment="Center" Margin="0,0,0,4"/>
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Events" FontWeight="Bold" Margin="0,0,0,4"/>
                             <StackPanel Grid.Row="0" Grid.Column="2"
                                         Orientation="Horizontal" Spacing="8" Margin="0,0,0,4">
                                 <Button Content="{Binding HintsPanelButtonText}" Classes="filter-toggle" Command="{Binding ShowHintsPanelCommand}"
@@ -112,9 +142,13 @@
                                         Classes.active="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ReceivedItems}"/>
                             </StackPanel>
 
-                            <!-- ── Content row: Events ── -->
-                            <DockPanel Grid.Row="1" Grid.Column="0">
-                                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,4">
+                            <!-- ── Content row: Events ──
+                                 Same three-row skeleton as the Hints/Items
+                                 column (filter buttons / slot filter / list),
+                                 so the "Show:" dropdown lines up on the same
+                                 row as the Hints/Items slot filter next to it. -->
+                            <Grid Grid.Row="1" Grid.Column="0" RowDefinitions="Auto,Auto,*">
+                                <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" Margin="0,0,0,4">
                                     <Button Content="All" Classes="filter-toggle" Command="{Binding ShowAllEventsRelevanceCommand}"
                                             Classes.active="{Binding SelectedEventRelevanceFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=All}"/>
                                     <Button Content="Concerns me" Classes="filter-toggle" Command="{Binding ShowOwnEventsOnlyCommand}"
@@ -127,7 +161,27 @@
                                     <Button Content="Items" Classes="filter-toggle" Command="{Binding ShowItemEventsOnlyCommand}"
                                             Classes.active="{Binding SelectedEventCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Items}"/>
                                 </StackPanel>
-                                <ListBox ItemsSource="{Binding VisibleEvents}" KeyDown="OnEventsListKeyDown" Loaded="OnEventsListLoaded">
+
+                                <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="0,0,0,4">
+                                    <TextBlock Text="Show:" Opacity="0.7" VerticalAlignment="Center"/>
+                                    <ComboBox ItemsSource="{Binding SlotFilterOptions}" SelectedItem="{Binding SelectedEventsSlotFilter}" MinWidth="110">
+                                        <ComboBox.ItemTemplate>
+                                            <!-- Deliberately untyped (no x:DataType): this list's
+                                                 first entry is a null placeholder for "All slots"
+                                                 (see SlotFilterOptions), and a compiled binding
+                                                 typed to SlotProfile would not match a null item. -->
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding Converter={StaticResource SlotFilterDisplayConverter}}"/>
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                </StackPanel>
+
+                                <!-- SelectionMode="Multiple" (ctrl/shift-click, like Explorer)
+                                     so several lines can be selected and copied at once - see
+                                     OnEventsListKeyDown. -->
+                                <ListBox Grid.Row="2" ItemsSource="{Binding VisibleEvents}" SelectionMode="Multiple"
+                                         KeyDown="OnEventsListKeyDown" Loaded="OnEventsListLoaded">
                                     <ListBox.ItemTemplate>
                                         <DataTemplate DataType="m:EventEntry">
                                             <StackPanel Orientation="Horizontal" Spacing="8">
@@ -152,20 +206,24 @@
                                         </DataTemplate>
                                     </ListBox.ItemTemplate>
                                 </ListBox>
-                            </DockPanel>
+                            </Grid>
 
                             <!-- ── Content row: Hints / Items panels ──
                                  Three explicit rows so both panels share an
                                  identical layout skeleton and the list always
                                  starts at the same vertical position:
                                    Row 0 (Auto) – panel-specific filter buttons
-                                   Row 1 (Auto) – search box, always rendered
+                                   Row 1 (Auto) – panel-specific slot filter + search box, always rendered
                                    Row 2 (*)    – list
-                                 Because the search TextBox is always in the
-                                 layout tree it never changes the row heights
-                                 when switching panels.  The box also filters
-                                 hints by item name, so it is useful in both
-                                 modes. -->
+                                 Because row 1 is always in the layout tree it
+                                 never changes the row heights when switching
+                                 panels. The search box filters by item name in
+                                 both modes, so it's shared rather than duplicated
+                                 per panel; the slot filter differs per panel
+                                 (SelectedHintsSlotFilter/SelectedItemsSlotFilter
+                                 are independent - see GroupViewModel), so that
+                                 half of the row is the same toggle-by-panel pair
+                                 as the filter buttons above it. -->
                             <Grid Grid.Row="1" Grid.Column="2" RowDefinitions="Auto,Auto,*">
 
                                 <!-- Row 0 – Hints filters -->
@@ -201,14 +259,37 @@
                                             Classes.active="{Binding SelectedItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Trap}"/>
                                 </StackPanel>
 
-                                <!-- Row 1 – Search box (always rendered; filters active panel) -->
-                                <TextBox Grid.Row="1" Text="{Binding ItemSearchText}"
-                                         PlaceholderText="Search..." Margin="0,0,0,4"/>
+                                <!-- Row 1 – slot filter (per-panel) + search box (shared, filters active panel) -->
+                                <Grid Grid.Row="1" ColumnDefinitions="Auto,*" Margin="0,0,0,4">
+                                    <ComboBox Grid.Column="0" MinWidth="110" Margin="0,0,8,0"
+                                              IsVisible="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Hints}"
+                                              ItemsSource="{Binding SlotFilterOptions}" SelectedItem="{Binding SelectedHintsSlotFilter}">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding Converter={StaticResource SlotFilterDisplayConverter}}"/>
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                    <ComboBox Grid.Column="0" MinWidth="110" Margin="0,0,8,0"
+                                              IsVisible="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ReceivedItems}"
+                                              ItemsSource="{Binding SlotFilterOptions}" SelectedItem="{Binding SelectedItemsSlotFilter}">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding Converter={StaticResource SlotFilterDisplayConverter}}"/>
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                    <TextBox Grid.Column="1" Text="{Binding ItemSearchText}" PlaceholderText="Search..."/>
+                                </Grid>
 
-                                <!-- Row 2 – Hints list -->
+                                <!-- Row 2 – Hints list. SelectionMode="Multiple" + KeyDown, same
+                                     copy-selected-lines mechanism as the Events list above (see
+                                     OnHintsListKeyDown), just with its own selection/clipboard
+                                     since the two lists are otherwise unrelated. -->
                                 <ListBox Grid.Row="2"
                                          IsVisible="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Hints}"
-                                         ItemsSource="{Binding VisibleHints}">
+                                         ItemsSource="{Binding VisibleHints}" SelectionMode="Multiple"
+                                         KeyDown="OnHintsListKeyDown">
                                     <ListBox.ItemTemplate>
                                         <DataTemplate DataType="m:HintEntry">
                                             <StackPanel Orientation="Vertical" Spacing="2" Margin="0,2">
@@ -257,14 +338,39 @@
                             </Grid>
                         </Grid>
 
-                        <Grid Grid.Row="3" ColumnDefinitions="*,Auto" Margin="0,8,0,0">
-                            <TextBox Grid.Column="0" Text="{Binding MessageToSend}" PlaceholderText="Message..."
-                                     IsEnabled="{Binding IsConnected}">
+                        <!-- Account dropdown lives here, right next to the field it
+                             actually enables - the ONE control whose change opens/
+                             closes a connection: picking a different slot switches
+                             which one is the live "leader" for this server (see
+                             GroupViewModel.OnSelectedChatSlotChanged / Umsetzungsplan.md
+                             Phase 6). -->
+                        <Grid Grid.Row="2" ColumnDefinitions="Auto,*,Auto" Margin="0,8,0,0">
+                            <!-- Loaded="OnChatSlotComboBoxLoaded": a tab that was never
+                                 the active one at startup has its content template (and
+                                 with it, this ComboBox) materialized for the very first
+                                 time only once the user actually clicks that tab - by
+                                 then, SelectedChatSlot on the view model has long since
+                                 been set correctly (leader connected at startup), but the
+                                 brand-new ComboBox's own initial SelectedItem-vs-ItemsSource
+                                 resolution can come up empty and never visibly reflect it,
+                                 even though the bound value itself is fine. Forcing one
+                                 explicit resync once this instance is actually loaded fixes
+                                 the display without touching the underlying value. -->
+                            <ComboBox Grid.Column="0" ItemsSource="{Binding Slots}" SelectedItem="{Binding SelectedChatSlot}"
+                                      MinWidth="140" Margin="0,0,8,0" Loaded="OnChatSlotComboBoxLoaded">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate DataType="m:SlotProfile">
+                                        <TextBlock Text="{Binding SlotName}"/>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <TextBox Grid.Column="1" Text="{Binding MessageToSend}" PlaceholderText="Message..."
+                                     IsEnabled="{Binding IsLeaderConnected}">
                                 <TextBox.KeyBindings>
                                     <KeyBinding Gesture="Enter" Command="{Binding SendMessageCommand}"/>
                                 </TextBox.KeyBindings>
                             </TextBox>
-                            <Button Grid.Column="1" Content="Send" Command="{Binding SendMessageCommand}" Margin="8,0,0,0"/>
+                            <Button Grid.Column="2" Content="Send" Command="{Binding SendMessageCommand}" Margin="8,0,0,0"/>
                         </Grid>
                     </Grid>
                 </DataTemplate>

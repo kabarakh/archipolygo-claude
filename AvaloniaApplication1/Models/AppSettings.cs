@@ -6,7 +6,7 @@ namespace Archipolygo.Models;
 public class AppSettings
 {
     /// <summary>
-    /// Default value for <see cref="ServerProfile.AutoConnect"/> when creating a new profile.
+    /// Default value for <see cref="ServerConnectionGroup.AutoConnect"/> when creating a new server.
     /// </summary>
     public bool DefaultAutoConnect { get; set; }
 
