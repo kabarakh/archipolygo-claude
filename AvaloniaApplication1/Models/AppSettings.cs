@@ -14,5 +14,5 @@ public class AppSettings
     /// Maximum number of <see cref="EventEntry"/> items kept per tab; oldest entries are
     /// dropped once the limit is exceeded.
     /// </summary>
-    public int EventHistoryLimit { get; set; } = 500;
+    public int EventHistoryLimit { get; set; } = 2000;
 }
