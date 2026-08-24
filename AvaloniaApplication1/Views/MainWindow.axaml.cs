@@ -7,7 +7,6 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
-using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Archipolygo.Models;
 using Archipolygo.ViewModels;
@@ -179,30 +178,16 @@ public partial class MainWindow : Window
     /// Keeps the events list scrolled to the bottom as new events arrive, so
     /// the most recent message/event is always visible without the user
     /// having to scroll manually - and wires up the floating "Jump to
-    /// newest" button (see <see cref="Views.MainWindow"/>'s XAML) for the one
-    /// case that can't be fixed automatically: once any row has ever been
-    /// selected (or even just focused, e.g. by a click a later ctrl-click
-    /// only "deselects"), Avalonia's own ListBox/virtualizing panel keeps
-    /// re-scrolling to keep that row in view on every subsequent layout pass
-    /// - deferring our own ScrollToEnd() to a later dispatcher priority does
-    /// not reliably win that race, since the panel's own re-arrange can
-    /// happen more than once and at varying priorities. Clearing the
-    /// selection entirely removes anything for the panel to "keep in view",
-    /// which is what actually stops it - so the button does that, then
-    /// scrolls to the end once more for good measure.
+    /// newest" button (see <see cref="Views.MainWindow"/>'s XAML) as the way
+    /// back once the user has deliberately scrolled away (see
+    /// <see cref="OnEventsScrollViewerScrollChanged"/> for how "should we be
+    /// following the bottom right now" is tracked and enforced).
     ///
-    /// The plain auto-scroll below reacts to the
-    /// <see cref="ScrollViewer.ScrollChanged"/> event rather than the events
-    /// collection or a fixed delay: while a tab is not the selected one,
-    /// Avalonia skips layout for its (hidden) content, so its
-    /// <see cref="ScrollViewer.Extent"/> does not grow as new events arrive -
-    /// only <see cref="ScrollViewer.Offset"/> would need to follow it, and
-    /// there is nothing to follow yet. The moment the tab becomes visible
-    /// again, a layout pass finally catches the content up to its real size,
-    /// which is exactly when <see cref="ScrollViewer.ExtentDelta"/> becomes
-    /// positive - so reacting to that, instead of guessing how long any
-    /// particular layout pass takes, is what fixes "wasn't scrolled to the
-    /// end after switching back" for the common (nothing selected) case.
+    /// Wires a genuine user gesture - a mouse-wheel scroll over the list -
+    /// to drop out of auto-follow, since that is the one unambiguous signal
+    /// that the user (not Avalonia's own scroll-anchoring, see below) wants
+    /// to look at something else. Tunnel routing sees it before the
+    /// ScrollViewer consumes it.
     /// </summary>
     private void OnEventsListLoaded(object? sender, RoutedEventArgs e)
     {
@@ -223,6 +208,12 @@ public partial class MainWindow : Window
         ScrollViewer? attachedScrollViewer = null;
         EventHandler<ScrollChangedEventArgs>? scrollChangedHandler = null;
 
+        // "Should the next layout settle back at the bottom" - see
+        // OnEventsScrollViewerScrollChanged's doc comment for why this has
+        // to be a persistent intent rather than something re-derived from
+        // scroll geometry on every call.
+        var stickToBottom = true;
+
         void Attach()
         {
             if (attachedScrollViewer is not null)
@@ -236,9 +227,14 @@ public partial class MainWindow : Window
                 return;
             }
 
-            scrollChangedHandler = (s, args) => OnEventsScrollViewerScrollChanged(s, args, jumpButton);
+            scrollChangedHandler = (s, args) => OnEventsScrollViewerScrollChanged(s, args, jumpButton, listBox, ref stickToBottom);
             attachedScrollViewer.ScrollChanged += scrollChangedHandler;
             attachedScrollViewer.ScrollToEnd();
+
+            attachedScrollViewer.AddHandler(InputElement.PointerWheelChangedEvent, (_, _) =>
+            {
+                stickToBottom = false;
+            }, RoutingStrategies.Tunnel);
         }
 
         // The control template (and with it, the inner ScrollViewer) might
@@ -253,6 +249,7 @@ public partial class MainWindow : Window
             jumpButton.Click += (_, _) =>
             {
                 listBox.SelectedIndex = -1;
+                stickToBottom = true;
                 attachedScrollViewer?.ScrollToEnd();
             };
         }
@@ -267,22 +264,60 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Auto-scrolls to the end when new content grows the list (see
-    /// <see cref="OnEventsListLoaded"/>), and keeps <paramref name="jumpButton"/>
-    /// visible exactly while the view isn't already at the bottom - on every
-    /// scroll change, not just growth, so it also reacts to the user
-    /// scrolling up manually.
+    /// Enforces <paramref name="stickToBottom"/>: while true, every single
+    /// <see cref="ScrollViewer.ScrollChanged"/> - not just ones caused by new
+    /// content - re-clears any selection and re-scrolls to the end, so
+    /// <paramref name="jumpButton"/> stays hidden; once false (the user
+    /// scrolled away, see <see cref="OnEventsListLoaded"/>), it instead just
+    /// tracks distance from the bottom to show/hide the button, and never
+    /// scrolls on its own.
+    ///
+    /// Re-asserting on *every* call, not once per content change, is load-
+    /// bearing, not redundant - built and shipped as "just clear the
+    /// selection and ScrollToEnd() once" first, then disproven with a
+    /// standalone repro harness (ScrollRepro, see scratchpad) that isolated
+    /// the exact same ListBox/button/scroll code from the live app: logging
+    /// <see cref="ScrollViewer.CurrentAnchor"/> on every call showed
+    /// Avalonia's *own* scroll-anchoring - unrelated to selection or focus,
+    /// confirmed by clearing both and seeing no difference - re-picking a
+    /// new anchor candidate and nudging <see cref="ScrollViewer.Offset"/>
+    /// away from the end on *several separate, later* ScrollChanged calls
+    /// after <see cref="MessageHistoryService"/>'s per-tab cap starts
+    /// RemoveAt(0)-ing items above the viewport (the anchor walked backward
+    /// one realized row at a time - e.g. event #14 -> #13 -> #12 -> #11 -
+    /// each one pulling Offset down by roughly a row height, all with
+    /// ExtentDelta=0 so nothing about our own "did content change" check
+    /// would ever see them coming). A single ScrollToEnd() only ever won the
+    /// *first* round of that fight; the later rounds arrived with nothing
+    /// left in our code to notice or correct them, leaving the view - and
+    /// the button - stuck short of the end. The anchor walk is empirically
+    /// bounded (a handful of steps, not unbounded), so simply re-asserting
+    /// every time instead of once is enough to always win it: our correction
+    /// fires at least as often as anchoring's own adjustment, so it can
+    /// never end up more than one step behind.
     /// </summary>
-    private static void OnEventsScrollViewerScrollChanged(object? sender, ScrollChangedEventArgs e, Button? jumpButton)
+    private static void OnEventsScrollViewerScrollChanged(
+        object? sender, ScrollChangedEventArgs e, Button? jumpButton, ListBox listBox, ref bool stickToBottom)
     {
         if (sender is not ScrollViewer scrollViewer)
         {
             return;
         }
 
-        if (e.ExtentDelta.Y > 0)
+        if (stickToBottom)
         {
-            Dispatcher.UIThread.Post(scrollViewer.ScrollToEnd, DispatcherPriority.Background);
+            if (listBox.SelectedIndex != -1)
+            {
+                listBox.SelectedIndex = -1;
+            }
+            scrollViewer.ScrollToEnd();
+
+            if (jumpButton is not null)
+            {
+                jumpButton.IsVisible = false;
+            }
+
+            return;
         }
 
         if (jumpButton is not null)

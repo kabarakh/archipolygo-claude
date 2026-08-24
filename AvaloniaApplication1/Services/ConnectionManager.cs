@@ -2,6 +2,8 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.WebSockets;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Archipelago.MultiClient.Net;
@@ -222,7 +224,7 @@ public class ConnectionManager : IConnectionManager
                     _messageHistoryService.HandleDisconnected(group, previousSlot, "switched account");
                 }
 
-                TryCloseSocket(oldSession);
+                await TryCloseSocketAsync(group, previousSlot, oldSession);
             }
 
             // If this group's startup catch-up was cut short earlier by a
@@ -295,12 +297,13 @@ public class ConnectionManager : IConnectionManager
                 return;
             }
 
+            var leaderSlot = FindSlot(group, leaderSlotId);
+
             if (_sessions.TryRemove(leaderSlotId, out var session))
             {
-                TryCloseSocket(session);
+                await TryCloseSocketAsync(group, leaderSlot, session);
             }
 
-            var leaderSlot = FindSlot(group, leaderSlotId);
             if (leaderSlot is not null)
             {
                 _messageHistoryService.HandleDisconnected(group, leaderSlot, "disconnected by user");
@@ -352,7 +355,7 @@ public class ConnectionManager : IConnectionManager
 
         if (_sessions.TryRemove(slot.Id, out var stillTracked) && stillTracked == session)
         {
-            TryCloseSocket(session);
+            await TryCloseSocketAsync(group, slot, session);
         }
     }
 
@@ -523,7 +526,7 @@ public class ConnectionManager : IConnectionManager
 
         if (_sessions.TryRemove(probeSlot.Id, out var stillTracked) && stillTracked == session)
         {
-            TryCloseSocket(session);
+            await TryCloseSocketAsync(group, probeSlot, session);
         }
 
         return players;
@@ -625,7 +628,22 @@ public class ConnectionManager : IConnectionManager
             var hasAnnouncedConnection = false;
 
             session.Socket.SocketClosed += reason => OnSocketClosed(group, slot, reason);
-            session.Socket.ErrorReceived += (_, message) => _messageHistoryService.HandleError(group, $"[{slot.SlotName}] {message}");
+            session.Socket.ErrorReceived += (ex, message) =>
+            {
+                if (IsExpectedSendQueueCompletionError(ex))
+                {
+                    // Our own CompleteSendQueue() workaround (see
+                    // TryCloseSocketAsync) deliberately provokes exactly this
+                    // exception to unstick a catch-up session's SendLoop -
+                    // it's expected, harmless, and means nothing to a player
+                    // reading the event log ("what does 'collection argument'
+                    // mean?"), so it's swallowed here instead of surfacing as
+                    // a user-visible [SlotName] error.
+                    return;
+                }
+
+                _messageHistoryService.HandleError(group, $"[{slot.SlotName}] {message}");
+            };
 
             if (isLeaderSession)
             {
@@ -657,7 +675,7 @@ public class ConnectionManager : IConnectionManager
                     // this is the first chance to notice afterward; skip
                     // logging in and tear the attempt back down instead of
                     // finishing a handshake nobody wants anymore.
-                    TryCloseSocket(session);
+                    await TryCloseSocketAsync(group, slot, session);
                     return null;
                 }
 
@@ -677,7 +695,7 @@ public class ConnectionManager : IConnectionManager
 
                 if (cancellationToken.IsCancellationRequested)
                 {
-                    TryCloseSocket(session);
+                    await TryCloseSocketAsync(group, slot, session);
                     return null;
                 }
 
@@ -691,7 +709,7 @@ public class ConnectionManager : IConnectionManager
                     }
 
                     _messageHistoryService.HandleError(group, $"Login failed for {slot.SlotName}: {errorText}");
-                    TryCloseSocket(session);
+                    await TryCloseSocketAsync(group, slot, session);
                     return null; // a real rejection, not a transient hiccup - never retried.
                 }
             }
@@ -700,7 +718,7 @@ public class ConnectionManager : IConnectionManager
                 // This attempt's session is now in an indeterminate state -
                 // discard it and retry with a completely fresh one rather
                 // than reusing it.
-                TryCloseSocket(session);
+                await TryCloseSocketAsync(group, slot, session);
                 _messageHistoryService.HandleError(
                     group,
                     $"Connecting {slot.SlotName} hit a transient error ({ex.GetType().Name}), retrying ({attempt}/{MaxTransientConnectRetries})...");
@@ -726,7 +744,7 @@ public class ConnectionManager : IConnectionManager
                 }
 
                 _messageHistoryService.HandleError(group, $"Connection failed for {slot.SlotName}: {ex.Message}");
-                TryCloseSocket(session);
+                await TryCloseSocketAsync(group, slot, session);
                 return null;
             }
 
@@ -770,17 +788,192 @@ public class ConnectionManager : IConnectionManager
     private static bool IsTransientConnectFailure(Exception ex) =>
         ex is TaskCanceledException or OperationCanceledException or TimeoutException;
 
-    private static void TryCloseSocket(ArchipelagoSession session)
+    /// <summary>
+    /// Closes <paramref name="session"/>'s socket and actually waits for that
+    /// to finish before returning - previously this fired
+    /// <c>DisconnectAsync()</c> and returned immediately without awaiting the
+    /// Task it gave back, so a slow or failing close handshake was
+    /// completely invisible and, worse, never actually guaranteed to happen
+    /// before the caller moved on. That mattered a lot right here: every
+    /// slot in <see cref="CatchUpSyncAsync"/>'s startup loop tears down its
+    /// session this way, one slot after another - fire-and-forget meant a
+    /// slow disconnect from slot N could still be in flight when slot N+2's,
+    /// N+3's etc. sessions were created, each with their own full
+    /// <c>ArchipelagoSession</c> (item/location name tables and all) that
+    /// then had nothing left to make it exit - the underlying library's
+    /// background receive loop only stops once the socket's own state
+    /// leaves "Open", which a disconnect that never got to run/finish would
+    /// never cause. Observed in practice on a ~40-slot room: every one of
+    /// those sessions was still fully resident in memory (a multi-hundred-MB
+    /// to multi-GB working set) long after the startup sync had finished.
+    /// Awaiting here bounds this to at most one slot's teardown in flight at
+    /// a time, matching the "slots never connect concurrently" invariant
+    /// this class already keeps for connects.
+    /// </summary>
+    private async Task TryCloseSocketAsync(GroupViewModel group, SlotProfile? slot, ArchipelagoSession session)
     {
         try
         {
-            session.Socket.DisconnectAsync();
+            await session.Socket.DisconnectAsync();
         }
         catch
         {
             // Best-effort cleanup; nothing more to do.
         }
+
+        // Workaround for two real, independent bugs in Archipelago.MultiClient.Net,
+        // both verified against its current source (still present as of
+        // 6.7.1, the latest release) and both confirmed with a live GC-root
+        // trace: every ArchipelagoSession ever created during a ~40-slot
+        // startup catch-up sync was still fully alive and reachable
+        // afterward - each with its own multi-ten-MB per-session
+        // item/location name cache - adding up to a multi-hundred-MB to
+        // multi-GB working set. DisconnectAsync() above only sends a
+        // graceful close frame; it touches neither of the two fire-and-forget
+        // background loops (Task.Run(PollingLoop), Task.Run(SendLoop)) that
+        // ConnectAsync starts and that this session's whole object graph is
+        // reachable through:
+        //
+        // 1. PollingLoop keeps calling the underlying ClientWebSocket's
+        //    ReceiveAsync() with no cancellation token of its own. Calling
+        //    CloseAsync while a ReceiveAsync from a different call site is
+        //    still pending on the same ClientWebSocket is a known .NET
+        //    WebSocket foot-gun - the pending receive is left dangling
+        //    instead of being unblocked. Fixed below by reaching the
+        //    internal ClientWebSocket field directly (see
+        //    FindClientWebSocket) and calling Abort() on it, which
+        //    immediately faults any pending ReceiveAsync/SendAsync and flips
+        //    the socket's state away from Open.
+        // 2. SendLoop calls `sendQueue.Take()` (a *blocking*, not async,
+        //    call) to wait for the next outgoing packet. Nothing ever calls
+        //    `sendQueue.CompleteAdding()` on disconnect, so if SendLoop is
+        //    sitting in that Take() with nothing queued - the common case
+        //    for a catch-up session, which never sends anything after
+        //    logging in - it stays blocked forever; the `while (Socket.State
+        //    == WebSocketState.Open)` loop condition around it is only
+        //    re-checked *after* Take() returns, so aborting the socket alone
+        //    (fix 1 above) doesn't reach it. Confirmed to be the second half
+        //    of the leak: fix 1 alone left every session's ClientWebSocket
+        //    correctly Disposed, yet every session still rooted - a live
+        //    GC-root trace pointed straight at a still-running SendLoop
+        //    stack frame. Fixed below the same way, via CompleteSendQueue.
+        //
+        // Both reach past IArchipelagoSocketHelper's public contract into
+        // internal implementation details, so both are inherently fragile -
+        // a future Archipelago.MultiClient.Net release could rename or
+        // restructure either field, silently turning this back into a
+        // no-op - which is why each is a single best-effort attempt that
+        // never throws past this method rather than something callers
+        // depend on.
+        try
+        {
+            if (FindClientWebSocket(session.Socket) is { } rawSocket)
+            {
+                rawSocket.Abort();
+            }
+        }
+        catch (Exception ex)
+        {
+            // Best-effort; if the internal shape ever changes, this simply
+            // stops helping instead of breaking anything - but that would
+            // silently reopen the memory leak this exists to fix, so it's
+            // logged visibly (as a normal Error event, same as any other
+            // connection problem) rather than swallowed without a trace.
+            _messageHistoryService.HandleError(
+                group, $"[{slot?.SlotName ?? "unknown slot"}] internal cleanup workaround (socket abort) failed: {ex.Message}");
+        }
+
+        try
+        {
+            CompleteSendQueue(session.Socket);
+        }
+        catch (Exception ex)
+        {
+            // See above - same reasoning, other half of the workaround.
+            _messageHistoryService.HandleError(
+                group, $"[{slot?.SlotName ?? "unknown slot"}] internal cleanup workaround (send queue) failed: {ex.Message}");
+        }
     }
+
+    /// <summary>
+    /// Reaches through <see cref="IArchipelagoSocketHelper"/> - which exposes
+    /// no way to forcibly abort the connection - to the internal
+    /// <c>ClientWebSocket</c> field that the library's concrete socket
+    /// helper actually reads from, so <see cref="TryCloseSocketAsync"/> can
+    /// abort it directly. See that method's doc comment for why this is
+    /// needed at all. Walks up the type hierarchy since the field
+    /// (<c>internal T Socket;</c>) is declared on the open generic base
+    /// class <c>BaseArchipelagoSocketHelper&lt;T&gt;</c>, not on the
+    /// concrete <c>ArchipelagoSocketHelper</c> type reflection starts from -
+    /// <see cref="Type.GetField(string, BindingFlags)"/> alone only finds
+    /// members declared directly on the type passed in, not inherited
+    /// non-public ones.
+    /// </summary>
+    private static WebSocket? FindClientWebSocket(IArchipelagoSocketHelper socketHelper)
+    {
+        for (var type = socketHelper.GetType(); type is not null; type = type.BaseType)
+        {
+            var field = type.GetField("Socket", BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public);
+            if (field is not null)
+            {
+                return field.GetValue(socketHelper) as WebSocket;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Reaches through <see cref="IArchipelagoSocketHelper"/> to the internal
+    /// <c>sendQueue</c> (a <c>BlockingCollection&lt;...&gt;</c>) that
+    /// <c>BaseArchipelagoSocketHelper&lt;T&gt;.SendLoop</c> blocks on via a
+    /// plain, non-cancellable <c>Take()</c>, and calls its non-generic
+    /// <c>CompleteAdding()</c> - which makes a <c>Take()</c> blocked on an
+    /// empty, now-completed queue throw instead of waiting forever - so
+    /// <see cref="TryCloseSocketAsync"/> can unstick a SendLoop that has
+    /// nothing left to send (the normal case for a catch-up session, which
+    /// never sends anything after logging in). See that method's doc
+    /// comment for why this is needed at all. Reflects on the queue's own
+    /// value rather than casting to a known
+    /// <c>BlockingCollection&lt;T&gt;</c>, since the element type is itself
+    /// an internal tuple type not worth reproducing here just to satisfy the
+    /// compiler for a single no-argument method call.
+    /// </summary>
+    private static void CompleteSendQueue(IArchipelagoSocketHelper socketHelper)
+    {
+        for (var type = socketHelper.GetType(); type is not null; type = type.BaseType)
+        {
+            var field = type.GetField("sendQueue", BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public);
+            if (field is null)
+            {
+                continue;
+            }
+
+            var queue = field.GetValue(socketHelper);
+            queue?.GetType().GetMethod("CompleteAdding", BindingFlags.Public | BindingFlags.Instance)?.Invoke(queue, null);
+            return;
+        }
+    }
+
+    /// <summary>
+    /// True for the specific <see cref="InvalidOperationException"/> that
+    /// <see cref="CompleteSendQueue"/> deliberately provokes: the library's
+    /// own <c>SendLoop</c> is sitting in a blocking <c>sendQueue.Take()</c>
+    /// with nothing left to send (the normal case for a catch-up session,
+    /// which never sends anything after logging in), and calling
+    /// <c>CompleteAdding()</c> on that queue - our only way to unstick it,
+    /// see <see cref="TryCloseSocketAsync"/> - makes that blocked call throw
+    /// this exact exception instead of waiting forever. It's the expected,
+    /// intended *result* of our own workaround, not a real failure, so it's
+    /// filtered out here rather than surfaced as a "[SlotName] ..." error a
+    /// player would have no way to make sense of. Matched on both the
+    /// exception type and its message (BlockingCollection's own wording,
+    /// not ours) so a genuine, unrelated InvalidOperationException from the
+    /// socket still gets reported normally.
+    /// </summary>
+    private static bool IsExpectedSendQueueCompletionError(Exception ex) =>
+        ex is InvalidOperationException &&
+        ex.Message.Contains("marked as complete with regards to additions", StringComparison.OrdinalIgnoreCase);
 
     private void OnSocketClosed(GroupViewModel group, SlotProfile slot, string reason)
     {
