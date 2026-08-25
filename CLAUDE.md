@@ -186,3 +186,11 @@ way first - each was a real bug with a specific root cause.
 - When a dialog or view needs a new mode/branch, prefer adding a bool
   computed property (`ShowXxx`) driven off an existing mode enum over a new
   code path - that's the established pattern in `ConnectionEditorViewModel`.
+- When you need to understand a NuGet dependency's behavior (e.g.
+  `Archipelago.MultiClient.Net`, `CommunityToolkit.Mvvm`, Avalonia itself),
+  never decompile the locally installed package DLL to figure it out.
+  Instead check that package's official documentation for the exact version
+  this project references (see the `.csproj` for the pinned version), and
+  only if that documentation doesn't cover it, look at its source on GitHub
+  (or wherever it's hosted) at the matching tag/version - not decompiled
+  output, not an unrelated/newer version's docs.
