@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Archipolygo.Models;
 
@@ -59,4 +60,36 @@ public class EventEntry
     /// received) are inherently about this slot.
     /// </summary>
     public bool ConcernsOwnSlot { get; init; } = true;
+
+    private static readonly EventTextSegmentKind[] ItemKinds =
+    {
+        EventTextSegmentKind.ItemProgression,
+        EventTextSegmentKind.ItemUseful,
+        EventTextSegmentKind.ItemOther,
+        EventTextSegmentKind.ItemTrap
+    };
+
+    /// <summary>
+    /// The item-category classification carried by this entry's item-name
+    /// segment (see <see cref="Services.EventSegmentBuilder.BuildItemReceivedSegments"/>/
+    /// <c>BuildHintReceivedSegments</c>), or null if this entry doesn't
+    /// concern an item at all (connect/disconnect/chat/error). Used by the
+    /// Progression/Useful/Filler/Trap event-list checkboxes; entries where
+    /// this is null are never affected by that filter.
+    /// </summary>
+    public EventTextSegmentKind? ItemKind
+    {
+        get
+        {
+            foreach (var segment in Segments)
+            {
+                if (ItemKinds.Contains(segment.Kind))
+                {
+                    return segment.Kind;
+                }
+            }
+
+            return null;
+        }
+    }
 }

@@ -84,11 +84,47 @@ public partial class GroupViewModel : ViewModelBase
     [ObservableProperty]
     private HintRoleFilter _selectedHintRoleFilter = HintRoleFilter.All;
 
+    /// <summary>
+    /// Narrows <see cref="VisibleHints"/> down by item category, using the
+    /// same <see cref="ItemCategoryFilter"/> enum and single-select
+    /// filter-toggle-button pattern as <see cref="SelectedItemCategoryFilter"/>
+    /// on the received-items list - but a separate property, so the two
+    /// lists' category filters don't affect each other (see also the
+    /// Progression/Useful/Filler/Trap checkboxes on the Events list, which
+    /// are a third, independent filter dimension of their own).
+    /// </summary>
+    [ObservableProperty]
+    private ItemCategoryFilter _selectedHintItemCategoryFilter = ItemCategoryFilter.All;
+
     [ObservableProperty]
     private EventRelevanceFilter _selectedEventRelevanceFilter = EventRelevanceFilter.All;
 
     [ObservableProperty]
     private EventCategoryFilter _selectedEventCategoryFilter = EventCategoryFilter.All;
+
+    /// <summary>
+    /// Independent checkbox filter narrowing <see cref="VisibleEvents"/> by
+    /// item category (see <see cref="EventEntry.ItemKind"/>), combining with
+    /// <see cref="SelectedEventCategoryFilter"/> rather than replacing it -
+    /// e.g. "Items" + only "Trap" checked shows just trap items; since hint
+    /// entries also carry an item classification, unchecking a category
+    /// hides matching hints too. Entries with no item category at all
+    /// (connect/disconnect/chat/error) are unaffected by these four and
+    /// always pass through. Display-only, like every other event filter
+    /// here - the underlying <see cref="Events"/> collection this reads
+    /// from is never touched.
+    /// </summary>
+    [ObservableProperty]
+    private bool _showProgressionItemEvents = true;
+
+    [ObservableProperty]
+    private bool _showUsefulItemEvents = true;
+
+    [ObservableProperty]
+    private bool _showFillerItemEvents = true;
+
+    [ObservableProperty]
+    private bool _showTrapItemEvents = true;
 
     [ObservableProperty]
     private RightPanelView _selectedRightPanel = RightPanelView.Hints;
@@ -145,6 +181,15 @@ public partial class GroupViewModel : ViewModelBase
                 _                       => hints,
             };
 
+            hints = SelectedHintItemCategoryFilter switch
+            {
+                ItemCategoryFilter.Progress => hints.Where(h => h.ItemKind == EventTextSegmentKind.ItemProgression),
+                ItemCategoryFilter.Useful   => hints.Where(h => h.ItemKind == EventTextSegmentKind.ItemUseful),
+                ItemCategoryFilter.Normal   => hints.Where(h => h.ItemKind == EventTextSegmentKind.ItemOther),
+                ItemCategoryFilter.Trap     => hints.Where(h => h.ItemKind == EventTextSegmentKind.ItemTrap),
+                _                           => hints,
+            };
+
             if (SelectedHintsSlotFilter is not null)
                 hints = hints.Where(h => h.SlotId == SelectedHintsSlotFilter.Id);
 
@@ -191,8 +236,18 @@ public partial class GroupViewModel : ViewModelBase
             {
                 EventCategoryFilter.Hints => events.Where(e => e.Type == EventType.HintReceived),
                 EventCategoryFilter.Items => events.Where(e => e.Type == EventType.ItemReceived),
+                EventCategoryFilter.Chat => events.Where(e => e.Type == EventType.Chat),
                 _ => events,
             };
+
+            events = events.Where(e => e.ItemKind switch
+            {
+                EventTextSegmentKind.ItemProgression => ShowProgressionItemEvents,
+                EventTextSegmentKind.ItemUseful => ShowUsefulItemEvents,
+                EventTextSegmentKind.ItemOther => ShowFillerItemEvents,
+                EventTextSegmentKind.ItemTrap => ShowTrapItemEvents,
+                _ => true, // not an item-carrying entry - this filter doesn't apply to it
+            });
 
             if (SelectedEventsSlotFilter is not null)
             {
@@ -410,6 +465,8 @@ public partial class GroupViewModel : ViewModelBase
 
     partial void OnSelectedHintRoleFilterChanged(HintRoleFilter value) => OnPropertyChanged(nameof(VisibleHints));
 
+    partial void OnSelectedHintItemCategoryFilterChanged(ItemCategoryFilter value) => OnPropertyChanged(nameof(VisibleHints));
+
     partial void OnSelectedItemCategoryFilterChanged(ItemCategoryFilter value) => OnPropertyChanged(nameof(VisibleReceivedItems));
 
     partial void OnSelectedEventsSlotFilterChanged(SlotProfile? value) => OnPropertyChanged(nameof(VisibleEvents));
@@ -427,6 +484,14 @@ public partial class GroupViewModel : ViewModelBase
     partial void OnSelectedEventRelevanceFilterChanged(EventRelevanceFilter value) => OnPropertyChanged(nameof(VisibleEvents));
 
     partial void OnSelectedEventCategoryFilterChanged(EventCategoryFilter value) => OnPropertyChanged(nameof(VisibleEvents));
+
+    partial void OnShowProgressionItemEventsChanged(bool value) => OnPropertyChanged(nameof(VisibleEvents));
+
+    partial void OnShowUsefulItemEventsChanged(bool value) => OnPropertyChanged(nameof(VisibleEvents));
+
+    partial void OnShowFillerItemEventsChanged(bool value) => OnPropertyChanged(nameof(VisibleEvents));
+
+    partial void OnShowTrapItemEventsChanged(bool value) => OnPropertyChanged(nameof(VisibleEvents));
 
     private void OnEventsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
@@ -551,6 +616,21 @@ public partial class GroupViewModel : ViewModelBase
     private void ShowHintsIReceive() => SelectedHintRoleFilter = HintRoleFilter.IReceive;
 
     [RelayCommand]
+    private void ShowAllHintItemCategories() => SelectedHintItemCategoryFilter = ItemCategoryFilter.All;
+
+    [RelayCommand]
+    private void ShowProgressHintItems() => SelectedHintItemCategoryFilter = ItemCategoryFilter.Progress;
+
+    [RelayCommand]
+    private void ShowUsefulHintItems() => SelectedHintItemCategoryFilter = ItemCategoryFilter.Useful;
+
+    [RelayCommand]
+    private void ShowNormalHintItems() => SelectedHintItemCategoryFilter = ItemCategoryFilter.Normal;
+
+    [RelayCommand]
+    private void ShowTrapHintItems() => SelectedHintItemCategoryFilter = ItemCategoryFilter.Trap;
+
+    [RelayCommand]
     private void ShowAllEventsRelevance() => SelectedEventRelevanceFilter = EventRelevanceFilter.All;
 
     [RelayCommand]
@@ -564,6 +644,9 @@ public partial class GroupViewModel : ViewModelBase
 
     [RelayCommand]
     private void ShowItemEventsOnly() => SelectedEventCategoryFilter = EventCategoryFilter.Items;
+
+    [RelayCommand]
+    private void ShowChatEventsOnly() => SelectedEventCategoryFilter = EventCategoryFilter.Chat;
 
     /// <summary>
     /// Sets <see cref="SelectedChatSlot"/>/<see cref="LeaderSlotId"/> without

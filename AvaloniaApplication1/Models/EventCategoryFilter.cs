@@ -12,5 +12,8 @@ public enum EventCategoryFilter
     Hints,
 
     /// <summary>Show only <see cref="EventType.ItemReceived"/> entries.</summary>
-    Items
+    Items,
+
+    /// <summary>Show only <see cref="EventType.Chat"/> entries.</summary>
+    Chat
 }
