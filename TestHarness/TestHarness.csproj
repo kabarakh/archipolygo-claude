@@ -1,0 +1,28 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+    <!--
+        Throwaway manual-test harness (see .claude/skills/app-testen) - NOT part
+        of the shipped app, not referenced from AvaloniaApplication1.sln's
+        release build. Reuses the real MainWindow/GroupViewModel/views from
+        AvaloniaApplication1 with fake IPersistenceService/IConnectionManager
+        implementations so UI/filter/layout behavior can be exercised without a
+        real Archipelago connection or touching the user's real groups.json.
+        Delete this whole folder once testing is done.
+    -->
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Avalonia" Version="12.0.4"/>
+        <PackageReference Include="Avalonia.Desktop" Version="12.0.4"/>
+        <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.4"/>
+        <PackageReference Include="Avalonia.Fonts.Inter" Version="12.0.4"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\AvaloniaApplication1\AvaloniaApplication1.csproj"/>
+    </ItemGroup>
+</Project>

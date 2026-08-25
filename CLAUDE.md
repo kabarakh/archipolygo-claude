@@ -155,7 +155,17 @@ way first - each was a real bug with a specific root cause.
 
 - `dotnet build` / `dotnet run --project AvaloniaApplication1` from the
   repo root. .NET 10 SDK required. No test project exists yet (despite
-  `Umsetzungsplan.md` mentioning one as a cross-cutting task).
+  `Umsetzungsplan.md` mentioning one as a cross-cutting task). For manual
+  verification of a UI/behavior fix, use the `app-testen` skill
+  (`.claude/skills/app-testen/SKILL.md`) - it covers reproducing the case
+  without a real Archipelago connection, verifying visually via Windows
+  screenshots and simulated clicks, and why the real app should almost never
+  be restarted repeatedly while doing so.
+- For a new feature *idea* that's mainly about the UI (a new panel, a new
+  interaction, a layout change, ...), use the `ui-feature-prototyp` skill
+  (`.claude/skills/ui-feature-prototyp/SKILL.md`) - build it roughly in
+  `TestHarness/` first and have the developer click through it live, before
+  writing that idea into the real app.
 - `.github/workflows/release.yml` builds self-contained single-file zips
   (win-x64, linux-x64, osx-x64, osx-arm64) and attaches them to a GitHub
   Release whenever one is published - it does not run on plain pushes.
