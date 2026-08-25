@@ -35,15 +35,39 @@ Code für die echte App (`AvaloniaApplication1`) geschrieben wird.
    Der Prototyp muss nicht production-ready sein - Ziel ist ein anklickbarer
    Beweis der Idee, keine fertige Implementierung; TODOs/Hacks im Code sind
    an dieser Stelle okay.
-2. **Den Entwickler selbst live durchklicken lassen, nicht nur einen
-   Screenshot zeigen.** Bei einer neuen Feature-Idee reicht die eigene
-   Sichtprüfung per Screenshot/simuliertem Klick (wie in `app-testen`
-   Grundprinzip 2, für Bug-Reproduktion gedacht) nicht aus - hier soll ein
-   Mensch die Idee selbst bewerten und ein Gefühl dafür bekommen. Also:
-   `TestHarness` sichtbar für den User starten (`dotnet run --project
-   TestHarness`, im Vordergrund, nicht versteckt im Hintergrund) und um
-   Feedback bitten.
-3. **Erst nach Rückmeldung/Freigabe des Entwicklers** die Idee in die echte
+2. **Vor jedem Handover an den Entwickler: die tatsächlich neue Interaktion
+   selbst erfolgreich getestet haben** - "baut fehlerfrei" und "ein
+   Screenshot des Ruhezustands sieht gut aus" sind kein Beleg dafür, dass
+   die eigentliche neue Interaktion funktioniert. Konkreter Vorfall, der
+   diese Regel ausgelöst hat: ein Multi-Window-Tabs-Prototyp baute
+   fehlerfrei und der initiale Screenshot sah korrekt aus, aber der erste
+   tatsächliche Klick auf einen Tab crashte die App sofort (ein Folgefehler
+   in der Selektionslogik, der nur bei echter Pointer-Interaktion auftrat) -
+   das hätte ein eigener Testklick vor dem Handover gefunden, statt dass der
+   Entwickler es tut. Also: die neue(n) Interaktion(en) gezielt selbst
+   auslösen (Klick, bei Drag&Drop ein echtes Press-Move-Release, bei einem
+   neuen Dialogschritt der ganze Ablauf, ...) und per Screenshot verifizieren,
+   dass dabei nichts crasht und das erwartete Ergebnis eintritt - nicht nur
+   den Ruhezustand fotografieren.
+   - Das schließt `app-testen` Grundprinzip 4 nicht aus, sondern ergänzt es:
+     jede Maus-/Fokus-Übernahme für diesen Testdurchlauf bleibt genehmigungs-
+     pflichtig (einmal ankündigen reicht, nicht bei jedem einzelnen
+     simulierten Klick erneut nachfragen, aber auch nicht kommentarlos eine
+     lange Kette von Klicks/Drags hindurch fortsetzen, ohne dass der User
+     Gelegenheit hatte, das zu unterbrechen).
+   - Findet der Test einen Fehler, den Fehler beheben und den *gleichen*
+     Testschritt wiederholen, bis er tatsächlich funktioniert - erst dann
+     zu Schritt 3 übergehen.
+3. **Den Entwickler selbst live durchklicken lassen, nicht nur einen
+   Screenshot zeigen.** Auch nach einem erfolgreichen eigenen Test reicht die
+   eigene Sichtprüfung per Screenshot/simuliertem Klick (wie in `app-testen`
+   Grundprinzip 2, für Bug-Reproduktion gedacht) für die eigentliche
+   Freigabe-Entscheidung nicht aus - hier soll ein Mensch die Idee selbst
+   bewerten und ein Gefühl dafür bekommen ("fühlt sich das richtig an", nicht
+   nur "funktioniert es technisch"). Also: `TestHarness` sichtbar für den
+   User starten (`dotnet run --project TestHarness`, im Vordergrund, nicht
+   versteckt im Hintergrund) und um Feedback bitten.
+4. **Erst nach Rückmeldung/Freigabe des Entwicklers** die Idee in die echte
    App übernehmen - Prototyp-Code sauber in echte Views/ViewModels
    überführen, TestHarness-spezifische Abkürzungen dabei entfernen. Die im
    `ControlPanelWindow` neu hinzugekommenen Buttons können bleiben, wenn sie
