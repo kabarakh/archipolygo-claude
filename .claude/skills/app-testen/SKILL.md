@@ -139,6 +139,30 @@ gezieltere Loesung suchen (z. B. das Zielfenster per `SetWindowPos`
 vergroessern, um scrollen zu vermeiden), statt ersatzweise den ganzen
 Bildschirm zu fotografieren.
 
+### Bekannte Ungenauigkeit: abgelesene Klick-Y-Koordinate landet leicht zu hoch
+
+In `ControlPanelWindow`-artigen Fenstern (`StackPanel` in einem
+`ScrollViewer`, ein Button nach dem anderen) lag ein aus dem Screenshot
+abgelesener Y-Wert für einen Button wiederholt ca. **5px zu hoch** - der
+Klick landete knapp über dem Button statt drauf, ohne sichtbaren Fehler
+(einfach keine Reaktion). Betroffen war insbesondere der letzte, am unteren
+Fensterrand leicht abgeschnittene Button in einer langen Liste.
+
+**Was NICHT geholfen hat:** ein Hover-Check per `SetCursorPos` + Screenshot,
+um vor dem Klick per Hintergrundfarbe zu verifizieren, dass die Maus wirklich
+auf einem Button steht. Dieses Theme zeigt auf `PointerOver` keinen sichtbar
+unterscheidbaren Hover-Hintergrund (jedenfalls nicht zuverlässig per
+Pixel-Diff erkennbar) - die vermeintlichen Farbabweichungen beim genaueren
+Hinsehen waren nur ClearType-Subpixel-Fransen der Button-Beschriftung, kein
+Hover-Indikator. Zeit in Crop/Zoom-Skripte zu stecken, um das doch irgendwie
+sichtbar zu machen, war verschwendete Mühe.
+
+**Was tatsächlich geholfen hat:** einfach ca. 5px tiefer klicken als der
+Screenshot suggeriert, und am tatsächlichen Effekt (nicht an der
+Cursor-/Hover-Optik) ablesen, ob der Klick gesessen hat. Bei einem
+verdächtigen Nicht-Reagieren also zuerst einen leicht nach unten korrigierten
+Y-Wert probieren, bevor man in aufwändigere Verifikationstechnik investiert.
+
 ### Bekannter, gefixter Bug: `Send-Click.ps1 -Scroll` mit negativem Wert
 
 `-Scroll` mit einem negativen Wert (nach unten scrollen) warf frueher einen
@@ -233,6 +257,13 @@ Ein `dotnet run`/App-Neustart ist langsam und verschleiert echtes Verhalten
     unterbrechen, ohne dass er das kommen sah. Der User kann darauf mit
     einer pauschalen Freigabe fuer die angekuendigte Reihe antworten, wenn
     er nicht bei jedem einzelnen Schritt gefragt werden moechte.
+  - Auch **innerhalb** einer bereits freigegebenen Klick-/Screenshot-Reihe
+    die Fokus-Pruefung von oben vor jeder einzelnen Aktion wiederholen, nicht
+    nur einmal zu Beginn. Liegt der Fokus zwischendurch wieder nicht mehr auf
+    dem erwarteten Test-Fenster (der User hat also inzwischen woanders
+    hingeklickt/gearbeitet), gilt die fruehere Freigabe nicht mehr automatisch
+    weiter - erneut nachfragen, statt die erste Zustimmung stillschweigend
+    auf den Rest der Sitzung auszudehnen.
 
 ## Grundprinzip 5: Debug-Infos in der Test-App in eine Log-Datei schreiben
 
