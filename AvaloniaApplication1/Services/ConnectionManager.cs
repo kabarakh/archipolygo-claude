@@ -320,9 +320,25 @@ public class ConnectionManager : IConnectionManager
 
     public async Task CatchUpSyncAsync(GroupViewModel group, SlotProfile slot)
     {
-        if (_leaderSlotByGroup.TryGetValue(group.Group.Id, out var leaderId) && leaderId == slot.Id)
+        if (_leaderSlotByGroup.TryGetValue(group.Group.Id, out var leaderId))
         {
-            return; // already the leader - already fully live, nothing to catch up.
+            if (leaderId == slot.Id)
+            {
+                return; // already the leader - already fully live, nothing to catch up.
+            }
+
+            // A leader is already live for this group. Its per-sibling hint
+            // subscriptions (see ConnectSlotSessionAsync) only ever run once,
+            // at the moment the leader itself connected - a slot that didn't
+            // exist yet at that point (this call's whole reason for
+            // existing: "Add slot..." on an already-connected group) would
+            // otherwise stay invisible to the live leader session for as
+            // long as it stays non-leader, same bug as the one fixed for
+            // already-configured siblings, just for this narrower timing
+            // window. Subscribe the already-open leader session to this
+            // slot's own hint key right now too, over that same connection -
+            // no reconnect needed.
+            TrackHintsForSiblingOnLeader(group, leaderId, slot);
         }
 
         if (_sessions.ContainsKey(slot.Id))
@@ -750,17 +766,48 @@ public class ConnectionManager : IConnectionManager
 
             _sessions[slot.Id] = session;
 
-            // Fires immediately with the currently unlocked hints (room-wide -
-            // see OnHintsUpdated), then again on every later change. Subscribing
-            // this for catch-up sessions too is cheap and correct even though
-            // the leader's own subscription already covers the same ground
-            // whenever a leader exists.
+            // Fires immediately with this slot's own currently unlocked hints,
+            // then again on every later change to them.
+            //
+            // Unlike chat/item-send lines, a hint's server-side notification is
+            // NOT broadcast to the whole room - the AP server only pushes the
+            // "Hint: ..." text (and the underlying hints_{team}_{slot} DataStorage
+            // update this subscribes to) to the finder's and the receiver's own
+            // clients (see MultiServer.py's notify_hints/`concerns`). So this
+            // single subscription only ever reports hints where *this* slot is
+            // the finder or receiver. Fine for a brief catch-up session (it only
+            // cares about itself), but for the leader - the only session that
+            // stays open live - it would otherwise silently miss any hint that
+            // concerns a different configured sibling slot instead (e.g. a
+            // sibling running !hint_location on its own location) for as long
+            // as that sibling stays non-leader. See the per-sibling subscriptions
+            // added below for the leader case.
             session.Hints.TrackHints(
                 hints => OnHintsUpdated(group, session, hints),
                 retrieveCurrentlyUnlockedHints: true);
 
             if (isLeaderSession)
             {
+                // Track every other configured slot's own hint list too, over
+                // this same already-open connection - no extra login needed,
+                // just one more DataStorage subscription per sibling. This is
+                // what actually makes hint coverage "the whole group" while the
+                // leader is live, the way chat/item-send lines already are for
+                // free via the room-wide MessageLog broadcast.
+                var roster = BuildSlotRoster(session, group.Group);
+                foreach (var (numericSlotId, siblingSlot) in roster)
+                {
+                    if (siblingSlot.Id == slot.Id)
+                    {
+                        continue; // this leader slot is already covered above
+                    }
+
+                    session.Hints.TrackHints(
+                        hints => OnHintsUpdated(group, session, hints),
+                        retrieveCurrentlyUnlockedHints: true,
+                        slot: numericSlotId);
+                }
+
                 _messageHistoryService.HandleConnected(group, slot);
             }
 
@@ -1094,6 +1141,39 @@ public class ConnectionManager : IConnectionManager
         return roster;
     }
 
+    /// <summary>
+    /// Adds one more <c>TrackHints</c> subscription to <paramref name="leaderId"/>'s
+    /// already-open session, for <paramref name="newSlot"/>'s own numeric
+    /// slot id - see the call site in <see cref="CatchUpSyncAsync"/> for why
+    /// this exists (a slot added while a leader is already connected isn't
+    /// covered by the sibling loop in <see cref="ConnectSlotSessionAsync"/>,
+    /// which only runs once, at the moment the leader itself connects). A
+    /// no-op if the leader's session isn't tracked for some reason, or if
+    /// <paramref name="newSlot"/>'s configured name doesn't (yet) match a
+    /// real player in the room roster - nothing to subscribe to in that
+    /// case, same as any other unresolved sibling name.
+    /// </summary>
+    private void TrackHintsForSiblingOnLeader(GroupViewModel group, Guid leaderId, SlotProfile newSlot)
+    {
+        if (!_sessions.TryGetValue(leaderId, out var leaderSession))
+        {
+            return;
+        }
+
+        var roster = BuildSlotRoster(leaderSession, group.Group);
+        foreach (var (numericSlotId, matchedSlot) in roster)
+        {
+            if (matchedSlot.Id == newSlot.Id)
+            {
+                leaderSession.Hints.TrackHints(
+                    hints => OnHintsUpdated(group, leaderSession, hints),
+                    retrieveCurrentlyUnlockedHints: true,
+                    slot: numericSlotId);
+                return;
+            }
+        }
+    }
+
     private static HashSet<int> SiblingIdsExcludingOwn(Dictionary<int, SlotProfile> roster, int ownNumericSlotId) =>
         new(roster.Keys.Where(id => id != ownNumericSlotId));
 
@@ -1198,12 +1278,15 @@ public class ConnectionManager : IConnectionManager
     }
 
     /// <summary>
-    /// Fires whenever the session's full current hint list is available.
-    /// This is room-wide (not scoped to the logged-in slot) - a hint where
-    /// neither the receiving nor finding player resolves to one of this
-    /// group's configured slots is skipped entirely; where one does, the
-    /// hint is routed to that slot (preferring the receiving side if both
-    /// happen to be configured slots of this same group).
+    /// Fires whenever one tracked slot's full current hint list is available -
+    /// once per <c>TrackHints</c> subscription registered above, each scoped to
+    /// a single slot (its own by default, or an explicit sibling slot for the
+    /// leader's extra subscriptions). Not room-wide by itself: each call's
+    /// <paramref name="hints"/> only ever contains hints where that one tracked
+    /// slot is the finder or receiver. A hint where neither side resolves to
+    /// one of this group's configured slots is skipped entirely; where one
+    /// does, the hint is routed to that slot (preferring the receiving side if
+    /// both happen to be configured slots of this same group).
     /// </summary>
     private void OnHintsUpdated(GroupViewModel group, ArchipelagoSession session, Hint[] hints)
     {

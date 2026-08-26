@@ -70,10 +70,18 @@ public interface IConnectionManager
     /// <summary>
     /// One-shot: connects briefly as <paramref name="slot"/>, waits for
     /// login and its item/hint backlog to resync, then disconnects again.
-    /// Never touches the group's leader (if any) - the two sessions coexist
-    /// for the few seconds this takes. Used when a new slot is added to a
-    /// group that already has a leader, and once per non-leader slot at
-    /// startup, to close gaps from time the app itself was closed.
+    /// Never disconnects or reconnects the group's leader (if any) - the two
+    /// sessions coexist for the few seconds this takes. Used when a new slot
+    /// is added to a group that already has a leader, and once per
+    /// non-leader slot at startup, to close gaps from time the app itself
+    /// was closed.
+    ///
+    /// If a leader is already live, this also adds one more hint
+    /// subscription to that existing session for <paramref name="slot"/>'s
+    /// own numeric id (see ConnectionManager.TrackHintsForSiblingOnLeader) -
+    /// without it, a slot added after the leader connected would stay
+    /// invisible to the leader's ongoing hint tracking until the next leader
+    /// reconnect, same gap as the one between already-configured siblings.
     /// </summary>
     Task CatchUpSyncAsync(GroupViewModel group, SlotProfile slot);
 
