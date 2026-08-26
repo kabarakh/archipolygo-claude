@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Archipelago.MultiClient.Net.Enums;
 using Archipolygo.Models;
 using Archipolygo.Services;
@@ -10,24 +11,33 @@ namespace TestHarness;
 
 /// <summary>
 /// Plain code-built (no .axaml) auxiliary window - see .claude/skills/app-testen.
-/// Each button injects synthetic data directly into <see cref="GroupViewModel"/>'s
+/// Most buttons inject synthetic data directly into <see cref="GroupViewModel"/>'s
 /// public collections, bypassing IConnectionManager entirely, to drive the real
-/// Events/Hints/Items panels without a network connection.
+/// Events/Hints/Items panels without a network connection. The "Hint routing"
+/// section is the exception - it goes through <see cref="FakeConnectionManager"/>'s
+/// fake hint room, because that's the part that actually models the
+/// leader/non-leader subscription behavior fixed in ConnectionManager.cs.
 /// </summary>
 public sealed class ControlPanelWindow : Window
 {
     private readonly GroupViewModel _group;
     private readonly SlotProfile _slot;
+    private readonly SlotProfile _siblingSlot;
+    private readonly FakeConnectionManager _connectionManager;
+    private readonly TextBlock _leaderStatusText;
     private int _counter;
+    private int _hintCounter;
 
-    public ControlPanelWindow(GroupViewModel group, SlotProfile slot)
+    public ControlPanelWindow(GroupViewModel group, SlotProfile slot, SlotProfile siblingSlot, FakeConnectionManager connectionManager)
     {
         _group = group;
         _slot = slot;
+        _siblingSlot = siblingSlot;
+        _connectionManager = connectionManager;
 
         Title = "Test Control Panel";
         Width = 260;
-        Height = 520;
+        Height = 700;
         WindowStartupLocation = WindowStartupLocation.Manual;
         Position = new Avalonia.PixelPoint(20, 20);
 
@@ -50,6 +60,27 @@ public sealed class ControlPanelWindow : Window
 
         panel.Children.Add(new TextBlock { Text = "Bulk", FontWeight = Avalonia.Media.FontWeight.Bold, Margin = new Avalonia.Thickness(0, 10, 0, 0) });
         panel.Children.Add(Btn("Add one of everything", AddOneOfEverything));
+
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Hint routing (leader vs. non-leader)",
+            FontWeight = Avalonia.Media.FontWeight.Bold,
+            Margin = new Avalonia.Thickness(0, 10, 0, 0),
+            TextWrapping = Avalonia.Media.TextWrapping.Wrap
+        });
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Reproduces the 0.1.0 bug: a hint for a location owned by a non-leader configured slot never reached the event log.",
+            FontSize = 11,
+            Opacity = 0.7,
+            TextWrapping = Avalonia.Media.TextWrapping.Wrap
+        });
+        _leaderStatusText = new TextBlock { TextWrapping = Avalonia.Media.TextWrapping.Wrap };
+        panel.Children.Add(_leaderStatusText);
+        panel.Children.Add(Btn($"Switch leader to {_slot.SlotName}", () => SwitchLeader(_slot)));
+        panel.Children.Add(Btn($"Switch leader to {_siblingSlot.SlotName}", () => SwitchLeader(_siblingSlot)));
+        panel.Children.Add(Btn("Simulate !hint_location as non-leader", SimulateHintAsNonLeader));
+        RefreshLeaderStatus();
 
         Content = new ScrollViewer { Content = panel };
     }
@@ -132,6 +163,42 @@ public sealed class ControlPanelWindow : Window
             FindingPlayerKind = EventTextSegmentKind.OtherSlotName,
             Found = false,
         });
+    }
+
+    private void SwitchLeader(SlotProfile targetSlot)
+    {
+        _ = _connectionManager.SwitchLeaderAsync(_group, targetSlot);
+        RefreshLeaderStatus();
+    }
+
+    private void RefreshLeaderStatus()
+    {
+        var leaderName = _group.Group.Slots.FirstOrDefault(s => s.Id == _group.LeaderSlotId)?.SlotName ?? "(none)";
+        _leaderStatusText.Text = $"Current leader: {leaderName}";
+    }
+
+    /// <summary>
+    /// Finds whichever of the two demo slots is currently NOT the leader and
+    /// simulates it running "!hint_location" for a hint whose receiving
+    /// player is an external, unconfigured room player - i.e. neither side of
+    /// the hint is the leader. Before the ConnectionManager.cs fix, this
+    /// hint would never have reached the leader's session at all (see
+    /// FakeConnectionManager.SimulateHintLocation); after the fix, it should
+    /// show up in this slot's Hints/Events even though it never itself
+    /// connects.
+    /// </summary>
+    private void SimulateHintAsNonLeader()
+    {
+        var nonLeader = _group.Group.Slots.FirstOrDefault(s => s.Id != _group.LeaderSlotId) ?? _siblingSlot;
+
+        _hintCounter++;
+        _connectionManager.SimulateHintLocation(
+            _group,
+            nonLeader,
+            receiverName: "ExternalPlayer",
+            itemName: $"External Item #{_hintCounter}",
+            locationName: $"{nonLeader.SlotName}'s Location #{_hintCounter}",
+            flags: ItemFlags.Advancement);
     }
 
     private void AddOneOfEverything()
