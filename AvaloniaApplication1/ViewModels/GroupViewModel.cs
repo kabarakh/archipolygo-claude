@@ -138,6 +138,19 @@ public partial class GroupViewModel : ViewModelBase
     [ObservableProperty]
     private string _messageToSend = string.Empty;
 
+    // Shell/chat-style history for the message box's Up/Down-arrow recall
+    // (OnMessageTextBoxKeyDown in MainWindow.axaml.cs) - most useful for
+    // resending the same !hint text for an item several times in a row.
+    // _messageHistoryIndex == -1 means "not currently navigating history";
+    // while navigating it points at the entry currently shown in the box,
+    // and _messageHistoryDraft holds whatever the user had typed before the
+    // first Up-press so Down can restore it once they've stepped back past
+    // the newest entry - exactly like a terminal's command history.
+    private const int MaxMessageHistory = 50;
+    private readonly List<string> _messageHistory = new();
+    private int _messageHistoryIndex = -1;
+    private string? _messageHistoryDraft;
+
     public ObservableCollection<EventEntry> Events { get; } = new();
 
     public ObservableCollection<HintEntry> Hints { get; } = new();
@@ -576,7 +589,82 @@ public partial class GroupViewModel : ViewModelBase
         }
 
         MessageToSend = string.Empty;
+        RecordSentMessage(text);
         await _connectionManager.SendMessageAsync(this, text);
+    }
+
+    /// <summary>
+    /// Appends a just-sent message to the recall history (see
+    /// <see cref="_messageHistory"/>'s doc comment) and resets navigation -
+    /// every send starts the next Up-press fresh from the newest entry.
+    /// Deliberately doesn't dedupe against the previous entry: resending the
+    /// same !hint text several times in a row is the main use case, and each
+    /// send should still get its own history slot to step through.
+    /// </summary>
+    private void RecordSentMessage(string text)
+    {
+        _messageHistory.Add(text);
+        if (_messageHistory.Count > MaxMessageHistory)
+        {
+            _messageHistory.RemoveAt(0);
+        }
+
+        _messageHistoryIndex = -1;
+        _messageHistoryDraft = null;
+    }
+
+    /// <summary>
+    /// Steps one message further back in the recall history (Up arrow) -
+    /// called from MainWindow.axaml.cs's message TextBox key handler. On the
+    /// first press, stashes whatever the user had already typed so
+    /// <see cref="RecallNextMessage"/> can hand it back later; further
+    /// presses just walk further back, stopping at the oldest entry.
+    /// </summary>
+    public void RecallPreviousMessage()
+    {
+        if (_messageHistory.Count == 0)
+        {
+            return;
+        }
+
+        if (_messageHistoryIndex == -1)
+        {
+            _messageHistoryDraft = MessageToSend;
+            _messageHistoryIndex = _messageHistory.Count - 1;
+        }
+        else if (_messageHistoryIndex > 0)
+        {
+            _messageHistoryIndex--;
+        }
+
+        MessageToSend = _messageHistory[_messageHistoryIndex];
+    }
+
+    /// <summary>
+    /// Steps one message forward through the recall history (Down arrow) -
+    /// the mirror of <see cref="RecallPreviousMessage"/>. Once it steps past
+    /// the newest entry, restores whatever the user had originally typed
+    /// before they started navigating, and leaves history navigation.
+    /// No-op if history navigation isn't currently active.
+    /// </summary>
+    public void RecallNextMessage()
+    {
+        if (_messageHistoryIndex == -1)
+        {
+            return;
+        }
+
+        if (_messageHistoryIndex < _messageHistory.Count - 1)
+        {
+            _messageHistoryIndex++;
+            MessageToSend = _messageHistory[_messageHistoryIndex];
+        }
+        else
+        {
+            _messageHistoryIndex = -1;
+            MessageToSend = _messageHistoryDraft ?? string.Empty;
+            _messageHistoryDraft = null;
+        }
     }
 
     [RelayCommand]

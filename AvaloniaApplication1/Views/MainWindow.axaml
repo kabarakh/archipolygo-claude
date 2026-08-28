@@ -458,7 +458,7 @@
                                 </ComboBox.ItemTemplate>
                             </ComboBox>
                             <TextBox Grid.Column="1" Text="{Binding MessageToSend}" PlaceholderText="Message..."
-                                     IsEnabled="{Binding IsLeaderConnected}">
+                                     IsEnabled="{Binding IsLeaderConnected}" KeyDown="OnMessageTextBoxKeyDown">
                                 <TextBox.KeyBindings>
                                     <KeyBinding Gesture="Enter" Command="{Binding SendMessageCommand}"/>
                                 </TextBox.KeyBindings>

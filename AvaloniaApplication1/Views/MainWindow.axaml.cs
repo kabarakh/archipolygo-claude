@@ -149,6 +149,38 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// Up/Down-arrow recall for the message TextBox, mirroring a terminal's
+    /// command history - Up steps back through <see cref="GroupViewModel"/>'s
+    /// recently sent messages, Down steps forward again (and eventually
+    /// restores whatever was being typed before the first Up-press). Mainly
+    /// useful for resending the same !hint text for an item several times in
+    /// a row without retyping it. A single-line TextBox has no native use for
+    /// Up/Down, so intercepting them here doesn't take anything away.
+    /// </summary>
+    private void OnMessageTextBoxKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (sender is not TextBox { DataContext: GroupViewModel group } textBox)
+        {
+            return;
+        }
+
+        switch (e.Key)
+        {
+            case Key.Up:
+                group.RecallPreviousMessage();
+                break;
+            case Key.Down:
+                group.RecallNextMessage();
+                break;
+            default:
+                return;
+        }
+
+        textBox.CaretIndex = textBox.Text?.Length ?? 0;
+        e.Handled = true;
+    }
+
+    /// <summary>
     /// Forces the "Chat as:" ComboBox to display the view model's actual
     /// current <see cref="GroupViewModel.SelectedChatSlot"/> once this
     /// particular ComboBox instance has finished loading.
