@@ -1,0 +1,62 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:TestHarness.AddSlotPickerPrototype"
+        xmlns:conv="using:Avalonia.Data.Converters"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        x:Class="TestHarness.AddSlotPickerPrototype.AddSlotPickerPrototypeWindow"
+        x:DataType="vm:AddSlotPickerPrototypeViewModel"
+        Width="440" Height="520"
+        WindowStartupLocation="Manual"
+        Title="Add Slot (prototype: search + multi-select)">
+
+    <StackPanel Margin="16" Spacing="8">
+        <TextBlock Text="Filter by name" FontWeight="Bold"/>
+        <TextBox Text="{Binding SearchText}" Watermark="Type to filter..."/>
+
+        <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button Content="Select visible" Command="{Binding SelectVisibleCommand}"/>
+            <Button Content="Deselect visible" Command="{Binding DeselectVisibleCommand}"/>
+        </StackPanel>
+
+        <!-- Capped height + internal scrolling, same reasoning as the
+             existing slot-management/staged-slots lists in
+             ConnectionEditorWindow.axaml - a big room's roster must not push
+             the window itself past the screen. -->
+        <ScrollViewer MaxHeight="280">
+            <ItemsControl ItemsSource="{Binding FilteredRows}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="vm:SelectableSlotRow">
+                        <StackPanel Margin="0,2" Spacing="2">
+                            <Grid ColumnDefinitions="Auto,*,Auto">
+                                <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected}"/>
+                                <TextBlock Grid.Column="1" Text="{Binding Player.DisplayText}"
+                                           VerticalAlignment="Center" Margin="6,0"/>
+                                <ToggleButton Grid.Column="2" Content="🔒" Padding="6,0"
+                                              IsChecked="{Binding ShowOverride}"
+                                              ToolTip.Tip="This slot needs its own password"/>
+                            </Grid>
+                            <!-- Rare-case escape hatch, collapsed by default - see
+                                 SelectableSlotRow.ShowOverride. -->
+                            <TextBox Text="{Binding OverridePassword}" PasswordChar="*"
+                                     IsVisible="{Binding ShowOverride}"
+                                     Watermark="Password just for this slot"
+                                     Margin="24,0,0,4"/>
+                        </StackPanel>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <TextBlock Text="No slots match." Opacity="0.6" IsVisible="{Binding HasNoResults}"/>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,12,0,0">
+            <TextBlock Text="Select at least one slot to continue" Opacity="0.6" VerticalAlignment="Center"
+                       IsVisible="{Binding !CanApplyNow}"/>
+            <Button Content="Cancel" Click="OnCancelClick"/>
+            <Button Content="{Binding ApplyButtonText}" Click="OnApplyClick"
+                    IsEnabled="{Binding CanApplyNow}" IsDefault="True"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

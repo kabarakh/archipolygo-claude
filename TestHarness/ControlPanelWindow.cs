@@ -1,11 +1,14 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Archipelago.MultiClient.Net.Enums;
 using Archipolygo.Models;
 using Archipolygo.Services;
 using Archipolygo.ViewModels;
 using Avalonia.Controls;
 using Avalonia.Layout;
+using TestHarness.AddSlotPickerPrototype;
 
 namespace TestHarness;
 
@@ -25,6 +28,7 @@ public sealed class ControlPanelWindow : Window
     private readonly SlotProfile _siblingSlot;
     private readonly FakeConnectionManager _connectionManager;
     private readonly TextBlock _leaderStatusText;
+    private readonly TextBlock _addSlotPickerResultText;
     private int _counter;
     private int _hintCounter;
 
@@ -81,6 +85,23 @@ public sealed class ControlPanelWindow : Window
         panel.Children.Add(Btn($"Switch leader to {_siblingSlot.SlotName}", () => SwitchLeader(_siblingSlot)));
         panel.Children.Add(Btn("Simulate !hint_location as non-leader", SimulateHintAsNonLeader));
         RefreshLeaderStatus();
+
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Add-Slot Redesign (Prototyp)",
+            FontWeight = Avalonia.Media.FontWeight.Bold,
+            Margin = new Avalonia.Thickness(0, 10, 0, 0)
+        });
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Suchfilter + Checkbox-Mehrfachauswahl statt ComboBox + \"Add to list\" - siehe Umsetzungsplan.md.",
+            FontSize = 11,
+            Opacity = 0.7,
+            TextWrapping = Avalonia.Media.TextWrapping.Wrap
+        });
+        panel.Children.Add(Btn("Open Add-Slot picker (prototype)", () => _ = OpenAddSlotPickerPrototypeAsync()));
+        _addSlotPickerResultText = new TextBlock { TextWrapping = Avalonia.Media.TextWrapping.Wrap, FontSize = 11 };
+        panel.Children.Add(_addSlotPickerResultText);
 
         Content = new ScrollViewer { Content = panel };
     }
@@ -199,6 +220,49 @@ public sealed class ControlPanelWindow : Window
             itemName: $"External Item #{_hintCounter}",
             locationName: $"{nonLeader.SlotName}'s Location #{_hintCounter}",
             flags: ItemFlags.Advancement);
+    }
+
+    /// <summary>
+    /// Opens the redesigned "Add slot" picker prototype (see
+    /// AddSlotPickerPrototype/) with a synthetic room roster - one name
+    /// deliberately hints at needing its own password, to give the
+    /// per-row 🔒-override something realistic to try. Not wired into
+    /// MainWindowViewModel.AddSlotsToGroup - this is purely a click-through
+    /// design prototype (see .claude/skills/ui-feature-prototyp); the
+    /// result is only echoed back into this panel's text block, nothing is
+    /// actually added to the demo group.
+    /// </summary>
+    private async Task OpenAddSlotPickerPrototypeAsync()
+    {
+        var syntheticPlayers = new List<PlayerChoice>
+        {
+            new() { SlotName = "Alice", DisplayText = "Alice" },
+            new() { SlotName = "Bob", DisplayText = "Bob (bobby99)" },
+            new() { SlotName = "Charlie", DisplayText = "Charlie" },
+            new() { SlotName = "Dana", DisplayText = "Dana" },
+            new() { SlotName = "Eve", DisplayText = "Eve (custom-hosted, needs own password)" },
+            new() { SlotName = "Frank", DisplayText = "Frank" },
+            new() { SlotName = "Grace", DisplayText = "Grace" },
+            new() { SlotName = "Heidi", DisplayText = "Heidi" },
+            new() { SlotName = "Ivan", DisplayText = "Ivan" },
+            new() { SlotName = "Judy", DisplayText = "Judy" },
+        };
+
+        var viewModel = new AddSlotPickerPrototypeViewModel(syntheticPlayers);
+        var window = new AddSlotPickerPrototypeWindow
+        {
+            DataContext = viewModel,
+            WindowStartupLocation = WindowStartupLocation.Manual,
+            Position = new Avalonia.PixelPoint(760, 20)
+        };
+
+        var result = await window.ShowDialog<IReadOnlyList<StagedSlot>?>(this);
+
+        _addSlotPickerResultText.Text = result is null
+            ? "Cancelled."
+            : result.Count == 0
+                ? "Confirmed with 0 slots (shouldn't happen - Apply is disabled until something is checked)."
+                : "Would add: " + string.Join(", ", result.Select(s => s.Password is null ? s.SlotName : $"{s.SlotName} (password set)"));
     }
 
     private void AddOneOfEverything()

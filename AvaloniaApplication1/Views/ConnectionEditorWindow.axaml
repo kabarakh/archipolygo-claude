@@ -8,7 +8,7 @@
         mc:Ignorable="d"
         x:Class="Archipolygo.Views.ConnectionEditorWindow"
         x:DataType="vm:ConnectionEditorViewModel"
-        Width="380" SizeToContent="Height" CanResize="False"
+        Width="440" SizeToContent="Height" CanResize="False"
         WindowStartupLocation="CenterOwner"
         Title="{Binding DialogTitle}">
 
@@ -40,58 +40,53 @@
         <TextBlock Text="Slot name" IsVisible="{Binding ShowSlotName}"/>
         <TextBox Text="{Binding SlotName}" IsVisible="{Binding ShowSlotName}"/>
 
-        <!-- Adding slot(s) to an existing server: pick from the room's
-             actual player roster, optionally give this one slot its own
-             password, and either stop there (confirming the dialog adds
-             just this one) or click "Add to list" to queue it up and pick
-             more - see ConnectionEditorViewModel.StageSelectedPlayer. -->
+        <!-- Adding slot(s) to an existing server: filter the room's player
+             roster by name, check as many as needed at once (instead of one
+             ComboBox pick + "Add to list" click per slot), and optionally
+             give any individual one its own password via its 🔒 override -
+             see Umsetzungsplan.md, "Add slot"-Dialog: Mehrfachauswahl mit
+             Suche. -->
         <StackPanel IsVisible="{Binding ShowPlayerPicker}" Spacing="8">
             <TextBlock Text="Slot"/>
-            <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="8" RowSpacing="4">
-                <ComboBox Grid.Row="0" Grid.Column="0"
-                          ItemsSource="{Binding AvailablePlayers}" SelectedItem="{Binding SelectedPlayer}"
-                          HorizontalAlignment="Stretch">
-                    <ComboBox.ItemTemplate>
-                        <DataTemplate DataType="m:PlayerChoice">
-                            <TextBlock Text="{Binding DisplayText}"/>
-                        </DataTemplate>
-                    </ComboBox.ItemTemplate>
-                </ComboBox>
-                <Button Grid.Row="0" Grid.Column="1" Content="Add to list"
-                        Command="{Binding StageSelectedPlayerCommand}"/>
-                <TextBox Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
-                         Text="{Binding Password}" PasswordChar="*"
-                         Watermark="Password (only if this slot needs a different one)"/>
-            </Grid>
+            <TextBox Text="{Binding SearchText}" Watermark="Type to filter..."/>
 
-            <!-- Queued slots, so it's visible that "Add to list" actually
-                 did something instead of the dialog just looking unchanged;
-                 SaveButtonText below reflects the same count. Each entry can
-                 be removed again (e.g. staged by mistake) before confirming.
-                 Capped height + internal scrolling, same reasoning as the
-                 configured-slots list below - a big room's worth of staged
-                 picks must not push the window itself past the screen. -->
-            <ScrollViewer IsVisible="{Binding HasStagedSlots}" MaxHeight="180">
-                <ItemsControl ItemsSource="{Binding StagedSlots}">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="Select visible" Command="{Binding SelectVisibleCommand}"/>
+                <Button Content="Deselect visible" Command="{Binding DeselectVisibleCommand}"/>
+            </StackPanel>
+
+            <!-- Capped height + internal scrolling, same reasoning as the
+                 configured-slots list below - a big room's roster must not
+                 push the window itself past the screen. Right padding
+                 leaves room for the scrollbar so it doesn't overlap the 🔒
+                 button on every row once the list actually scrolls. -->
+            <ScrollViewer MaxHeight="220" Padding="0,0,10,0">
+                <ItemsControl ItemsSource="{Binding FilteredSlotRows}">
                     <ItemsControl.ItemTemplate>
-                        <DataTemplate DataType="m:StagedSlot">
-                            <Grid ColumnDefinitions="*,Auto" Margin="0,2">
-                                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6">
-                                    <TextBlock Text="{Binding DisplayText}"/>
-                                    <TextBlock Text="🔒" ToolTip.Tip="Has its own password"
-                                               IsVisible="{Binding Password, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"/>
-                                </StackPanel>
-                                <!-- Click (not Command) - this DataTemplate's own
-                                     DataContext is the StagedSlot, not the
-                                     window's ConnectionEditorViewModel, so the
-                                     command lives on the button's DataContext in
-                                     code-behind instead of a relative binding. -->
-                                <Button Grid.Column="1" Content="✕" Padding="6,0" Click="OnUnstageSlotClick"/>
-                            </Grid>
+                        <DataTemplate DataType="m:SelectableSlotRow">
+                            <StackPanel Margin="0,2" Spacing="2">
+                                <Grid ColumnDefinitions="Auto,*,Auto">
+                                    <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected}"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding Player.DisplayText}"
+                                               VerticalAlignment="Center" Margin="6,0"/>
+                                    <ToggleButton Grid.Column="2" Content="🔒" Padding="6,0"
+                                                  IsChecked="{Binding ShowOverride}"
+                                                  ToolTip.Tip="This slot needs its own password"/>
+                                </Grid>
+                                <!-- Rare-case escape hatch, collapsed by
+                                     default - see
+                                     SelectableSlotRow.ShowOverride. -->
+                                <TextBox Text="{Binding OverridePassword}" PasswordChar="*"
+                                         IsVisible="{Binding ShowOverride}"
+                                         Watermark="Password just for this slot"
+                                         Margin="24,0,0,4"/>
+                            </StackPanel>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
             </ScrollViewer>
+
+            <TextBlock Text="No slots match." Opacity="0.6" IsVisible="{Binding HasNoFilteredResults}"/>
         </StackPanel>
 
         <!-- Editing an existing server: manage its already-configured slots
@@ -141,9 +136,18 @@
                    IsVisible="{Binding ValidationError, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"
                    TextWrapping="Wrap"/>
 
-        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,8,0,0">
-            <Button Content="Cancel" Click="OnCancelClick"/>
-            <Button Content="{Binding SaveButtonText}" Click="OnSaveClick" IsDefault="True"/>
+        <!-- Hint text on its own row above the buttons, not sharing a row
+             with them - at 380-440px window width, "Select at least one
+             slot to continue" plus both buttons never fit on one line
+             together, which used to clip the Save button clean off the
+             visible window instead of just wrapping. -->
+        <StackPanel Spacing="4" Margin="0,8,0,0">
+            <TextBlock Text="Select at least one slot to continue" Opacity="0.6" HorizontalAlignment="Right"
+                       IsVisible="{Binding !CanApplyNow}"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                <Button Content="Cancel" Click="OnCancelClick"/>
+                <Button Content="{Binding SaveButtonText}" Click="OnSaveClick" IsEnabled="{Binding CanApplyNow}" IsDefault="True"/>
+            </StackPanel>
         </StackPanel>
     </StackPanel>
 </Window>

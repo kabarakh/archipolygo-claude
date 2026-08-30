@@ -20,7 +20,16 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private GroupViewModel? _selectedGroup;
 
-    /// <summary>Total number of configured slots being processed by the current startup sync pass (see <see cref="InitializeGroupsAsync"/>) - across every group, not just one.</summary>
+    /// <summary>
+    /// Total number of configured slots announced so far by whatever
+    /// <see cref="IConnectionManager.SwitchLeaderAsync"/> sync pass(es) are
+    /// currently in flight - see <see cref="IConnectionManager.SlotSyncBatchStarting"/>,
+    /// which this keeps growing by (reset back to 0 first if nothing is
+    /// currently pending, so a long-finished earlier pass isn't carried
+    /// over). Not just the startup pass despite the name - the same banner
+    /// reappears for any later reconnect too, e.g. manually reconnecting a
+    /// group that was left disconnected.
+    /// </summary>
     [ObservableProperty]
     private int _startupSyncTotal;
 
@@ -28,7 +37,7 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private int _startupSyncCompleted;
 
-    /// <summary>Whether the startup sync status banner should be visible - true only while there's still at least one unfinished slot from a pass that actually found any.</summary>
+    /// <summary>Whether the sync status banner should be visible - true only while there's still at least one unfinished slot from a pass that actually found any.</summary>
     public bool IsStartupSyncing => StartupSyncTotal > 0 && StartupSyncCompleted < StartupSyncTotal;
 
     public string StartupSyncStatusText => $"Catching up slots: {StartupSyncCompleted}/{StartupSyncTotal}";
@@ -83,10 +92,26 @@ public partial class MainWindowViewModel : ViewModelBase
         // this on the UI thread, so it's safe to enumerate Groups here.
         _connectionManager.GroupPersistNeeded += _ => PersistGroups();
 
-        // Drives the startup "Catching up slots: N/M" banner - see
-        // InitializeGroupsAsync, which sets StartupSyncTotal before kicking
-        // the whole pass off. Always raised on the UI thread, so this is
-        // safe to update the observable property directly from.
+        // Drives the "Catching up slots: N/M" banner for every sync pass -
+        // not just the initial startup one, but any later reconnect too
+        // (see IConnectionManager.SlotSyncBatchStarting's doc comment).
+        // Resets back to a fresh 0/0 first if nothing is currently pending,
+        // so a long-finished earlier pass's numbers aren't carried over into
+        // this new one; otherwise just extends the running total, so two
+        // passes overlapping (e.g. a manual reconnect while the startup pass
+        // is still processing a different group) don't clobber each other's
+        // progress. Both events are always raised on the UI thread, so it's
+        // safe to update these observable properties directly from either.
+        _connectionManager.SlotSyncBatchStarting += count =>
+        {
+            if (StartupSyncCompleted >= StartupSyncTotal)
+            {
+                StartupSyncTotal = 0;
+                StartupSyncCompleted = 0;
+            }
+
+            StartupSyncTotal += count;
+        };
         _connectionManager.SlotInitialSyncCompleted += (_, _) => StartupSyncCompleted++;
 
         foreach (var group in _persistenceService.LoadGroups())
@@ -126,12 +151,16 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         var groupsSnapshot = Groups.ToList();
 
-        // Total across every group up front, so the banner can show a
-        // stable "N/M" from the very first completion instead of a moving
-        // target - see IConnectionManager.SlotInitialSyncCompleted.
-        StartupSyncTotal = groupsSnapshot.Sum(g => g.Group.Slots.Count);
-        StartupSyncCompleted = 0;
-
+        // No upfront StartupSyncTotal here anymore - each group's own
+        // IConnectionManager.SwitchLeaderAsync call (via InitializeGroupAsync)
+        // announces its own slot counts as it goes (see
+        // IConnectionManager.SlotSyncBatchStarting), each one already
+        // guaranteed a matching completion no matter how it ends. That's
+        // also what lets the exact same banner reappear for a later ad-hoc
+        // reconnect, not just this startup pass - so forcing
+        // StartupSyncCompleted = StartupSyncTotal here once this loop
+        // finishes would risk wrongly cutting off a still-in-progress later
+        // pass that happens to overlap the tail end of this one.
         for (var i = 0; i < groupsSnapshot.Count; i++)
         {
             await _connectionManager.InitializeGroupAsync(groupsSnapshot[i]);
@@ -141,11 +170,6 @@ public partial class MainWindowViewModel : ViewModelBase
                 await Task.Delay(ConnectionManager.StartupGroupSpacing);
             }
         }
-
-        // Safety net so the banner always disappears once the whole pass is
-        // done, even if a slot was added/removed mid-pass and the completion
-        // count ended up not landing exactly on StartupSyncTotal.
-        StartupSyncCompleted = StartupSyncTotal;
     }
 
     /// <summary>
@@ -188,15 +212,20 @@ public partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>
     /// Adds one or more new slots to an already-existing server in one go
-    /// (see <see cref="Views.ConnectionEditorWindow"/>'s staged-slots
+    /// (see <see cref="Views.ConnectionEditorWindow"/>'s search+multi-select
     /// picker) - one <see cref="PersistGroups"/> call for the whole batch
-    /// rather than one per slot. If the server currently has a leader,
-    /// runs a brief catch-up sync for each new slot so it starts out with
-    /// an up-to-date backlog (see Umsetzungsplan.md, Phase 6) - this is the
-    /// one case where adding a slot does trigger network activity right
-    /// away. Each <see cref="StagedSlot"/> carries its own optional
-    /// per-slot password override (see <see cref="SlotProfile.Password"/>),
-    /// null/empty meaning just use the group's shared password.
+    /// rather than one per slot, and one <see cref="GroupViewModel.AddSlotsToGroup"/>
+    /// call so the "Chat as" dropdown only rebuilds once regardless of how
+    /// many slots this batch contains (see that method's doc comment - a
+    /// plain per-slot <c>Group.Slots.Add</c> loop visibly glitched it once
+    /// batches of a few dozen slots became the normal case). If the server
+    /// currently has a leader, runs a brief catch-up sync for each new slot
+    /// so it starts out with an up-to-date backlog (see Umsetzungsplan.md,
+    /// Phase 6) - this is the one case where adding a slot does trigger
+    /// network activity right away. Each <see cref="StagedSlot"/> carries
+    /// its own optional per-slot password override (see
+    /// <see cref="SlotProfile.Password"/>), null/empty meaning just use the
+    /// group's shared password.
     /// </summary>
     public void AddSlotsToGroup(GroupViewModel groupViewModel, IReadOnlyList<StagedSlot> slotsToAdd)
     {
@@ -205,18 +234,14 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        var addedSlots = new List<SlotProfile>(slotsToAdd.Count);
-        foreach (var staged in slotsToAdd)
+        var addedSlots = slotsToAdd.Select(staged => new SlotProfile
         {
-            var slot = new SlotProfile
-            {
-                GroupId = groupViewModel.Group.Id,
-                SlotName = staged.SlotName,
-                Password = string.IsNullOrWhiteSpace(staged.Password) ? null : staged.Password
-            };
-            groupViewModel.Group.Slots.Add(slot);
-            addedSlots.Add(slot);
-        }
+            GroupId = groupViewModel.Group.Id,
+            SlotName = staged.SlotName,
+            Password = string.IsNullOrWhiteSpace(staged.Password) ? null : staged.Password
+        }).ToList();
+
+        groupViewModel.AddSlotsToGroup(addedSlots);
 
         PersistGroups();
 

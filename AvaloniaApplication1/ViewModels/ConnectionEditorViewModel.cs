@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Linq;
 using System.Threading.Tasks;
 using Archipolygo.Models;
@@ -18,10 +18,11 @@ public enum ConnectionEditorMode
 
     /// <summary>
     /// Add one or more slots to an already-existing server. Host/Port are
-    /// shown read-only; slots are picked from the room's player roster
-    /// rather than typed, and several can be queued up (see
-    /// <see cref="ConnectionEditorViewModel.StagedSlots"/>) and added
-    /// together in one go instead of one dialog round-trip each.
+    /// shown read-only; slots are picked via a searchable, checkable list of
+    /// the room's player roster (see
+    /// <see cref="ConnectionEditorViewModel.FilteredSlotRows"/>) rather than
+    /// typed, so several can be added together in one go instead of one
+    /// dialog round-trip each.
     /// </summary>
     AddSlot,
 
@@ -48,13 +49,11 @@ public class ConnectionEditorResult
     public bool AutoConnect { get; init; }
 
     /// <summary>
-    /// <see cref="ConnectionEditorMode.AddSlot"/> only: every slot to add in
-    /// this one go, each with its own optional per-slot password override
-    /// (see <see cref="StagedSlot.Password"/>). Includes both explicitly
-    /// staged entries and - if one was picked but never staged - the one
-    /// currently selected in the picker, so confirming after choosing just a
-    /// single slot still works without ever touching "Add to list". Empty
-    /// for every other mode.
+    /// <see cref="ConnectionEditorMode.AddSlot"/> only: every checked slot in
+    /// the picker, each with its own optional per-slot password override
+    /// (see <see cref="StagedSlot.Password"/>) - see
+    /// <see cref="ConnectionEditorViewModel.BuildSlotsToAdd"/>. Empty for
+    /// every other mode.
     /// </summary>
     public IReadOnlyList<StagedSlot> SlotsToAdd { get; init; } = Array.Empty<StagedSlot>();
 
@@ -93,13 +92,13 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     private string _slotName = string.Empty;
 
     /// <summary>
-    /// The room's shared password (<see cref="ConnectionEditorMode.NewGroup"/>/<see cref="ConnectionEditorMode.EditGroup"/>),
-    /// or - for <see cref="ConnectionEditorMode.AddSlot"/> - the per-slot
-    /// override password for whichever player is currently picked in
-    /// <see cref="SelectedPlayer"/>, left empty to just use the group's
-    /// existing password. Cleared after
-    /// each <see cref="StageSelectedPlayer"/> so it starts fresh for the
-    /// next slot.
+    /// The room's shared password - only relevant for
+    /// <see cref="ConnectionEditorMode.NewGroup"/>/<see cref="ConnectionEditorMode.EditGroup"/>.
+    /// <see cref="ConnectionEditorMode.AddSlot"/> doesn't use this field at
+    /// all: the group's shared password was already entered when its leader
+    /// first connected, before any slot picking happens here - each row in
+    /// the picker instead carries its own optional override (see
+    /// <see cref="Models.SelectableSlotRow.OverridePassword"/>).
     /// </summary>
     [ObservableProperty]
     private string _password = string.Empty;
@@ -110,35 +109,32 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     [ObservableProperty]
     private string? _validationError;
 
-    /// <summary>
-    /// The slot currently picked from <see cref="AvailablePlayers"/> - only
-    /// relevant for <see cref="ConnectionEditorMode.AddSlot"/>. Not yet
-    /// queued to be added until either <see cref="StageSelectedPlayer"/> is
-    /// called, or the dialog is confirmed with this still set (see
-    /// <see cref="TryBuildResult"/>), which folds it in as if it had been
-    /// staged.
-    /// </summary>
+    /// <summary>Free-text filter over <see cref="SelectableSlotRow.Player"/>'s name/display text - see <see cref="RefreshFilter"/>.</summary>
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(StageSelectedPlayerCommand))]
-    private PlayerChoice? _selectedPlayer;
+    private string _searchText = string.Empty;
 
     /// <summary>
-    /// Room players not yet configured as a slot on this server and not
-    /// already staged, for the "Add slot" dialog's picker. Populated by
-    /// <see cref="ForAddSlot"/>; empty (with <see cref="ValidationError"/>
-    /// explaining why) outside <see cref="ConnectionEditorMode.AddSlot"/> or
-    /// if the roster couldn't be fetched.
+    /// Every room player not yet configured as a slot on this server,
+    /// wrapped as a checkbox row - populated once by <see cref="ForAddSlot"/>
+    /// and never re-ordered/removed afterwards (checking a row doesn't take
+    /// it out of the list, unlike the old stage-then-remove ComboBox flow).
     /// </summary>
-    public ObservableCollection<PlayerChoice> AvailablePlayers { get; } = new();
+    private readonly List<SelectableSlotRow> _allSlotRows = new();
 
-    /// <summary>
-    /// Slots queued up to add together when the dialog is confirmed - see
-    /// <see cref="StageSelectedPlayer"/>/<see cref="UnstageSlot"/>. Lets
-    /// several slots (each possibly with its own password override) be
-    /// picked in one dialog visit instead of one "Add slot" round-trip per
-    /// slot.
-    /// </summary>
-    public ObservableCollection<StagedSlot> StagedSlots { get; } = new();
+    /// <summary>The subset of <see cref="_allSlotRows"/> matching <see cref="SearchText"/> right now - what the checkbox list actually shows, for the "Add slot" dialog's picker.</summary>
+    public ObservableCollection<SelectableSlotRow> FilteredSlotRows { get; } = new();
+
+    /// <summary>How many rows across the whole (unfiltered) roster are currently checked - drives <see cref="CanApplyNow"/>/<see cref="SaveButtonText"/>.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanApplyNow))]
+    [NotifyPropertyChangedFor(nameof(SaveButtonText))]
+    private int _selectedSlotCount;
+
+    /// <summary>Whether the filtered list has nothing to show right now (distinct from <see cref="ValidationError"/>, which covers the room having no available players at all).</summary>
+    public bool HasNoFilteredResults => FilteredSlotRows.Count == 0 && _allSlotRows.Count > 0;
+
+    /// <summary>Mirrors the design's "Select at least one slot to continue" rule - Save stays disabled for <see cref="ConnectionEditorMode.AddSlot"/> until at least one row is checked; irrelevant (always true) for every other mode.</summary>
+    public bool CanApplyNow => Mode != ConnectionEditorMode.AddSlot || SelectedSlotCount > 0;
 
     /// <summary>
     /// <see cref="ConnectionEditorMode.EditGroup"/> only: every slot already
@@ -178,7 +174,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     /// <summary>The free-text slot name field is only shown when creating a brand-new server.</summary>
     public bool ShowSlotName => Mode == ConnectionEditorMode.NewGroup;
 
-    /// <summary>The room-roster picker (and its staging list) is only shown when adding slots to an already-existing server.</summary>
+    /// <summary>The searchable room-roster checkbox picker is only shown when adding slots to an already-existing server.</summary>
     public bool ShowPlayerPicker => Mode == ConnectionEditorMode.AddSlot;
 
     /// <summary>Auto-connect is a server-level setting; not relevant when only adding slots to one.</summary>
@@ -192,13 +188,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         _ => "Connection"
     };
 
-    /// <summary>
-    /// Reflects how many slots would actually be added right now (staged
-    /// entries, plus the currently picked-but-not-yet-staged one, if any) -
-    /// visible feedback that queuing up several slots before confirming
-    /// actually did something, since the dialog otherwise looks unchanged
-    /// after each "Add to list" click.
-    /// </summary>
+    /// <summary>Reflects how many slots are currently checked - visible feedback that ticking boxes actually did something, since the dialog otherwise looks unchanged.</summary>
     public string SaveButtonText
     {
         get
@@ -208,13 +198,9 @@ public partial class ConnectionEditorViewModel : ViewModelBase
                 return "Save";
             }
 
-            var pending = StagedSlots.Count + (SelectedPlayer is null ? 0 : 1);
-            return pending <= 1 ? "Add slot" : $"Add {pending} slots";
+            return SelectedSlotCount <= 1 ? "Add slot" : $"Add {SelectedSlotCount} slots";
         }
     }
-
-    /// <summary>Whether the queued-slots list has anything in it - for the view to show/hide it (see <see cref="SaveButtonText"/> for the count itself).</summary>
-    public bool HasStagedSlots => StagedSlots.Count > 0;
 
     /// <summary>Every currently configured server, used for duplicate checks.</summary>
     private IReadOnlyList<ServerConnectionGroup> _existingGroups = Array.Empty<ServerConnectionGroup>();
@@ -222,18 +208,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     /// <summary>The server being added to/edited, for <see cref="ConnectionEditorMode.AddSlot"/>/<see cref="ConnectionEditorMode.EditGroup"/>.</summary>
     private ServerConnectionGroup? _targetGroup;
 
-    public ConnectionEditorViewModel()
-    {
-        StagedSlots.CollectionChanged += OnStagedSlotsChanged;
-    }
-
-    private void OnStagedSlotsChanged(object? sender, NotifyCollectionChangedEventArgs e)
-    {
-        OnPropertyChanged(nameof(SaveButtonText));
-        OnPropertyChanged(nameof(HasStagedSlots));
-    }
-
-    partial void OnSelectedPlayerChanged(PlayerChoice? value) => OnPropertyChanged(nameof(SaveButtonText));
+    partial void OnSearchTextChanged(string value) => RefreshFilter();
 
     public static ConnectionEditorViewModel ForNewGroup(bool defaultAutoConnect = false, IReadOnlyList<ServerConnectionGroup>? existingGroups = null) => new()
     {
@@ -247,9 +222,9 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     /// players not yet configured as a slot on <paramref name="group"/> (see
     /// <see cref="MainWindowViewModel.GetAvailableSlotsToAddAsync"/>). An
     /// empty list is shown with an explanatory <see cref="ValidationError"/>
-    /// rather than falling back to free-text entry. The first available
-    /// player is preselected so confirming the dialog for a single slot
-    /// works without touching the picker at all.
+    /// rather than falling back to free-text entry. Nothing is preselected -
+    /// Save stays disabled (<see cref="CanApplyNow"/>) until at least one row
+    /// is checked.
     /// </summary>
     public static ConnectionEditorViewModel ForAddSlot(ServerConnectionGroup group, IReadOnlyList<PlayerChoice> availablePlayers)
     {
@@ -263,10 +238,12 @@ public partial class ConnectionEditorViewModel : ViewModelBase
 
         foreach (var player in availablePlayers)
         {
-            viewModel.AvailablePlayers.Add(player);
+            var row = new SelectableSlotRow { Player = player };
+            row.PropertyChanged += viewModel.OnSlotRowPropertyChanged;
+            viewModel._allSlotRows.Add(row);
         }
 
-        viewModel.SelectedPlayer = viewModel.AvailablePlayers.FirstOrDefault();
+        viewModel.RefreshFilter();
 
         if (availablePlayers.Count == 0)
         {
@@ -324,42 +301,69 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             .OrderBy(s => s.Id == leaderSlotId ? 0 : 1)
             .ThenBy(s => s.SlotName, StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>
-    /// Moves <see cref="SelectedPlayer"/> (with whatever's currently in
-    /// <see cref="Password"/> as its override) into <see cref="StagedSlots"/>,
-    /// removes it from the remaining <see cref="AvailablePlayers"/>, and
-    /// resets the picker/password so the next slot starts fresh. No-op if
-    /// nothing is picked.
-    /// </summary>
-    [RelayCommand(CanExecute = nameof(CanStageSelectedPlayer))]
-    private void StageSelectedPlayer()
+    private void OnSlotRowPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (SelectedPlayer is null)
+        if (e.PropertyName == nameof(SelectableSlotRow.IsSelected))
         {
-            return;
+            SelectedSlotCount = _allSlotRows.Count(r => r.IsSelected);
+        }
+    }
+
+    /// <summary>Rebuilds <see cref="FilteredSlotRows"/> from <see cref="_allSlotRows"/> by name/display text.</summary>
+    private void RefreshFilter()
+    {
+        var query = SearchText.Trim();
+        FilteredSlotRows.Clear();
+
+        foreach (var row in _allSlotRows)
+        {
+            if (query.Length == 0 ||
+                row.Player.SlotName.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+                row.Player.DisplayText.Contains(query, StringComparison.OrdinalIgnoreCase))
+            {
+                FilteredSlotRows.Add(row);
+            }
         }
 
-        StagedSlots.Add(new StagedSlot
-        {
-            SlotName = SelectedPlayer.SlotName,
-            DisplayText = SelectedPlayer.DisplayText,
-            Password = string.IsNullOrWhiteSpace(Password) ? null : Password.Trim()
-        });
-
-        AvailablePlayers.Remove(SelectedPlayer);
-        SelectedPlayer = AvailablePlayers.FirstOrDefault();
-        Password = string.Empty;
+        OnPropertyChanged(nameof(HasNoFilteredResults));
     }
 
-    private bool CanStageSelectedPlayer() => SelectedPlayer is not null;
-
-    /// <summary>Removes a queued slot again (e.g. staged by mistake), putting the player back into the picker.</summary>
+    /// <summary>Checks every row currently shown by the filter.</summary>
     [RelayCommand]
-    private void UnstageSlot(StagedSlot slot)
+    private void SelectVisible()
     {
-        StagedSlots.Remove(slot);
-        AvailablePlayers.Add(new PlayerChoice { SlotName = slot.SlotName, DisplayText = slot.DisplayText });
+        foreach (var row in FilteredSlotRows)
+        {
+            row.IsSelected = true;
+        }
     }
+
+    /// <summary>Unchecks every row currently shown by the filter.</summary>
+    [RelayCommand]
+    private void DeselectVisible()
+    {
+        foreach (var row in FilteredSlotRows)
+        {
+            row.IsSelected = false;
+        }
+    }
+
+    /// <summary>
+    /// Every checked row, turned into a <see cref="StagedSlot"/> - its own
+    /// override (if typed) wins, else null, meaning "fall back to the
+    /// group's own shared password" (see <see cref="Password"/>'s doc
+    /// comment for why there's no separate batch-wide password here).
+    /// </summary>
+    private IReadOnlyList<StagedSlot> BuildSlotsToAdd() =>
+        _allSlotRows
+            .Where(r => r.IsSelected)
+            .Select(r => new StagedSlot
+            {
+                SlotName = r.Player.SlotName,
+                DisplayText = r.Player.DisplayText,
+                Password = string.IsNullOrWhiteSpace(r.OverridePassword) ? null : r.OverridePassword!.Trim()
+            })
+            .ToList();
 
     /// <summary>
     /// Marks one row as the server's default/preferred leader, un-marking
@@ -465,23 +469,10 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         }
         else if (Mode == ConnectionEditorMode.AddSlot)
         {
-            // Whatever's still picked-but-not-staged counts too, so
-            // confirming right after picking a single slot works without
-            // ever touching "Add to list".
-            var entries = StagedSlots.ToList();
-            if (SelectedPlayer is not null)
-            {
-                entries.Add(new StagedSlot
-                {
-                    SlotName = SelectedPlayer.SlotName,
-                    DisplayText = SelectedPlayer.DisplayText,
-                    Password = string.IsNullOrWhiteSpace(Password) ? null : Password.Trim()
-                });
-            }
-
+            var entries = BuildSlotsToAdd();
             if (entries.Count == 0)
             {
-                ValidationError = "Please select at least one slot.";
+                ValidationError = "Select at least one slot to continue.";
                 return false;
             }
 

@@ -28,18 +28,34 @@ public interface IConnectionManager
     event Action<GroupViewModel>? GroupPersistNeeded;
 
     /// <summary>
-    /// Raised once per configured slot as <see cref="InitializeGroupAsync"/>
-    /// finishes processing it during app startup - whether that slot became
-    /// the leader, was caught up via a brief non-leader connection, or that
-    /// attempt failed (a failure still counts as "processed", so a stuck
-    /// slot can't leave a progress indicator short forever). Deliberately
-    /// only raised from <see cref="InitializeGroupAsync"/>'s own startup
-    /// pass, not from <see cref="CatchUpSyncAsync"/> or
-    /// <see cref="SwitchLeaderAsync"/> in general, so it doesn't also fire
-    /// for unrelated later activity (e.g. "Add slot"). Always raised on the
-    /// UI thread. Meant for a startup "catching up N/M slots" indicator.
+    /// Raised once per configured slot as it finishes its part of a
+    /// <see cref="SwitchLeaderAsync"/> call's sync pass - whether that slot
+    /// became the leader itself, was caught up via a brief non-leader
+    /// connection right after, or (a failed/skipped attempt still counts as
+    /// "processed") never actually got a connection at all. Always paired
+    /// with an earlier <see cref="SlotSyncBatchStarting"/> announcement that
+    /// counted it, and always raised on the UI thread. Drives the
+    /// "catching up N/M slots" progress indicator for every sync pass, not
+    /// just the initial one at app startup - see <see cref="SlotSyncBatchStarting"/>.
     /// </summary>
     event Action<GroupViewModel, SlotProfile>? SlotInitialSyncCompleted;
+
+    /// <summary>
+    /// Raised right before <see cref="SwitchLeaderAsync"/> is about to
+    /// attempt <paramref name="slotCount"/> slots' worth of connect/sync
+    /// work as one batch - once for the leader connect itself (always 1),
+    /// and again for the sibling catch-up pass right after, if the leader
+    /// connected successfully and the group actually has other configured
+    /// slots (only known at that point, hence the two separate
+    /// announcements rather than one upfront total). Every slot counted in
+    /// a raised batch is guaranteed a matching <see cref="SlotInitialSyncCompleted"/>
+    /// afterward - success, failure, or skipped because a manual Disconnect
+    /// cut the pass short - so a listener can safely track "total announced
+    /// so far" vs. "total completed so far" as a simple running progress
+    /// indicator that reappears for any later reconnect, not just the one
+    /// startup pass. Always raised on the UI thread.
+    /// </summary>
+    event Action<int>? SlotSyncBatchStarting;
 
     /// <summary>
     /// Makes <paramref name="targetSlot"/> the group's leader: connects it,
@@ -55,6 +71,17 @@ public interface IConnectionManager
     /// (the account dropdown, adding a new server's first slot, an
     /// unexpected-drop auto-reconnect) is itself what should make the group
     /// come back next time, not a separate opt-in.
+    ///
+    /// Once the leader itself is connected, this also runs a fresh
+    /// <see cref="CatchUpSyncAsync"/> pass for every OTHER configured slot
+    /// on the server, one at a time, from scratch - regardless of whether
+    /// (or how far) an earlier connect for this same group got through its
+    /// own pass. A manual Disconnect mid-pass stops it immediately (each
+    /// remaining slot's catch-up becomes a no-op - see
+    /// <see cref="CatchUpSyncAsync"/>) rather than partially finishing; the
+    /// next successful connect simply starts this whole pass over from the
+    /// top for every slot, intentionally not just whichever ones a previous,
+    /// interrupted pass happened to miss.
     /// </summary>
     Task SwitchLeaderAsync(GroupViewModel group, SlotProfile targetSlot);
 
@@ -72,9 +99,16 @@ public interface IConnectionManager
     /// login and its item/hint backlog to resync, then disconnects again.
     /// Never disconnects or reconnects the group's leader (if any) - the two
     /// sessions coexist for the few seconds this takes. Used when a new slot
-    /// is added to a group that already has a leader, and once per
-    /// non-leader slot at startup, to close gaps from time the app itself
-    /// was closed.
+    /// is added to a group that already has a leader, and for every other
+    /// configured slot right after a fresh leader connect (see
+    /// <see cref="SwitchLeaderAsync"/>).
+    ///
+    /// No-ops immediately, without opening any connection, if the group is
+    /// currently in a manual-disconnect state (see
+    /// <see cref="DisconnectGroupAsync"/>) - this is what actually stops a
+    /// <see cref="SwitchLeaderAsync"/> sibling-sync pass partway through once
+    /// the user hits Disconnect, since that pass just awaits this method
+    /// once per remaining slot in a plain loop.
     ///
     /// If a leader is already live, this also adds one more hint
     /// subscription to that existing session for <paramref name="slot"/>'s
@@ -92,14 +126,15 @@ public interface IConnectionManager
     Task SendMessageAsync(GroupViewModel group, string text);
 
     /// <summary>
-    /// Called once per group at application startup. If
-    /// <see cref="Models.ServerConnectionGroup.AutoConnect"/> is set,
-    /// connects the preferred (or, failing that, first configured) slot as
-    /// leader; then, regardless, runs a <see cref="CatchUpSyncAsync"/> pass
-    /// for every other configured slot, one at a time, to close any gaps
-    /// from the time the app itself was closed. Raises
-    /// <see cref="SlotInitialSyncCompleted"/> exactly once per configured
-    /// slot in this group as each one finishes.
+    /// Called once per group at application startup. A no-op - zero network
+    /// activity, not even a brief catch-up dip - unless
+    /// <see cref="Models.ServerConnectionGroup.AutoConnect"/> is set: a
+    /// group the user left disconnected stays fully offline until they
+    /// explicitly reconnect it. When it is set, connects the preferred (or,
+    /// failing that, first configured) slot as leader via
+    /// <see cref="SwitchLeaderAsync"/>, which itself then catches up every
+    /// other configured slot as part of that same connect - see its doc
+    /// comment.
     /// </summary>
     Task InitializeGroupAsync(GroupViewModel group);
 

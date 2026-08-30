@@ -28,23 +28,7 @@ public partial class ConnectionEditorWindow : Window
         Close(null);
     }
 
-    /// <summary>
-    /// Removes one queued slot from <see cref="ConnectionEditorViewModel.StagedSlots"/>
-    /// again. The button's own DataContext (from the ItemsControl's
-    /// per-item DataTemplate) is the <see cref="StagedSlot"/> to remove -
-    /// this handler just forwards it to the view model's command, which is
-    /// otherwise out of reach of a plain relative binding from inside that
-    /// per-item template.
-    /// </summary>
-    private void OnUnstageSlotClick(object? sender, RoutedEventArgs e)
-    {
-        if (sender is Button { DataContext: StagedSlot slot })
-        {
-            ViewModel.UnstageSlotCommand.Execute(slot);
-        }
-    }
-
-    /// <summary>Marks a row's slot as the server's default leader - same DataContext situation as <see cref="OnUnstageSlotClick"/>.</summary>
+    /// <summary>Marks a row's slot as the server's default leader. The button's own DataContext (from the ItemsControl's per-item DataTemplate) is the <see cref="ConfiguredSlotRow"/> to act on - this handler just forwards it to the view model's command, which is otherwise out of reach of a plain relative binding from inside that per-item template.</summary>
     private void OnMakeDefaultLeaderClick(object? sender, RoutedEventArgs e)
     {
         if (sender is Button { DataContext: ConfiguredSlotRow row })
@@ -55,7 +39,7 @@ public partial class ConnectionEditorWindow : Window
 
     /// <summary>
     /// Removes a row's slot right away - same DataContext situation as
-    /// <see cref="OnUnstageSlotClick"/>. Bound command name is
+    /// <see cref="OnMakeDefaultLeaderClick"/>. Bound command name is
     /// "RemoveConfiguredSlotCommand", not "...AsyncCommand" - the
     /// [RelayCommand] source generator drops the "Async" suffix from the
     /// method name (<c>RemoveConfiguredSlotAsync</c>) when naming the

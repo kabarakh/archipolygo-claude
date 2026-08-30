@@ -114,3 +114,62 @@ Direkt auf dem Phase-6-Umbau aufbauend, in loser Reihenfolge umgesetzt:
 - **GitHub-Actions-Release-Workflow** (`.github/workflows/release.yml`): bei jedem veröffentlichten GitHub Release werden automatisch selbstständige Single-File-Builds für Windows, Linux und macOS (x64 und arm64) erzeugt und dem Release als Downloads angehängt.
 
 Kein eigenes Testprojekt vorhanden (die unter „Querschnittliche Aufgaben" oben erwähnten Unit-Tests wurden nicht umgesetzt).
+
+## „Add slot"-Dialog: Mehrfachauswahl mit Suche statt ComboBox + „Add to list"
+
+Ausgearbeitet in einer Chat-Session, als Vergleich mit der Slot-Auswahl in
+`J:\dev\Archipelago`s `multi_slot_tracker_webui` (`SlotPicker.vue`) und der
+zugehörigen apworld (`worlds\multi_slot_tracker`) – dieser Tracker beobachtet
+Slots nur passiv und braucht daher kein Passwort, weshalb dessen Muster hier
+nicht 1:1 übernommen werden kann. Zuerst als Prototyp im `TestHarness`
+durchgeklickt (siehe unten), nach Freigabe durch den Entwickler direkt in
+`ConnectionEditorViewModel`/`ConnectionEditorWindow.axaml` umgesetzt – ist
+also jetzt der reale „Add slot"-Dialog der App.
+
+**Ziel:** Beim Hinzufügen mehrerer Slots auf einmal (großer Room-Roster)
+nicht mehr einen ComboBox-Eintrag nach dem anderen einzeln auswählen und per
+„Add to list" einzeln in die Warteliste stellen müssen.
+
+**UI (ersetzt ComboBox + „Add to list" in `ConnectionEditorMode.AddSlot`):**
+
+1. Freitext-Suchfeld filtert die Liste der verfügbaren Slots live nach
+   Slot-Name/Anzeigename (analog `SlotPicker.vue`s `filtered`-Computed).
+2. Darunter eine Checkbox-Liste der (gefilterten) verfügbaren Slots statt
+   der ComboBox – Mehrfachauswahl ohne Zwischenschritt.
+3. Zwei Buttons „Select visible" / „Deselect visible", die nur auf die
+   *aktuell gefilterte* Teilmenge wirken (1:1 aus `SlotPicker.vue`
+   übernommen) – deckt sowohl „ein paar gezielt suchen und anhaken" als auch
+   „alle passenden auf einen Schlag" ab, ohne zwei getrennte Bedienwege zu
+   brauchen.
+4. Bestätigen-Button bleibt deaktiviert, solange nichts ausgewählt ist, mit
+   Hinweistext (analog `SlotPicker.vue`s `canApply`/Hinweis „Select at least
+   one slot to continue").
+
+**Passwort – der Punkt, der beim Vue-Picker fehlt, weil der nur beobachtet
+statt sich einzuloggen:**
+
+- **Kein** globales Batch-Passwort-Feld in diesem Dialog: Das gemeinsame
+  Server-Passwort der Gruppe ist zu diesem Zeitpunkt schon bekannt – es wird
+  beim allerersten Verbinden eines Leaders für diese Gruppe abgefragt, also
+  *vor* jeder Slot-Auswahl (`ConnectionEditorMode.NewGroup`/erster Slot).
+  Ein zusätzliches Passwort-Feld in diesem Dialog wäre daher nur ein
+  zweites, redundantes Eingabefeld für denselben Wert.
+- Stattdessen bleibt genau das, was schon vor diesem Redesign existierte:
+  pro Zeile ein optionales, standardmäßig eingeklapptes Override-Feld
+  (kleines 🔒-Icon zum Aufklappen) für die seltenen Ausnahme-Slots, die auf
+  einem custom-gehosteten Multiworld ein eigenes, abweichendes Passwort
+  brauchen.
+- Vorrangregel beim tatsächlichen Hinzufügen: Pro-Slot-Override (falls
+  getippt) > kein Override (Slot fällt beim Verbinden auf das gemeinsame
+  Passwort der Gruppe zurück – das ist bereits das bestehende Verhalten,
+  keine neue Logik).
+
+**Status:** Zuerst als anklickbarer Prototyp in `TestHarness/AddSlotPickerPrototype/`
+erprobt (mit synthetischen Spielernamen statt echtem Room-Roster; siehe
+`ControlPanelWindow`, Abschnitt „Add-Slot Redesign (Prototyp)" – der
+Prototyp bleibt als Referenz im Repo, wird aber nicht mehr weiterentwickelt).
+Nach Durchklicken/Freigabe durch den Entwickler direkt umgesetzt in
+`Models/SelectableSlotRow.cs`, `ViewModels/ConnectionEditorViewModel.cs`
+(`FilteredSlotRows`/`SelectVisible`/`DeselectVisible`/`BuildSlotsToAdd`) und
+`Views/ConnectionEditorWindow.axaml` – das ist jetzt der reale Dialog, den
+`ConnectionEditorMode.AddSlot` anzeigt.

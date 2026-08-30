@@ -337,6 +337,81 @@ public partial class GroupViewModel : ViewModelBase
     private void OnSlotsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) => RefreshSlotOrder();
 
     /// <summary>
+    /// Adds several new slots to <see cref="Group"/>'s <c>Slots</c> in one
+    /// go (see <see cref="MainWindowViewModel.AddSlotsToGroup"/>, the "Add
+    /// slot" search+multi-select picker's batch confirm) via
+    /// <see cref="InsertSlotsInOrder"/> rather than <see cref="RefreshSlotOrder"/>'s
+    /// full clear+rebuild - see that method's doc comment for why a Clear
+    /// (even just once, for the whole batch) isn't safe here.
+    /// </summary>
+    public void AddSlotsToGroup(IEnumerable<SlotProfile> slots)
+    {
+        var newSlots = slots as IReadOnlyCollection<SlotProfile> ?? slots.ToList();
+
+        Group.Slots.CollectionChanged -= OnSlotsCollectionChanged;
+        try
+        {
+            foreach (var slot in newSlots)
+            {
+                Group.Slots.Add(slot);
+            }
+        }
+        finally
+        {
+            Group.Slots.CollectionChanged += OnSlotsCollectionChanged;
+        }
+
+        InsertSlotsInOrder(newSlots);
+    }
+
+    /// <summary>
+    /// Inserts newly-added slots into <see cref="Slots"/>/<see cref="SlotFilterOptions"/>
+    /// at their correct sorted position (see <see cref="RefreshSlotOrder"/>
+    /// for the sort rule: leader first, then alphabetical) via
+    /// <c>Insert</c> rather than <see cref="RefreshSlotOrder"/>'s
+    /// Clear+rebuild. A brand-new slot can never already be the leader, so
+    /// it only ever needs inserting into the alphabetical tail, never index
+    /// 0 - which means <see cref="Slots"/> never needs to go through an
+    /// empty intermediate state the way a full Clear does.
+    ///
+    /// That distinction matters: <see cref="RefreshSlotOrder"/>'s doc
+    /// comment calls a transient-empty-then-repopulated <see cref="Slots"/>
+    /// "harmless" for the "Chat as" ComboBox, relying on the "spurious null"
+    /// guard in <see cref="OnSelectedChatSlotChanged"/> to restore
+    /// <see cref="SelectedChatSlot"/> afterward. In practice, while
+    /// <see cref="Slots"/> is briefly empty, Avalonia's ComboBox can push a
+    /// second, *nested* null back through the two-way binding as soon as the
+    /// guard's own restoring write happens (since the value it's restoring
+    /// to still isn't in the empty ItemsSource yet) - and because that
+    /// nested write lands while the guard flag is still set, the guard
+    /// itself swallows it without re-restoring, permanently dropping
+    /// <see cref="SelectedChatSlot"/> to null instead of self-healing. This
+    /// is what actually caused the leader to visibly disappear from the
+    /// account dropdown right when confirming the "Add slot" dialog.
+    /// Inserting instead of clearing sidesteps the whole race, since the
+    /// leader's entry never leaves <see cref="Slots"/> in the first place.
+    /// </summary>
+    private void InsertSlotsInOrder(IEnumerable<SlotProfile> newSlots)
+    {
+        foreach (var slot in newSlots.OrderBy(s => s.SlotName, StringComparer.OrdinalIgnoreCase))
+        {
+            // Index 0 is reserved for the leader (if present) regardless of
+            // its name - alphabetical ordering only governs the rest, so
+            // start scanning right after it instead of comparing against it.
+            var index = LeaderSlotId is not null && Slots.Count > 0 && Slots[0].Id == LeaderSlotId ? 1 : 0;
+
+            while (index < Slots.Count &&
+                   string.Compare(Slots[index].SlotName, slot.SlotName, StringComparison.OrdinalIgnoreCase) < 0)
+            {
+                index++;
+            }
+
+            Slots.Insert(index, slot);
+            SlotFilterOptions.Insert(index + 1, slot); // +1 for SlotFilterOptions' leading "All slots" null entry.
+        }
+    }
+
+    /// <summary>
     /// Rebuilds <see cref="Slots"/> (the "Chat as" dropdown) and, after its
     /// fixed leading "All slots" null entry, <see cref="SlotFilterOptions"/>
     /// from <see cref="Group"/>'s configured slots - sorted so the current

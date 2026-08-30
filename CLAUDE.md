@@ -38,10 +38,20 @@ consistently explain reasoning, not just mechanics).
   that slot's own history, without ever opening a session for it.
 - A slot that missed activity while the app was closed (or was just added)
   gets `CatchUpSyncAsync`: log in just long enough to pull the backlog, then
-  disconnect again. `InitializeGroupAsync` runs this for every non-leader
-  slot at startup, spaced `StartupGroupSpacing` apart per *group* (not per
-  slot) so a restart with several servers doesn't hit any one of them with a
-  burst of logins - see `MainWindowViewModel.InitializeGroupsAsync`.
+  disconnect again. This runs for every OTHER configured slot right after
+  each successful leader connect - i.e. from inside `SwitchLeaderAsync`
+  itself, not on a timer or "regardless of AutoConnect" basis. A group with
+  `AutoConnect` off gets zero network activity at startup (`InitializeGroupAsync`
+  is a no-op for it) - it stays fully offline until the user explicitly
+  reconnects it, at which point `SwitchLeaderAsync` catches every configured
+  slot up from scratch. A manual Disconnect mid-pass stops it immediately
+  (each remaining slot's catch-up becomes a no-op, checked via the same
+  `_autoReconnectSuppressed` flag `DisconnectGroupAsync` sets); the next
+  successful connect simply reruns the whole pass for every slot rather than
+  trying to resume only whatever got skipped. Startup itself still spaces
+  each *group's* leader-connect attempt `StartupGroupSpacing` apart (not per
+  slot) so a restart with several AutoConnect servers doesn't hit them all
+  with a burst of logins - see `MainWindowViewModel.InitializeGroupsAsync`.
 - `SwitchLeaderAsync`, on success, sets `AutoConnect = true` and
   `PreferredLeaderSlotId = <that slot>` on the group and raises
   `GroupPersistNeeded` (always on the UI thread) - connecting a leader *by
@@ -132,11 +142,12 @@ way first - each was a real bug with a specific root cause.
   read. If you add a new call site that reads `session.Players.AllPlayers`,
   route it through that helper too.
 - **Multiple slots must never connect concurrently.** When adding several
-  slots at once, or catching up several at startup, each `CatchUpSyncAsync`
-  call is `await`ed one at a time (see
-  `MainWindowViewModel.CatchUpNewSlotsSequentiallyAsync` and
-  `ConnectionManager.InitializeGroupAsync`'s loop) - firing them concurrently
-  floods the Archipelago server with simultaneous handshakes and some get
+  slots at once, or catching every other configured slot up right after a
+  leader connects, each `CatchUpSyncAsync` call is `await`ed one at a time
+  (see `MainWindowViewModel.CatchUpNewSlotsSequentiallyAsync` and
+  `ConnectionManager.SwitchLeaderAsync`'s own sibling-sync loop) - firing
+  them concurrently floods the Archipelago server with simultaneous
+  handshakes and some get
   rejected/blocked.
 - **A `TaskCanceledException`/timeout from `ConnectSlotSessionAsync` is
   treated as transient and retried** (fresh session, up to
