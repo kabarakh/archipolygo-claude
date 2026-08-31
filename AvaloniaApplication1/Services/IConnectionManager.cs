@@ -72,16 +72,24 @@ public interface IConnectionManager
     /// unexpected-drop auto-reconnect) is itself what should make the group
     /// come back next time, not a separate opt-in.
     ///
-    /// Once the leader itself is connected, this also runs a fresh
-    /// <see cref="CatchUpSyncAsync"/> pass for every OTHER configured slot
-    /// on the server, one at a time, from scratch - regardless of whether
-    /// (or how far) an earlier connect for this same group got through its
-    /// own pass. A manual Disconnect mid-pass stops it immediately (each
-    /// remaining slot's catch-up becomes a no-op - see
-    /// <see cref="CatchUpSyncAsync"/>) rather than partially finishing; the
-    /// next successful connect simply starts this whole pass over from the
-    /// top for every slot, intentionally not just whichever ones a previous,
-    /// interrupted pass happened to miss.
+    /// If this connect is what actually brings the *group* online - i.e. no
+    /// leader was live a moment ago - this also runs a fresh catch-up pass
+    /// for every OTHER configured slot on the server, one at a time, from
+    /// scratch, regardless of whether (or how far) an earlier connect for
+    /// this same group got through its own pass. A same-group leader switch
+    /// while the group was already online (e.g. the "Chat as" dropdown)
+    /// does *not* re-run this pass - every other slot has already been kept
+    /// current the whole time via the outgoing leader's own passive
+    /// broadcast coverage, so there's nothing to catch up on.
+    ///
+    /// Either way, once this connect's group-wide sync pass (if any) is
+    /// underway, it aborts immediately the moment the group's connection is
+    /// interrupted - a manual Disconnect, or the leader itself dropping
+    /// unexpectedly - rather than ploughing through the rest of the roster
+    /// with nothing left to piggyback on; the next successful connect simply
+    /// starts the whole pass over from the top for every slot, intentionally
+    /// not just whichever ones a previous, interrupted pass happened to
+    /// miss.
     /// </summary>
     Task SwitchLeaderAsync(GroupViewModel group, SlotProfile targetSlot);
 
@@ -103,12 +111,19 @@ public interface IConnectionManager
     /// configured slot right after a fresh leader connect (see
     /// <see cref="SwitchLeaderAsync"/>).
     ///
-    /// No-ops immediately, without opening any connection, if the group is
-    /// currently in a manual-disconnect state (see
-    /// <see cref="DisconnectGroupAsync"/>) - this is what actually stops a
-    /// <see cref="SwitchLeaderAsync"/> sibling-sync pass partway through once
-    /// the user hits Disconnect, since that pass just awaits this method
-    /// once per remaining slot in a plain loop.
+    /// Serialized against <see cref="SwitchLeaderAsync"/>/<see cref="DisconnectGroupAsync"/>
+    /// via the same per-group gate those use, so this can never open a
+    /// second connection while a sibling sweep or another catch-up for this
+    /// group is already using its one-at-a-time connection slot - it simply
+    /// waits its turn. No-ops immediately, without opening any connection,
+    /// once its turn comes up, if: the group is currently in a
+    /// manual-disconnect state (see <see cref="DisconnectGroupAsync"/>) -
+    /// this is what actually stops a <see cref="SwitchLeaderAsync"/>
+    /// sibling-sync pass partway through once the user hits Disconnect,
+    /// since that pass just awaits this method once per remaining slot in a
+    /// plain loop; or <paramref name="slot"/> has since been removed from
+    /// the group's configuration - nothing left worth syncing for a slot
+    /// that no longer exists by the time its queued turn actually arrives.
     ///
     /// If a leader is already live, this also adds one more hint
     /// subscription to that existing session for <paramref name="slot"/>'s

@@ -38,20 +38,40 @@ consistently explain reasoning, not just mechanics).
   that slot's own history, without ever opening a session for it.
 - A slot that missed activity while the app was closed (or was just added)
   gets `CatchUpSyncAsync`: log in just long enough to pull the backlog, then
-  disconnect again. This runs for every OTHER configured slot right after
-  each successful leader connect - i.e. from inside `SwitchLeaderAsync`
-  itself, not on a timer or "regardless of AutoConnect" basis. A group with
-  `AutoConnect` off gets zero network activity at startup (`InitializeGroupAsync`
-  is a no-op for it) - it stays fully offline until the user explicitly
-  reconnects it, at which point `SwitchLeaderAsync` catches every configured
-  slot up from scratch. A manual Disconnect mid-pass stops it immediately
-  (each remaining slot's catch-up becomes a no-op, checked via the same
-  `_autoReconnectSuppressed` flag `DisconnectGroupAsync` sets); the next
-  successful connect simply reruns the whole pass for every slot rather than
-  trying to resume only whatever got skipped. Startup itself still spaces
-  each *group's* leader-connect attempt `StartupGroupSpacing` apart (not per
-  slot) so a restart with several AutoConnect servers doesn't hit them all
-  with a burst of logins - see `MainWindowViewModel.InitializeGroupsAsync`.
+  disconnect again. This runs for every OTHER configured slot right after a
+  leader connect *that brings the group online* - i.e. from inside
+  `SwitchLeaderAsync` itself, guarded on `previousLeaderId is null` (no
+  leader was live a moment ago), not on a timer or "regardless of
+  AutoConnect" basis. A group with `AutoConnect` off gets zero network
+  activity at startup (`InitializeGroupAsync` is a no-op for it) - it stays
+  fully offline until the user explicitly reconnects it, at which point
+  `SwitchLeaderAsync` catches every configured slot up from scratch. A
+  same-group leader switch while already online (the "Chat as" dropdown)
+  does **not** re-run this sweep - every sibling slot has already been kept
+  current the whole time via the outgoing leader's own passive broadcast
+  coverage (previous bullet), so there's no gap to close and doing it anyway
+  would just be a redundant round of logins on every account switch. The
+  sweep aborts immediately - not just on a manual Disconnect, but also if
+  the leader itself drops unexpectedly mid-pass (checked each iteration via
+  `_autoReconnectSuppressed` *or* `targetSlot` no longer being
+  `_leaderSlotByGroup`'s recorded leader) - there's no group connection left
+  for the remaining siblings to piggyback on either way; the next successful
+  connect simply reruns the whole pass for every slot rather than trying to
+  resume only whatever got skipped. `CatchUpSyncAsync` (public) and
+  `SwitchLeaderAsync`/`DisconnectGroupAsync` all serialize on the same
+  per-group `_groupLocks` gate now, so a slot added mid-sweep (see
+  `MainWindowViewModel.AddSlotsToGroup`) just queues its own `CatchUpSyncAsync`
+  call behind the gate instead of racing a second concurrent connection for
+  the same server; `SwitchLeaderAsync`'s own sweep calls the ungated
+  `CatchUpSyncCoreAsync` directly to avoid deadlocking on its own
+  non-reentrant gate. `CatchUpSyncCoreAsync` also no-ops for a slot that's
+  been removed from the group's configuration by the time its queued turn
+  comes up (whether it was still waiting in the sweep's own list, or in a
+  separate queued call) - a removed slot never gets connected for, sweep or
+  not. Startup itself still spaces each *group's* leader-connect attempt
+  `StartupGroupSpacing` apart (not per slot) so a restart with several
+  AutoConnect servers doesn't hit them all with a burst of logins - see
+  `MainWindowViewModel.InitializeGroupsAsync`.
 - `SwitchLeaderAsync`, on success, sets `AutoConnect = true` and
   `PreferredLeaderSlotId = <that slot>` on the group and raises
   `GroupPersistNeeded` (always on the UI thread) - connecting a leader *by
@@ -147,8 +167,13 @@ way first - each was a real bug with a specific root cause.
   (see `MainWindowViewModel.CatchUpNewSlotsSequentiallyAsync` and
   `ConnectionManager.SwitchLeaderAsync`'s own sibling-sync loop) - firing
   them concurrently floods the Archipelago server with simultaneous
-  handshakes and some get
-  rejected/blocked.
+  handshakes and some get rejected/blocked. This is now also enforced inside
+  `ConnectionManager` itself, not just by callers being disciplined about
+  it: `CatchUpSyncAsync` (public) acquires the same per-group `_groupLocks`
+  gate as `SwitchLeaderAsync`/`DisconnectGroupAsync`, so an externally
+  triggered catch-up (e.g. "Add slot" on an already-connected group) queues
+  behind an in-flight sweep/switch/disconnect instead of racing it for the
+  same server's one-at-a-time connection slot.
 - **A `TaskCanceledException`/timeout from `ConnectSlotSessionAsync` is
   treated as transient and retried** (fresh session, up to
   `MaxTransientConnectRetries` times, see `IsTransientConnectFailure`) -

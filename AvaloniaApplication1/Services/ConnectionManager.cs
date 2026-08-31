@@ -35,10 +35,14 @@ namespace Archipolygo.Services;
 /// <see cref="OnHintsUpdated"/>), and a brief "catch-up" connection (see
 /// <see cref="CatchUpSyncAsync"/>) closes whatever gap accumulated while no
 /// slot in the group was connected at all - run for every other configured
-/// slot immediately after each successful leader connect (see
-/// <see cref="SwitchLeaderAsync"/>), never on any kind of timer or
-/// opportunistic schedule while the group is actually disconnected. See
-/// Umsetzungsplan.md, Phase 6, for the full design rationale.
+/// slot only when a leader connect actually brings the *group* online (see
+/// <see cref="SwitchLeaderAsync"/>'s <c>previousLeaderId is null</c> check),
+/// never on any kind of timer or opportunistic schedule while the group is
+/// actually disconnected, and never again for a same-group leader switch
+/// (e.g. the "Chat as" dropdown) while the group was already online, since
+/// every sibling slot already stayed current the whole time via the
+/// outgoing leader's own passive broadcast coverage. See Umsetzungsplan.md,
+/// Phase 6, for the full design rationale.
 /// </summary>
 public class ConnectionManager : IConnectionManager
 {
@@ -246,15 +250,30 @@ public class ConnectionManager : IConnectionManager
             RaiseSlotInitialSyncCompleted(group, targetSlot);
 
             // Every OTHER configured slot on this server gets a brief
-            // catch-up dip too, every time a leader successfully connects -
-            // not just at startup, and not just for whichever slots some
-            // earlier attempt happened to miss. A disconnected group (no
-            // leader) gets zero network activity at all (see
-            // InitializeGroupAsync); the moment it actually connects is
-            // exactly when "make every configured slot current" should
-            // happen, in one go, from scratch - simpler and more predictable
-            // than trying to track and resume only whatever a previous,
-            // possibly-interrupted pass happened to skip.
+            // catch-up dip too - but only when this connect is what's
+            // actually bringing the *group* online (previousLeaderId is
+            // null: InitializeGroupAsync's startup connect, or a manual
+            // reconnect after DisconnectGroupAsync/an unexpected drop). A
+            // disconnected group (no leader) gets zero network activity at
+            // all (see InitializeGroupAsync), so the moment it actually
+            // connects is exactly when "make every configured slot current"
+            // needs to happen, in one go, from scratch - simpler and more
+            // predictable than trying to track and resume only whatever a
+            // previous, possibly-interrupted pass happened to skip.
+            //
+            // When the group was already online (previousLeaderId is not
+            // null - this is just an account switch via the "Chat as"
+            // dropdown), every other configured slot has already been kept
+            // current the whole time via the outgoing leader's passive
+            // broadcast coverage (see OnLeaderMessageReceived/OnHintsUpdated) -
+            // there's no gap to close, so re-syncing everyone here on every
+            // single account switch would just be a redundant round of
+            // logins with nothing new to show for it.
+            if (previousLeaderId is not null)
+            {
+                return;
+            }
+
             var siblingSlots = group.Group.Slots.Where(s => s.Id != targetSlot.Id).ToList();
             if (siblingSlots.Count == 0)
             {
@@ -270,24 +289,30 @@ public class ConnectionManager : IConnectionManager
             for (var i = 0; i < siblingSlots.Count; i++)
             {
                 var siblingSlot = siblingSlots[i];
-                await CatchUpSyncAsync(group, siblingSlot);
+                await CatchUpSyncCoreAsync(group, siblingSlot);
                 RaiseSlotInitialSyncCompleted(group, siblingSlot);
 
-                if (_autoReconnectSuppressed.ContainsKey(groupId))
+                // Abort the rest of the sweep the moment this group's
+                // connection was interrupted mid-pass - either a manual
+                // Disconnect (_autoReconnectSuppressed, set synchronously by
+                // DisconnectGroupAsync before it even tries to acquire this
+                // same gate - see its own doc comment for why) or the leader
+                // itself dropping unexpectedly (OnSocketClosed removes it
+                // from _leaderSlotByGroup synchronously too, from the
+                // socket's own event thread, without waiting on this gate).
+                // Either way there's no group connection left for the
+                // remaining siblings to piggyback on, so ploughing on would
+                // just open brand-new, pointless connections one after
+                // another. The next successful leader connect runs this
+                // whole sweep again from the top for every configured slot,
+                // rather than trying to resume only whatever got skipped.
+                var stillOnline = _leaderSlotByGroup.TryGetValue(groupId, out var stillLeaderId) && stillLeaderId == targetSlot.Id;
+                if (_autoReconnectSuppressed.ContainsKey(groupId) || !stillOnline)
                 {
-                    // A manual Disconnect landed mid-sync (see
-                    // CatchUpSyncAsync's own early-return for this same
-                    // flag, which is what actually stops the connection
-                    // attempts) - stop looping immediately instead of
-                    // ploughing through the rest of the roster for a group
-                    // the user just asked to stop. The next successful
-                    // connect runs this whole loop again from the top,
-                    // covering every configured slot regardless of how far
-                    // this pass got - no partial-resume bookkeeping needed.
                     // Every slot this loop never got to still needs its
                     // "processed" signal though, so the progress indicator
                     // this pass announced a size for isn't left stuck short
-                    // forever just because the user stopped it early.
+                    // forever just because the pass stopped early.
                     for (var skipped = i + 1; skipped < siblingSlots.Count; skipped++)
                     {
                         RaiseSlotInitialSyncCompleted(group, siblingSlots[skipped]);
@@ -379,7 +404,48 @@ public class ConnectionManager : IConnectionManager
 
     public async Task CatchUpSyncAsync(GroupViewModel group, SlotProfile slot)
     {
+        // Serialized against SwitchLeaderAsync/DisconnectGroupAsync via the
+        // same per-group gate, so an externally-triggered catch-up (e.g.
+        // "Add slot" on an already-connected group) can never open a second
+        // connection while a SwitchLeaderAsync sibling sweep is already
+        // using this group's one-at-a-time connection slot - it simply waits
+        // its turn instead, preserving the "slots never connect concurrently"
+        // invariant. The sweep itself calls CatchUpSyncCoreAsync directly
+        // (it already holds this same gate) rather than back through here,
+        // since SemaphoreSlim isn't reentrant.
         var groupId = group.Group.Id;
+        var gate = _groupLocks.GetOrAdd(groupId, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync();
+        try
+        {
+            await CatchUpSyncCoreAsync(group, slot);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// The actual catch-up logic, shared by the public <see cref="CatchUpSyncAsync"/>
+    /// (gated there) and <see cref="SwitchLeaderAsync"/>'s own sibling sweep
+    /// (already holding the group's gate, so it calls straight in here to
+    /// avoid re-entering a non-reentrant <see cref="SemaphoreSlim"/>).
+    /// </summary>
+    private async Task CatchUpSyncCoreAsync(GroupViewModel group, SlotProfile slot)
+    {
+        var groupId = group.Group.Id;
+
+        // The slot may have been removed from the group after this catch-up
+        // was queued up - e.g. it was still waiting its turn in a sibling
+        // sweep's list, or an external CatchUpSyncAsync call for it was
+        // queued behind the group's gate - and there is nothing left worth
+        // syncing for a slot that no longer exists in the configuration by
+        // the time its turn actually comes up.
+        if (!group.Group.Slots.Any(s => s.Id == slot.Id))
+        {
+            return;
+        }
 
         // A manual Disconnect means the user doesn't want any connection for
         // this group right now - including further catch-up dips for
