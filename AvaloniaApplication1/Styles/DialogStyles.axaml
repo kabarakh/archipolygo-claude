@@ -1,0 +1,36 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!--
+        Shared look for dialog windows (ConnectionEditorWindow and friends,
+        including the TestHarness prototype windows built via the
+        ui-feature-prototyp skill) - so a fix like "leave room for the
+        scrollbar" only has to be made once here instead of being
+        copy-pasted (and drifting) across every dialog that has an
+        internally-scrolling list next to a right-aligned button/icon.
+
+        Included from each Window's own Application.Styles (see App.axaml /
+        TestHarnessApp.axaml) rather than declared once globally, and opted
+        into per-control via Classes="..." rather than an implicit selector
+        on the bare control type - a plain `ScrollViewer` selector would also
+        reach into every ListBox's internal template (MainWindow's
+        Events/Hints/Items lists), which don't have this problem and
+        shouldn't silently change layout just because a dialog needed a fix.
+
+        New dialog needs the same fix? Add the matching Classes="..." to its
+        control - don't re-derive or copy-paste the Setter values.
+    -->
+
+    <!-- A ScrollViewer wrapping a list of rows that end in a right-aligned
+         button/icon (checkbox + text + lock icon, or name + action buttons):
+         the scrollbar itself eats space on the right, and without this
+         padding it overlaps that right-aligned control once the list
+         actually needs to scroll. See ConnectionEditorWindow.axaml's
+         player-picker list for the original bug this fixed. 20px (not the
+         original 10px) so the gap reads clearly even at a glance, not just
+         under close inspection - the dialogs using this class widen their
+         own default Width to compensate, so this doesn't eat into the
+         content column. -->
+    <Style Selector="ScrollViewer.dialog-list">
+        <Setter Property="Padding" Value="0,0,20,0"/>
+    </Style>
+</Styles>

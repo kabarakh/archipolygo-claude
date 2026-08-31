@@ -11,5 +11,9 @@
   
     <Application.Styles>
         <FluentTheme />
+        <!-- Standardized dialog-level tweaks (e.g. scrollbar/button spacing)
+             live here so they're made once and apply to every dialog that
+             opts in - see the file's own header comment. -->
+        <StyleInclude Source="avares://Archipolygo/Styles/DialogStyles.axaml"/>
     </Application.Styles>
 </Application>

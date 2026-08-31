@@ -34,6 +34,14 @@ public sealed class FakeConnectionManager : IConnectionManager
     public event Action<GroupViewModel>? GroupPersistNeeded;
     public event Action<GroupViewModel, SlotProfile>? SlotInitialSyncCompleted;
 
+    // Never raised: this fake never announces a sync batch before its
+    // SlotInitialSyncCompleted calls (see InitializeGroupAsync below), so
+    // MainWindowViewModel's StartupSyncTotal never grows and the "Catching
+    // up slots: N/M" banner simply never shows here - fine for this fake's
+    // purpose (see the class doc comment), just declared to satisfy
+    // IConnectionManager.
+    public event Action<int>? SlotSyncBatchStarting;
+
     // --- Fake hint room -----------------------------------------------
     //
     // Models the real Archipelago server's per-slot hints_{team}_{slot}

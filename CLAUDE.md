@@ -169,9 +169,17 @@ way first - each was a real bug with a specific root cause.
   `Umsetzungsplan.md` mentioning one as a cross-cutting task). For manual
   verification of a UI/behavior fix, use the `app-testen` skill
   (`.claude/skills/app-testen/SKILL.md`) - it covers reproducing the case
-  without a real Archipelago connection, verifying visually via Windows
-  screenshots and simulated clicks, and why the real app should almost never
-  be restarted repeatedly while doing so.
+  without a real Archipelago connection, verifying visually via screenshots
+  and simulated clicks, and why the real app should almost never be
+  restarted repeatedly while doing so. Being an Avalonia app, this also
+  builds and runs on macOS (`osx-x64`/`osx-arm64`, see the release workflow
+  below) - the `app-testen` skill's visual-verification workflow has a
+  macOS equivalent (`scripts/*.sh` alongside the Windows `*.ps1`). It needs
+  `cliclick` (`brew install cliclick`) as a hard prerequisite for click
+  simulation, plus one-time Accessibility/Screen Recording permissions, and
+  has no way to simulate coordinate-based mouse-wheel scrolling at all (not
+  even with `cliclick` - verified against its actual installed version, see
+  that skill's "macOS-Variante" section for what's possible and what isn't).
 - For a new feature *idea* that's mainly about the UI (a new panel, a new
   interaction, a layout change, ...), use the `ui-feature-prototyp` skill
   (`.claude/skills/ui-feature-prototyp/SKILL.md`) - build it roughly in

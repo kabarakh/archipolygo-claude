@@ -1,3 +1,7 @@
+<!-- Width is 460, not 440 - the extra 20px offsets the "dialog-list"
+     ScrollViewer's right padding (see
+     AvaloniaApplication1/Styles/DialogStyles.axaml) so its content column
+     isn't any narrower than before that padding grew. -->
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:TestHarness.AddSlotPickerPrototype"
@@ -7,7 +11,7 @@
         mc:Ignorable="d"
         x:Class="TestHarness.AddSlotPickerPrototype.AddSlotPickerPrototypeWindow"
         x:DataType="vm:AddSlotPickerPrototypeViewModel"
-        Width="440" Height="520"
+        Width="460" Height="520"
         WindowStartupLocation="Manual"
         Title="Add Slot (prototype: search + multi-select)">
 
@@ -23,8 +27,12 @@
         <!-- Capped height + internal scrolling, same reasoning as the
              existing slot-management/staged-slots lists in
              ConnectionEditorWindow.axaml - a big room's roster must not push
-             the window itself past the screen. -->
-        <ScrollViewer MaxHeight="280">
+             the window itself past the screen. "dialog-list" (see
+             AvaloniaApplication1/Styles/DialogStyles.axaml, included via
+             TestHarnessApp.axaml) leaves room for the scrollbar so it
+             doesn't overlap the 🔒 button on every row once the list
+             actually scrolls. -->
+        <ScrollViewer MaxHeight="280" Classes="dialog-list">
             <ItemsControl ItemsSource="{Binding FilteredRows}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate DataType="vm:SelectableSlotRow">

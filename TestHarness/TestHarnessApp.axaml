@@ -4,5 +4,10 @@
              RequestedThemeVariant="Default">
     <Application.Styles>
         <FluentTheme/>
+        <!-- Same standardized dialog styles as the real app (see
+             AvaloniaApplication1/Styles/DialogStyles.axaml) - prototype
+             dialogs built here (e.g. AddSlotPickerPrototype) should look
+             like the real dialogs they're previewing, not drift from them. -->
+        <StyleInclude Source="avares://Archipolygo/Styles/DialogStyles.axaml"/>
     </Application.Styles>
 </Application>

@@ -1,6 +1,6 @@
 ---
 name: app-testen
-description: Wie Archipolygo (die Avalonia-Desktop-App) manuell auf UI-/Verhaltens-Bugs getestet wird - per Referenz-App ohne echte Archipelago-Verbindung, Windows-Screenshots und simulierten Mausklicks, statt die App wiederholt neu zu starten. Nutzen, wenn ein UI-Bug (Scrolling, Layout, Filter, Reihenfolge, Bindings, ...) reproduziert oder ein Fix verifiziert werden soll.
+description: Wie Archipolygo (die Avalonia-Desktop-App) manuell auf UI-/Verhaltens-Bugs getestet wird - per Referenz-App ohne echte Archipelago-Verbindung, Screenshots (Windows oder macOS) und simulierten Mausklicks, statt die App wiederholt neu zu starten. Nutzen, wenn ein UI-Bug (Scrolling, Layout, Filter, Reihenfolge, Bindings, ...) reproduziert oder ein Fix verifiziert werden soll.
 ---
 
 # Archipolygo manuell testen
@@ -62,24 +62,32 @@ Struktur** (`MainWindow`, `MainWindowViewModel`, `GroupViewModel`, die realen
   könnte je nach Fokus-Reihenfolge auch das falsche der beiden Fenster
   fotografieren.
 
-## Grundprinzip 2: Sichtprüfung per Windows-Screenshot + simulierten Mausklicks
+## Grundprinzip 2: Sichtprüfung per Screenshot + simulierten Mausklicks
 
 Da es sich um eine native Desktop-App handelt (kein Browser), funktionieren
-die Browser-Tools hier nicht. Stattdessen: echte Windows-Screenshots der
-laufenden Referenz-App und echte simulierte Mausklicks/Scrolls, um das
-Verhalten so zu prüfen, wie ein Mensch es sehen würde - nicht nur anhand von
-Log-Ausgaben oder Code-Lektüre.
+die Browser-Tools hier nicht. Stattdessen: echte Screenshots der laufenden
+Referenz-App und echte simulierte Mausklicks/Scrolls, um das Verhalten so zu
+prüfen, wie ein Mensch es sehen würde - nicht nur anhand von Log-Ausgaben
+oder Code-Lektüre. Das funktioniert grundsätzlich sowohl unter Windows als
+auch unter macOS (Archipolygo ist eine Avalonia-App und läuft auf beiden -
+siehe `.github/workflows/release.yml`, das auch `osx-x64`/`osx-arm64`-Builds
+erzeugt); welche Variante gilt, richtet sich einfach danach, auf welchem
+Betriebssystem gerade getestet wird.
 
-Fertige Hilfsskripte dafür liegen in `scripts/`:
+Fertige Hilfsskripte dafür liegen in `scripts/` - für Windows als
+PowerShell, für macOS als Bash-Pendant mit gleichem Parametermodell:
 
-- [scripts/Take-Screenshot.ps1](scripts/Take-Screenshot.ps1) - schießt einen
+- [scripts/Take-Screenshot.ps1](scripts/Take-Screenshot.ps1) /
+  [scripts/Take-Screenshot.sh](scripts/Take-Screenshot.sh) - schießt einen
   Screenshot vom Fenster eines laufenden Prozesses (per Prozessname) und
   speichert ihn als PNG.
-- [scripts/Send-Click.ps1](scripts/Send-Click.ps1) - bewegt den echten
+- [scripts/Send-Click.ps1](scripts/Send-Click.ps1) /
+  [scripts/Send-Click.sh](scripts/Send-Click.sh) - bewegt den echten
   Mauszeiger an Bildschirmkoordinaten und löst einen Linksklick (oder Scroll)
   aus, genau wie ein Benutzer es täte.
 
-Typischer Ablauf für einen Testdurchlauf:
+Typischer Ablauf für einen Testdurchlauf (Details für macOS im Abschnitt
+"macOS-Variante" unten):
 
 1. Referenz-App aus Grundprinzip 1 starten (`dotnet run ...` im Hintergrund).
 2. Screenshot vor der Interaktion machen, um den Ausgangszustand zu sehen
@@ -100,6 +108,72 @@ powershell -File .claude/skills/app-testen/scripts/Take-Screenshot.ps1 -ProcessN
 powershell -File .claude/skills/app-testen/scripts/Send-Click.ps1 -X 640 -Y 420
 ```
 
+### macOS-Variante
+
+Gleicher Ablauf, gleiche Skript-Parameter (Prozessname, Ausgabedatei,
+optionaler Titel-Teilstring; X/Y, optionales Scroll/Doppelklick) - nur die
+zugrunde liegenden Werkzeuge sind andere, weil es keine Win32-API gibt:
+
+```bash
+.claude/skills/app-testen/scripts/Take-Screenshot.sh -p AvaloniaApplication1 -o shot1.png
+```
+
+```bash
+.claude/skills/app-testen/scripts/Send-Click.sh -x 640 -y 420
+```
+
+**Voraussetzung: [cliclick](https://github.com/BlueM/cliclick)
+(`brew install cliclick`).** `Send-Click.sh` führt die eigentliche
+Maussimulation (Klick/Doppelklick) darüber aus statt über AppleScript/System
+Events' `click at` - ohne installiertes `cliclick` bricht das Skript sofort
+mit einer entsprechenden Fehlermeldung ab. `Take-Screenshot.sh` selbst
+braucht `cliclick` nicht (nur Fensterabfrage + `screencapture`), aber wer auf
+macOS testet, braucht es trotzdem, sobald auch geklickt werden soll.
+
+**Einmalig nötige Berechtigungen** (Systemeinstellungen -> Datenschutz &
+Sicherheit), für den Prozess, der die Skripte tatsächlich ausführt (z. B.
+Terminal/iTerm, oder was auch immer Claude Code hier als Shell-Host
+verwendet):
+
+- **Bedienungshilfen (Accessibility)** - für `cliclick` selbst (meldet das
+  beim Fehlen deutlich: "Accessibility privileges not enabled") und für
+  `Take-Screenshot.sh`s Fensterabfrage (Position/Größe eines Fensters per
+  System Events). Fehlt Letzteres, schlägt die Fensterabfrage mit
+  AppleScript-Fehler `-1719` fehl ("keine Berechtigung für den
+  Hilfszugriff") - das wurde beim Schreiben dieses Abschnitts tatsächlich so
+  beobachtet (System Events kann zwar problemlos Prozessnamen auflisten,
+  aber ohne diese Freigabe keine Fenstergeometrie abfragen).
+- **Bildschirmaufnahme (Screen Recording)** - für `screencapture` selbst
+  (das `Take-Screenshot.sh` intern aufruft).
+
+Ohne `cliclick` und diese beiden Freigaben lässt sich die macOS-Variante
+nicht benutzen - das ist kein Bug in den Skripten, sondern by-design auf
+modernem macOS (anders als unter Windows, wo `GetWindowRect`/`SetCursorPos`
+ohne Extra-Freigabe funktionieren).
+
+**Bekannte Einschränkung: kein echtes koordinatenbasiertes Mausrad-Scrollen
+- auch nicht mit cliclick.** Win32s `mouse_event(MOUSEEVENTF_WHEEL, ...)`
+hat kein direktes Äquivalent auf macOS: weder AppleScript/System Events noch
+das installierte `cliclick` (Version 5.1, per `cliclick -h` tatsächlich
+geprüft) kennen ein Wheel-/Scroll-Kommando - `cliclick`s `w:` ist "WAIT",
+nicht "wheel". `Send-Click.sh -s <Schritte>` bricht deshalb bewusst mit
+einer klaren Fehlermeldung ab, statt eine nur ungefähre Tastatur-Näherung
+(z. B. Pfeiltasten über `cliclick`s `kp:`-Kommando) stillschweigend als
+gleichwertigen Ersatz zu präsentieren. Für reine Klick-/Doppelklick-Fälle
+(die meisten UI-Bugs hier) ist das ohne Belang - nur Szenarien, die gezieltes
+Scrollen an einer bestimmten Bildschirmposition simulieren müssen, bleiben
+auf macOS ungelöst; falls das doch mal gebraucht wird, erst nachfragen statt
+eine Näherungslösung stillschweigend zu bauen.
+
+Alle übrigen Grundprinzipien dieses Dokuments (Referenz-App statt Live-
+Verbindung, App nicht neu starten, nie ohne Rückfrage Fokus wegreißen/
+Prozesse beenden, Debug-Logs) gelten auf macOS unverändert - nur der
+Windows-spezifische Teil "Bekannte Ungenauigkeit"/"Bekannter, gefixter Bug"
+unten bezieht sich auf konkret unter Windows beobachtetes Verhalten
+(`Send-Click.ps1`); ob dieselben Eigenheiten auf macOS auftreten, ist noch
+nicht geprüft - bei Gelegenheit hier ergänzen, falls sich auf macOS
+vergleichbare Fallstricke zeigen.
+
 ### Niemals Vollbild-Screenshots - immer das eine Ziel-Fenster treffen
 
 `Take-Screenshot.ps1` fotografiert standardmaessig nur `MainWindowHandle` -
@@ -108,7 +182,10 @@ Windows-Heuristik, nicht zwingend das gemeinte. Sobald eine Referenz-App
 mehr als ein sichtbares Top-Level-Fenster hat (z. B. `MainWindow` +
 separates `ControlPanelWindow`, oder - wie beim Multi-Window-Tabs-Prototyp -
 zusaetzliche, zur Laufzeit erzeugte Fenster), reicht das nicht mehr, um
-gezielt eines davon zu fotografieren.
+gezielt eines davon zu fotografieren. Das mac-Pendant `Take-Screenshot.sh`
+hat dieselbe Schwaeche mit demselben Gegenmittel: ohne `-t` nimmt es einfach
+"window 1" des Prozesses (ebenfalls nur eine Heuristik), mit `-t
+TitleSubstring` gezielt das Fenster mit passendem Titel-Teilstring.
 
 **Der Fehler, der diese Notiz ausgeloest hat:** um dieser Mehrfenster-
 Problematik auszuweichen, wurde einmal ersatzweise der gesamte virtuelle
@@ -206,7 +283,10 @@ Ein `dotnet run`/App-Neustart ist langsam und verschleiert echtes Verhalten
   Ad-hoc-Skript fuer einen Drag mit `SetCursorPos`) - die bewegen den echten
   Mauszeiger, senden echte Eingaben oder reissen den Fokus von der App weg,
   in der der User gerade liest/tippt (z. B. Claude Code selbst), unabhaengig
-  davon, ob gerade eine Vollbild-App laeuft.
+  davon, ob gerade eine Vollbild-App laeuft. Auf macOS gilt exakt dasselbe
+  fuer `Send-Click.sh` (echter Klick per System Events) und
+  `Take-Screenshot.sh` (`set frontmost to true` reisst den Fokus genauso wie
+  `SetForegroundWindow`).
   **Vorfaelle, die zu dieser (mehrfach verschaerften) Fassung gefuehrt
   haben:** erst wurden mehrere `Send-Click.ps1`-Aufrufe und ein
   Drag-Simulationsskript nacheinander abgefeuert, ohne zwischendurch
@@ -237,6 +317,14 @@ Ein `dotnet run`/App-Neustart ist langsam und verschleiert echtes Verhalten
   [Win32Focus]::GetWindowThreadProcessId($fgHandle, [ref]$fgProcId) | Out-Null
   $fgProc = Get-Process -Id $fgProcId -ErrorAction SilentlyContinue
   $fgProc.ProcessName  # z. B. "TestHarness" oder "Code"/"WindowsTerminal"/...
+  ```
+
+  Dieselbe passive Pruefung auf macOS (braucht dieselbe Bedienungshilfen-
+  Freigabe wie oben unter "macOS-Variante" beschrieben):
+
+  ```bash
+  osascript -e 'tell application "System Events" to name of first application process whose frontmost is true'
+  # z. B. "TestHarness" oder "Terminal"/"iTerm2"/"Code"/...
   ```
 
   - Ist der aktuelle Fokus bereits der erwartete Test-Prozess (der User
@@ -291,8 +379,8 @@ Stellen):
    bzw. es erweitern - echte Avalonia-Struktur, aber Verbindungsschicht durch
    eine per Button befeuerbare Fake-Verbindung ersetzt (synthetische Daten
    statt echter Session).
-2. Verhalten per echtem Windows-Screenshot + simuliertem Mausklick prüfen,
-   nicht nur am Code ablesen.
+2. Verhalten per echtem Screenshot (Windows oder macOS, je nach Testsystem)
+   + simuliertem Mausklick prüfen, nicht nur am Code ablesen.
 3. Die eigentliche App nicht mehrfach neu starten - außer bei
    Verbindungstests, und dann so selten wie möglich.
 4. Prozesse nie ohne Rückfrage beenden; vor dem Screenshot-Workflow (Fokus-
@@ -304,4 +392,10 @@ Stellen):
    um mehreren Fenstern einer Referenz-App auszuweichen - das kann private
    Inhalte auf anderen Monitoren erfassen. Stattdessen gezielt ein Fenster
    treffen, bei mehreren Top-Level-Fenstern per `Take-Screenshot.ps1
-   -TitleContains "..."`.
+   -TitleContains "..."` bzw. `Take-Screenshot.sh -t "..."` auf macOS.
+7. Auf macOS zusätzlich: `Send-Click.sh` braucht `cliclick`
+   (`brew install cliclick`) als Voraussetzung, beide Skripte brauchen
+   einmalig "Bedienungshilfen" + "Bildschirmaufnahme" für den ausführenden
+   Prozess (Systemeinstellungen -> Datenschutz & Sicherheit) - siehe
+   "macOS-Variante" oben. Koordinatenbasiertes Mausrad-Scrollen bleibt auf
+   macOS unmöglich, auch mit `cliclick`.

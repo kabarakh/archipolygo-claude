@@ -1,3 +1,6 @@
+<!-- Width is 460, not 440 - the extra 20px offsets the "dialog-list"
+     ScrollViewer's right padding (see Styles/DialogStyles.axaml) so its
+     content column isn't any narrower than before that padding grew. -->
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:Archipolygo.ViewModels"
@@ -8,7 +11,7 @@
         mc:Ignorable="d"
         x:Class="Archipolygo.Views.ConnectionEditorWindow"
         x:DataType="vm:ConnectionEditorViewModel"
-        Width="440" SizeToContent="Height" CanResize="False"
+        Width="460" SizeToContent="Height" CanResize="False"
         WindowStartupLocation="CenterOwner"
         Title="{Binding DialogTitle}">
 
@@ -57,10 +60,11 @@
 
             <!-- Capped height + internal scrolling, same reasoning as the
                  configured-slots list below - a big room's roster must not
-                 push the window itself past the screen. Right padding
-                 leaves room for the scrollbar so it doesn't overlap the 🔒
-                 button on every row once the list actually scrolls. -->
-            <ScrollViewer MaxHeight="220" Padding="0,0,10,0">
+                 push the window itself past the screen. "dialog-list" (see
+                 Styles/DialogStyles.axaml) leaves room for the scrollbar so
+                 it doesn't overlap the 🔒 button on every row once the list
+                 actually scrolls. -->
+            <ScrollViewer MaxHeight="220" Classes="dialog-list">
                 <ItemsControl ItemsSource="{Binding FilteredSlotRows}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate DataType="m:SelectableSlotRow">
@@ -100,8 +104,11 @@
                  grow with the room's slot count - the window is
                  SizeToContent/CanResize="False", so an uncapped list of many
                  slots used to push the window itself past the top/bottom of
-                 the screen instead of just scrolling in place. -->
-            <ScrollViewer MaxHeight="220">
+                 the screen instead of just scrolling in place. "dialog-list"
+                 (see Styles/DialogStyles.axaml) leaves room for the
+                 scrollbar so it doesn't overlap the "Make default"/"✕"
+                 buttons once the list actually scrolls. -->
+            <ScrollViewer MaxHeight="220" Classes="dialog-list">
                 <ItemsControl ItemsSource="{Binding ConfiguredSlotRows}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate DataType="m:ConfiguredSlotRow">
