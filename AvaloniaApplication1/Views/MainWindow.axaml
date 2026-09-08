@@ -236,7 +236,7 @@
                                     <!-- SelectionMode="Multiple" (ctrl/shift-click, like Explorer)
                                          so several lines can be selected and copied at once - see
                                          OnEventsListKeyDown. -->
-                                    <ListBox ItemsSource="{Binding VisibleEvents}" SelectionMode="Multiple"
+                                    <ListBox Name="EventsListBox" ItemsSource="{Binding VisibleEvents}" SelectionMode="Multiple"
                                              KeyDown="OnEventsListKeyDown" Loaded="OnEventsListLoaded">
                                         <ListBox.ItemTemplate>
                                             <DataTemplate DataType="m:EventEntry">
@@ -449,7 +449,7 @@
                                  even though the bound value itself is fine. Forcing one
                                  explicit resync once this instance is actually loaded fixes
                                  the display without touching the underlying value. -->
-                            <ComboBox Grid.Column="0" ItemsSource="{Binding Slots}" SelectedItem="{Binding SelectedChatSlot}"
+                            <ComboBox Name="ChatSlotComboBox" Grid.Column="0" ItemsSource="{Binding Slots}" SelectedItem="{Binding SelectedChatSlot}"
                                       MinWidth="140" Margin="0,0,8,0" Loaded="OnChatSlotComboBoxLoaded">
                                 <ComboBox.ItemTemplate>
                                     <DataTemplate DataType="m:SlotProfile">

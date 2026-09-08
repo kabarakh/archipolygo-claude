@@ -24,8 +24,8 @@
 #                  Einschraenkung weiter unten im Kommentar.
 #
 # Beispiele:
-#   .claude/skills/app-testen/scripts/Send-Click.sh -x 640 -y 420
-#   .claude/skills/app-testen/scripts/Send-Click.sh -x 640 -y 420 -d
+#   .claude/skills/ui-feature-prototyp/scripts/Send-Click.sh -x 640 -y 420
+#   .claude/skills/ui-feature-prototyp/scripts/Send-Click.sh -x 640 -y 420 -d
 #
 # WICHTIGE EINSCHRAENKUNG (Scroll): cliclick 5.1 (per `cliclick -h`
 # tatsaechlich geprueft, nicht nur vermutet) hat KEIN Kommando fuer

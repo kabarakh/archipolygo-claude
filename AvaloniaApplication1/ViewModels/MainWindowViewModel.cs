@@ -71,7 +71,8 @@ public partial class MainWindowViewModel : ViewModelBase
         var syncStateStore = new ProfileSyncStateStore(new PersistenceService());
         return new ConnectionManager(
             new MessageHistoryService(new PersistenceService(), syncStateStore),
-            new HintService(syncStateStore));
+            new HintService(syncStateStore),
+            new ArchipelagoSessionFactoryAdapter());
     }
 
     /// <summary>

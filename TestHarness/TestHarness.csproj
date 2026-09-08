@@ -24,5 +24,8 @@
 
     <ItemGroup>
         <ProjectReference Include="..\AvaloniaApplication1\AvaloniaApplication1.csproj"/>
+        <!-- FakeConnectionManager/FakePersistenceService now live here, shared
+             with AvaloniaApplication1.Tests - see Test-Umsetzungsplan.md. -->
+        <ProjectReference Include="..\AvaloniaApplication1.TestSupport\AvaloniaApplication1.TestSupport.csproj"/>
     </ItemGroup>
 </Project>

@@ -97,8 +97,14 @@ doc comment explaining what it's for and why it's shaped that way.
   `EventEntry`, `HintEntry`, `ReceivedItemEntry`, filter enums, plus small UI
   helper records like `StagedSlot`/`ConfiguredSlotRow`/`PlayerChoice` used
   only by the connection editor dialog).
-- `Services/ConnectionManager.cs` - owns all `ArchipelagoSession` instances;
-  the only place that talks to `Archipelago.MultiClient.Net` directly.
+- `Services/ConnectionManager.cs` - owns all `IArchipelagoSession` instances
+  (the interface `ArchipelagoSession` already implements). Talks to
+  `Archipelago.MultiClient.Net` only through `ISessionFactory`
+  (`Services/ISessionFactory.cs`/`ArchipelagoSessionFactoryAdapter.cs`) -
+  that seam exists purely so `AvaloniaApplication1.Tests` can substitute a
+  `FakeArchipelagoSession`/`FakeSessionFactory` (Kategorie B, see
+  `Test-Umsetzungsplan.md`) to exercise this class's real locking/ordering
+  logic without a real server; no behavior difference for the real app.
 - `Services/MessageHistoryService.cs` / `HintService.cs` - turn raw session
   data into `EventEntry`/`HintEntry` and append them to a `GroupViewModel`'s
   collections; also own the per-slot "what have I already shown"
@@ -128,6 +134,14 @@ doc comment explaining what it's for and why it's shaped that way.
   (Events/Hints/Items with their filters), and a handful of Avalonia-quirk
   workarounds (see below) that live in the code-behind rather than XAML
   because they need imperative logic.
+- `AvaloniaApplication1.Tests/` - xUnit + `Avalonia.Headless.XUnit`, see
+  `Test-Umsetzungsplan.md` for the three test categories.
+  `AvaloniaApplication1.TestSupport/` holds the fakes both this project and
+  `TestHarness/` share (`FakeConnectionManager`/`FakePersistenceService` for
+  UI prototyping without a real connection, `FakeArchipelagoSession`/
+  `FakeSessionFactory` for exercising `ConnectionManager` itself) - never
+  duplicate one of these into either consuming project instead of adding to
+  it here.
 
 ## Non-obvious gotchas already worked around here
 
@@ -190,21 +204,24 @@ way first - each was a real bug with a specific root cause.
 ## Building, running, releasing
 
 - `dotnet build` / `dotnet run --project AvaloniaApplication1` from the
-  repo root. .NET 10 SDK required. No test project exists yet (despite
-  `Umsetzungsplan.md` mentioning one as a cross-cutting task). For manual
-  verification of a UI/behavior fix, use the `app-testen` skill
-  (`.claude/skills/app-testen/SKILL.md`) - it covers reproducing the case
-  without a real Archipelago connection, verifying visually via screenshots
-  and simulated clicks, and why the real app should almost never be
-  restarted repeatedly while doing so. Being an Avalonia app, this also
-  builds and runs on macOS (`osx-x64`/`osx-arm64`, see the release workflow
-  below) - the `app-testen` skill's visual-verification workflow has a
-  macOS equivalent (`scripts/*.sh` alongside the Windows `*.ps1`). It needs
-  `cliclick` (`brew install cliclick`) as a hard prerequisite for click
-  simulation, plus one-time Accessibility/Screen Recording permissions, and
-  has no way to simulate coordinate-based mouse-wheel scrolling at all (not
-  even with `cliclick` - verified against its actual installed version, see
-  that skill's "macOS-Variante" section for what's possible and what isn't).
+  repo root. .NET 10 SDK required. `AvaloniaApplication1.Tests` (xUnit +
+  `Avalonia.Headless.XUnit`) replaces what used to be manual screenshot/
+  click verification (the former `app-testen` skill, removed once this
+  project covered the same ground - see `Test-Umsetzungsplan.md`) - run it
+  with `dotnet test` (or `dotnet test AvaloniaApplication1.sln` for the
+  whole solution, matching what `.github/workflows/tests.yml` runs on every
+  push). Three categories, see `Test-Umsetzungsplan.md` for the full
+  breakdown of which to reach for depending on what kind of fix you're
+  making: plain `[Fact]` logic tests (no Avalonia involved) for
+  session-less helpers/services; `[AvaloniaFact]` tests exercising
+  `ConnectionManager`'s real locking/ordering logic (leader switches,
+  catch-up sweeps, reconnects) against a `FakeArchipelagoSession`/
+  `FakeSessionFactory` (see `AvaloniaApplication1.TestSupport`) instead of a
+  real Archipelago connection; and `[AvaloniaFact]` tests building the real
+  `.axaml` views for layout/binding/click-behavior fixes. Being an Avalonia
+  app, this also builds and runs on macOS (`osx-x64`/`osx-arm64`, see the
+  release workflow below) - `dotnet test` itself needs no macOS-specific
+  setup (unlike the old screenshot/click scripts it replaced).
 - For a new feature *idea* that's mainly about the UI (a new panel, a new
   interaction, a layout change, ...), use the `ui-feature-prototyp` skill
   (`.claude/skills/ui-feature-prototyp/SKILL.md`) - build it roughly in

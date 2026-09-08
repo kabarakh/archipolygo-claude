@@ -35,6 +35,7 @@ public partial class App : Application
         services.AddSingleton<IProfileSyncStateStore, ProfileSyncStateStore>();
         services.AddSingleton<IMessageHistoryService, MessageHistoryService>();
         services.AddSingleton<IHintService, HintService>();
+        services.AddSingleton<ISessionFactory, ArchipelagoSessionFactoryAdapter>();
         services.AddSingleton<IConnectionManager, ConnectionManager>();
         services.AddSingleton<MainWindowViewModel>();
 

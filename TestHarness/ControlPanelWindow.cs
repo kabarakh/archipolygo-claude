@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Archipelago.MultiClient.Net.Enums;
 using Archipolygo.Models;
 using Archipolygo.Services;
+using Archipolygo.TestSupport;
 using Archipolygo.ViewModels;
 using Avalonia.Controls;
 using Avalonia.Layout;
@@ -13,7 +14,8 @@ using TestHarness.AddSlotPickerPrototype;
 namespace TestHarness;
 
 /// <summary>
-/// Plain code-built (no .axaml) auxiliary window - see .claude/skills/app-testen.
+/// Plain code-built (no .axaml) auxiliary window - see
+/// .claude/skills/ui-feature-prototyp/SKILL.md, TestHarness's own purpose.
 /// Most buttons inject synthetic data directly into <see cref="GroupViewModel"/>'s
 /// public collections, bypassing IConnectionManager entirely, to drive the real
 /// Events/Hints/Items panels without a network connection. The "Hint routing"

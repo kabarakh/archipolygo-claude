@@ -14,8 +14,17 @@ permissions:
   contents: write
 
 jobs:
+  # Reruns tests.yml's dotnet-test job (via workflow_call, rather than
+  # duplicating its steps here) and gates the actual publish on it passing -
+  # see Test-Umsetzungsplan.md. GitHub refuses to start a job whose `needs`
+  # dependency failed, so a release with failing tests simply never
+  # publishes; no separate manual check required.
+  test:
+    uses: ./.github/workflows/tests.yml
+
   build:
     name: Build (${{ matrix.asset_name }})
+    needs: test
     # A single ubuntu runner builds all three OS targets - .NET's
     # self-contained publish is cross-compiling by design (it just downloads
     # the target OS's runtime pack from NuGet), so no actual Windows/macOS

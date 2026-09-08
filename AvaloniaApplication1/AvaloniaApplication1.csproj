@@ -31,6 +31,15 @@
         <AvaloniaResource Include="Assets\**"/>
     </ItemGroup>
 
+    <!-- Lets AvaloniaApplication1.Tests call the small handful of internal
+         session-less helper methods (ConnectionManager.FilterToRealPlayers,
+         IsTransientConnectFailure, ...) directly instead of duplicating their
+         logic or reaching for reflection - see Test-Umsetzungsplan.md,
+         Kategorie A. Test-only access, no runtime behavior change. -->
+    <ItemGroup>
+        <InternalsVisibleTo Include="AvaloniaApplication1.Tests"/>
+    </ItemGroup>
+
     <ItemGroup>
         <PackageReference Include="Avalonia" Version="12.0.4"/>
         <PackageReference Include="Avalonia.Desktop" Version="12.0.4"/>

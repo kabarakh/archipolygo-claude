@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Archipolygo.Models;
+using Archipolygo.TestSupport;
 using Archipolygo.ViewModels;
 using Archipolygo.Views;
 
@@ -51,9 +52,9 @@ public partial class TestHarnessApp : Application
             _ = connectionManager.SwitchLeaderAsync(groupViewModel, slot);
 
             // Explicit manual position so the main window can never overlap
-            // ControlPanelWindow (which sits at (20,20), 260 wide) - see
-            // .claude/skills/app-testen/SKILL.md on why the two must never
-            // cover each other on screenshots.
+            // ControlPanelWindow (which sits at (20,20), 260 wide) - keeps
+            // both fully visible side by side for whoever is clicking
+            // through this (see .claude/skills/ui-feature-prototyp/SKILL.md).
             var mainWindow = new MainWindow
             {
                 DataContext = mainWindowViewModel,

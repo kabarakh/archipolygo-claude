@@ -71,7 +71,7 @@ public class ConnectionManager : IConnectionManager
     // suppressing everything after the first item. A brief delay ensures the
     // entire synchronous burst finishes first. Two seconds is generous; in
     // practice the burst completes in milliseconds.
-    private static readonly TimeSpan ItemBacklogGracePeriod = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan DefaultItemBacklogGracePeriod = TimeSpan.FromSeconds(2);
 
     // The Archipelago network-protocol version this client implements (used
     // in the login handshake) - not this app's own version number.
@@ -86,17 +86,41 @@ public class ConnectionManager : IConnectionManager
     // Pause between a transient-looking failed attempt and the next retry -
     // long enough to let a one-off network/timing blip clear, short enough
     // that a genuinely broken connection still fails within a few seconds.
-    private static readonly TimeSpan TransientConnectRetryDelay = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan DefaultTransientConnectRetryDelay = TimeSpan.FromSeconds(2);
 
     private readonly IMessageHistoryService _messageHistoryService;
     private readonly IHintService _hintService;
+    private readonly ISessionFactory _sessionFactory;
+
+    // Real delays above (constructor-overridable, defaulting to the same
+    // values the real app always used before this existed) - Kategorie B's
+    // FakeArchipelagoSession/FakeSessionFactory make every *connect/login*
+    // deterministically controllable via a TaskCompletionSource with no real
+    // waiting at all (see Test-Umsetzungsplan.md), but these two waits are
+    // plain Task.Delay calls with nothing to do with a session's own
+    // completion - without overriding them here too, every test touching a
+    // catch-up sync or a transient-retry path would still really wait
+    // several seconds per call for no reason. AvaloniaApplication1.Tests
+    // passes near-zero values; the real app (via App.axaml.cs's DI
+    // registration, which never supplies these two optional parameters)
+    // always gets the real defaults.
+    private readonly TimeSpan _itemBacklogGracePeriod;
+    private readonly TimeSpan _transientConnectRetryDelay;
 
     // Keyed by SlotProfile.Id. A session exists here while that slot has ANY
     // active connection - as the group's leader, or as a short-lived
     // catch-up/switch-target session in flight. At most two entries can
     // exist for the same group at once (old leader + new leader during a
     // switch, or leader + one catch-up dip), and only ever briefly.
-    private readonly ConcurrentDictionary<Guid, ArchipelagoSession> _sessions = new();
+    //
+    // IArchipelagoSession (the interface ArchipelagoSession itself already
+    // implements, see ISessionFactory), not the concrete type - so tests can
+    // substitute a FakeArchipelagoSession via ISessionFactory and exercise
+    // this class's real locking/ordering logic without a real network
+    // connection (Test-Umsetzungsplan.md, Kategorie B). Pure type change,
+    // same members used either way (Socket/MessageLog/Items/Hints/Players/
+    // LoginAsync are all already interface-typed on the concrete class too).
+    private readonly ConcurrentDictionary<Guid, IArchipelagoSession> _sessions = new();
 
     // GroupId -> the SlotProfile.Id that currently holds the persistent
     // leader connection. Absent = the group has no leader right now.
@@ -136,10 +160,18 @@ public class ConnectionManager : IConnectionManager
     /// <inheritdoc/>
     public event Action<int>? SlotSyncBatchStarting;
 
-    public ConnectionManager(IMessageHistoryService messageHistoryService, IHintService hintService)
+    public ConnectionManager(
+        IMessageHistoryService messageHistoryService,
+        IHintService hintService,
+        ISessionFactory sessionFactory,
+        TimeSpan? itemBacklogGracePeriod = null,
+        TimeSpan? transientConnectRetryDelay = null)
     {
         _messageHistoryService = messageHistoryService;
         _hintService = hintService;
+        _sessionFactory = sessionFactory;
+        _itemBacklogGracePeriod = itemBacklogGracePeriod ?? DefaultItemBacklogGracePeriod;
+        _transientConnectRetryDelay = transientConnectRetryDelay ?? DefaultTransientConnectRetryDelay;
     }
 
     public async Task SwitchLeaderAsync(GroupViewModel group, SlotProfile targetSlot)
@@ -176,7 +208,7 @@ public class ConnectionManager : IConnectionManager
             // possibly not showing up in the log (see Umsetzungsplan.md).
             using var connectCts = new CancellationTokenSource();
             _connectCancellationSources[groupId] = connectCts;
-            ArchipelagoSession? newSession;
+            IArchipelagoSession? newSession;
             try
             {
                 newSession = await ConnectSlotSessionAsync(group, targetSlot, isLeaderSession: true, connectCts.Token);
@@ -492,7 +524,7 @@ public class ConnectionManager : IConnectionManager
 
         using var connectCts = new CancellationTokenSource();
         _connectCancellationSources[groupId] = connectCts;
-        ArchipelagoSession? session;
+        IArchipelagoSession? session;
         try
         {
             session = await ConnectSlotSessionAsync(group, slot, isLeaderSession: false, connectCts.Token);
@@ -510,7 +542,7 @@ public class ConnectionManager : IConnectionManager
         // Give the backlog burst (items delivered just after login, and the
         // first TrackHints callback) a moment to fully land before tearing
         // this temporary session back down.
-        await Task.Delay(ItemBacklogGracePeriod);
+        await Task.Delay(_itemBacklogGracePeriod);
 
         if (_sessions.TryRemove(slot.Id, out var stillTracked) && stillTracked == session)
         {
@@ -607,7 +639,10 @@ public class ConnectionManager : IConnectionManager
     /// added that way, as a bogus "Server"/group entry in the account
     /// dropdown and slot filters too.
     /// </summary>
-    private static IReadOnlyList<Archipelago.MultiClient.Net.Helpers.PlayerInfo> FilterToRealPlayers(
+    // internal rather than private so AvaloniaApplication1.Tests can exercise this
+    // session-less helper directly (Test-Umsetzungsplan.md, Kategorie A) - no
+    // runtime behavior change, just test visibility.
+    internal static IReadOnlyList<Archipelago.MultiClient.Net.Helpers.PlayerInfo> FilterToRealPlayers(
         IEnumerable<Archipelago.MultiClient.Net.Helpers.PlayerInfo> players) =>
         players.Where(p => p.Slot != 0 && !p.IsGroup).ToList();
 
@@ -631,7 +666,7 @@ public class ConnectionManager : IConnectionManager
     /// caller shortly after this returns). Returns null (having already
     /// reported the failure) if the connection or login fails.
     /// </summary>
-    private async Task<ArchipelagoSession?> ConnectSlotSessionAsync(GroupViewModel group, SlotProfile slot, bool isLeaderSession, CancellationToken cancellationToken = default)
+    private async Task<IArchipelagoSession?> ConnectSlotSessionAsync(GroupViewModel group, SlotProfile slot, bool isLeaderSession, CancellationToken cancellationToken = default)
     {
         // Up to MaxTransientConnectRetries extra attempts, each with a
         // brand-new session, if the connect/login throws something that
@@ -661,10 +696,10 @@ public class ConnectionManager : IConnectionManager
                 return null;
             }
 
-            ArchipelagoSession session;
+            IArchipelagoSession session;
             try
             {
-                session = ArchipelagoSessionFactory.CreateSession(group.Group.Host, group.Group.Port);
+                session = _sessionFactory.CreateSession(group.Group.Host, group.Group.Port);
             }
             catch (Exception ex)
             {
@@ -788,7 +823,7 @@ public class ConnectionManager : IConnectionManager
 
                 try
                 {
-                    await Task.Delay(TransientConnectRetryDelay, cancellationToken);
+                    await Task.Delay(_transientConnectRetryDelay, cancellationToken);
                 }
                 catch (OperationCanceledException)
                 {
@@ -858,7 +893,7 @@ public class ConnectionManager : IConnectionManager
                 _messageHistoryService.HandleConnected(group, slot);
             }
 
-            _ = Task.Delay(ItemBacklogGracePeriod)
+            _ = Task.Delay(_itemBacklogGracePeriod)
                     .ContinueWith(_ => hasAnnouncedConnection = true, TaskScheduler.Default);
 
             return session;
@@ -879,7 +914,10 @@ public class ConnectionManager : IConnectionManager
     /// "A task was canceled" failure seen when switching leader shortly
     /// after another slot on the same server just reconnected.
     /// </summary>
-    private static bool IsTransientConnectFailure(Exception ex) =>
+    // internal rather than private so AvaloniaApplication1.Tests can exercise this
+    // session-less helper directly (Test-Umsetzungsplan.md, Kategorie A) - no
+    // runtime behavior change, just test visibility.
+    internal static bool IsTransientConnectFailure(Exception ex) =>
         ex is TaskCanceledException or OperationCanceledException or TimeoutException;
 
     /// <summary>
@@ -904,7 +942,7 @@ public class ConnectionManager : IConnectionManager
     /// a time, matching the "slots never connect concurrently" invariant
     /// this class already keeps for connects.
     /// </summary>
-    private async Task TryCloseSocketAsync(GroupViewModel group, SlotProfile? slot, ArchipelagoSession session)
+    private async Task TryCloseSocketAsync(GroupViewModel group, SlotProfile? slot, IArchipelagoSession session)
     {
         try
         {
@@ -1172,7 +1210,7 @@ public class ConnectionManager : IConnectionManager
     /// session - see <see cref="OnLeaderMessageReceived"/> and
     /// <see cref="OnHintsUpdated"/>.
     /// </summary>
-    private static Dictionary<int, SlotProfile> BuildSlotRoster(ArchipelagoSession session, ServerConnectionGroup serverGroup)
+    private static Dictionary<int, SlotProfile> BuildSlotRoster(IArchipelagoSession session, ServerConnectionGroup serverGroup)
     {
         var roster = new Dictionary<int, SlotProfile>();
         foreach (var slot in serverGroup.Slots)
@@ -1259,7 +1297,7 @@ public class ConnectionManager : IConnectionManager
     /// slot's own received-items panel, so that slot stays current without
     /// ever needing its own connection.
     /// </summary>
-    private void OnLeaderMessageReceived(GroupViewModel group, ArchipelagoSession session, SlotProfile leaderSlot, LogMessage logMessage)
+    private void OnLeaderMessageReceived(GroupViewModel group, IArchipelagoSession session, SlotProfile leaderSlot, LogMessage logMessage)
     {
         var roster = BuildSlotRoster(session, group.Group);
         var siblingIds = SiblingIdsExcludingOwn(roster, session.ConnectionInfo.Slot);
@@ -1285,7 +1323,7 @@ public class ConnectionManager : IConnectionManager
         }
     }
 
-    private void OnItemReceived(GroupViewModel group, SlotProfile slot, ArchipelagoSession session, ReceivedItemsHelper helper, bool isLeaderSession, bool hasAnnouncedConnection)
+    private void OnItemReceived(GroupViewModel group, SlotProfile slot, IArchipelagoSession session, ReceivedItemsHelper helper, bool isLeaderSession, bool hasAnnouncedConnection)
     {
         // A catch-up session always treats everything as backlog - its whole
         // point is a one-shot "give me your full current state" resync, not
@@ -1335,7 +1373,7 @@ public class ConnectionManager : IConnectionManager
     /// does, the hint is routed to that slot (preferring the receiving side if
     /// both happen to be configured slots of this same group).
     /// </summary>
-    private void OnHintsUpdated(GroupViewModel group, ArchipelagoSession session, Hint[] hints)
+    private void OnHintsUpdated(GroupViewModel group, IArchipelagoSession session, Hint[] hints)
     {
         var roster = BuildSlotRoster(session, group.Group);
         if (roster.Count == 0 || hints.Length == 0)

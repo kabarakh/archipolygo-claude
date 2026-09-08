@@ -29,7 +29,7 @@
 #                     "window 1" zu nehmen.
 #
 # Beispiel:
-#   .claude/skills/app-testen/scripts/Take-Screenshot.sh \
+#   .claude/skills/ui-feature-prototyp/scripts/Take-Screenshot.sh \
 #       -p AvaloniaApplication1 -o shot1.png
 #
 # Holt das Zielfenster per "set frontmost" in den Vordergrund - das reisst

@@ -48,9 +48,21 @@ public class PersistenceService : IPersistenceService
     private readonly string _settingsFilePath;
 
     public PersistenceService()
+        : this(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Archipolygo"))
     {
-        var baseDirectory = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        _appDataDirectory = Path.Combine(baseDirectory, "Archipolygo");
+    }
+
+    /// <summary>
+    /// Test-only entry point (see AvaloniaApplication1.Tests'
+    /// PersistenceServiceTests) that points every file this service reads/
+    /// writes at <paramref name="appDataDirectory"/> instead of the real
+    /// %AppData%/Archipolygo - so a round-trip test never touches the user's
+    /// actual groups.json/sync-state/settings.json. The parameterless
+    /// constructor above is what the real app always uses.
+    /// </summary>
+    internal PersistenceService(string appDataDirectory)
+    {
+        _appDataDirectory = appDataDirectory;
         _groupsFilePath = Path.Combine(_appDataDirectory, "groups.json");
         _legacyProfilesFilePath = Path.Combine(_appDataDirectory, "profiles.json");
         _syncStateDirectory = Path.Combine(_appDataDirectory, "sync-state");

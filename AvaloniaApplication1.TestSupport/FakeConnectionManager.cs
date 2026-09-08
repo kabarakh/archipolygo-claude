@@ -8,11 +8,13 @@ using Archipolygo.Models;
 using Archipolygo.Services;
 using Archipolygo.ViewModels;
 
-namespace TestHarness;
+namespace Archipolygo.TestSupport;
 
 /// <summary>
-/// No-network stand-in for <see cref="IConnectionManager"/> - see
-/// .claude/skills/app-testen. Never opens a real Archipelago session;
+/// No-network stand-in for <see cref="IConnectionManager"/> - shared by
+/// TestHarness (see .claude/skills/ui-feature-prototyp) and
+/// AvaloniaApplication1.Tests (see Test-Umsetzungsplan.md) so it isn't
+/// duplicated between the two. Never opens a real Archipelago session;
 /// "connecting" a slot just flips the view model's own state so the UI reads
 /// as connected. Test code adds synthetic <see cref="EventEntry"/>/
 /// <see cref="HintEntry"/>/<see cref="ReceivedItemEntry"/> directly to a
