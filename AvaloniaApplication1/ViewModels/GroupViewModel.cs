@@ -412,6 +412,43 @@ public partial class GroupViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// Removes one already-configured slot from <see cref="Group"/>'s
+    /// <c>Slots</c> (see <see cref="MainWindowViewModel.RemoveSlotFromGroup"/>)
+    /// via a targeted <see cref="Slots"/>/<see cref="SlotFilterOptions"/>
+    /// removal rather than letting <see cref="OnSlotsCollectionChanged"/>
+    /// run its normal <see cref="RefreshSlotOrder"/> - same reasoning as
+    /// <see cref="InsertSlotsInOrder"/>'s doc comment (that method's fix for
+    /// the equivalent add-side bug): a plain <c>Remove</c> never puts
+    /// <see cref="Slots"/> through an empty intermediate state the way
+    /// <see cref="RefreshSlotOrder"/>'s <c>Clear</c> does, so the "Chat as"
+    /// ComboBox's <c>SelectedItem</c> binding never sees a moment where the
+    /// currently-selected (and still valid) slot isn't in the ItemsSource -
+    /// which is exactly the race that used to drop <see cref="SelectedChatSlot"/>
+    /// to null (the leader silently vanishing from the account dropdown)
+    /// whenever a *different* slot on the same server was removed. Removing
+    /// the slot that IS currently selected is unaffected by this fix and
+    /// stays exactly as safe as before: <see cref="MainWindowViewModel.RemoveSlotFromGroup"/>
+    /// disconnects that slot first, which clears <see cref="SelectedChatSlot"/>
+    /// itself under <see cref="SetLeaderStateWithoutTriggeringSwitch"/>'s own
+    /// re-entrancy guard before this method ever runs.
+    /// </summary>
+    public void RemoveSlotFromGroup(SlotProfile slot)
+    {
+        Group.Slots.CollectionChanged -= OnSlotsCollectionChanged;
+        try
+        {
+            Group.Slots.Remove(slot);
+        }
+        finally
+        {
+            Group.Slots.CollectionChanged += OnSlotsCollectionChanged;
+        }
+
+        Slots.Remove(slot);
+        SlotFilterOptions.Remove(slot);
+    }
+
+    /// <summary>
     /// Rebuilds <see cref="Slots"/> (the "Chat as" dropdown) and, after its
     /// fixed leading "All slots" null entry, <see cref="SlotFilterOptions"/>
     /// from <see cref="Group"/>'s configured slots - sorted so the current
@@ -423,16 +460,36 @@ public partial class GroupViewModel : ViewModelBase
     /// A full rebuild rather than an incremental add/remove patch, since
     /// this also needs to re-run whenever <see cref="LeaderSlotId"/> itself
     /// changes (see <see cref="OnLeaderSlotIdChanged"/>), not just when a
-    /// slot is added or removed - and with realistically at most a few
-    /// dozen slots, re-sorting the whole list each time is cheap. Clearing
-    /// and re-adding items only briefly clears the dropdowns' SelectedItem,
-    /// which flows back into <see cref="SelectedChatSlot"/> as a transient
-    /// null - already harmless, see the "spurious null" guard in
-    /// <see cref="OnSelectedChatSlotChanged"/>, which exists for exactly
-    /// this kind of rebinding artifact.
+    /// slot is added or removed (though <see cref="AddSlotsToGroup"/>/
+    /// <see cref="RemoveSlotFromGroup"/> now bypass this entirely for their
+    /// own cases - see their doc comments) - and with realistically at most
+    /// a few dozen slots, re-sorting the whole list each time is cheap.
+    ///
+    /// Clearing and re-adding items transiently empties <see cref="Slots"/>/
+    /// <see cref="SlotFilterOptions"/>, which - without the capture/restore
+    /// below - silently drops whichever slot each of the four dropdowns
+    /// bound to them (<see cref="SelectedChatSlot"/> and the three
+    /// <c>SelectedXxxSlotFilter</c> properties) currently had selected, even
+    /// when that slot is still perfectly validly configured (e.g. on every
+    /// leader switch, not just when a slot is actually removed) - the exact
+    /// race <see cref="RemoveSlotFromGroup"/>'s doc comment describes in
+    /// detail for <see cref="SelectedChatSlot"/> specifically. Capturing the
+    /// old selections before the Clear and explicitly restoring them
+    /// afterward (only if the slot is still in <paramref name="ordered"/>  -
+    /// i.e. wasn't actually removed, in which case null/"All slots" is the
+    /// correct end state anyway) fixes this uniformly for all four
+    /// dropdowns, regardless of why this rebuild was triggered - relying on
+    /// <see cref="OnSelectedChatSlotChanged"/>'s "spurious null" guard alone
+    /// only ever protected <see cref="SelectedChatSlot"/>, not the three
+    /// slot filters, which have no such guard.
     /// </summary>
     private void RefreshSlotOrder()
     {
+        var previousChatSlot = SelectedChatSlot;
+        var previousEventsFilter = SelectedEventsSlotFilter;
+        var previousHintsFilter = SelectedHintsSlotFilter;
+        var previousItemsFilter = SelectedItemsSlotFilter;
+
         var ordered = Group.Slots
             .OrderBy(s => s.Id == LeaderSlotId ? 0 : 1)
             .ThenBy(s => s.SlotName, StringComparer.OrdinalIgnoreCase)
@@ -453,6 +510,11 @@ public partial class GroupViewModel : ViewModelBase
         {
             SlotFilterOptions.Add(slot);
         }
+
+        SelectedChatSlot = previousChatSlot is not null && ordered.Contains(previousChatSlot) ? previousChatSlot : null;
+        SelectedEventsSlotFilter = previousEventsFilter is not null && ordered.Contains(previousEventsFilter) ? previousEventsFilter : null;
+        SelectedHintsSlotFilter = previousHintsFilter is not null && ordered.Contains(previousHintsFilter) ? previousHintsFilter : null;
+        SelectedItemsSlotFilter = previousItemsFilter is not null && ordered.Contains(previousItemsFilter) ? previousItemsFilter : null;
     }
 
     partial void OnGroupChanged(ServerConnectionGroup? oldValue, ServerConnectionGroup newValue)

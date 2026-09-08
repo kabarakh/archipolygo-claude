@@ -324,6 +324,10 @@ public partial class MainWindowViewModel : ViewModelBase
     /// configuration out from under a live session. The three independent
     /// slot filters and the group's own default-leader preference are reset
     /// too if they were pointing at this slot, so nothing is left dangling.
+    /// Removal itself goes through <see cref="GroupViewModel.RemoveSlotFromGroup"/>
+    /// (not a raw <c>Group.Slots.Remove</c>) - see that method's doc comment
+    /// for why: a raw removal used to make the *leader* silently vanish from
+    /// the "Chat as" dropdown whenever some other, unrelated slot was removed.
     /// </summary>
     public async Task RemoveSlotFromGroup(GroupViewModel groupViewModel, SlotProfile slot)
     {
@@ -352,7 +356,7 @@ public partial class MainWindowViewModel : ViewModelBase
             groupViewModel.Group.PreferredLeaderSlotId = null;
         }
 
-        groupViewModel.Group.Slots.Remove(slot);
+        groupViewModel.RemoveSlotFromGroup(slot);
         PersistGroups();
     }
 

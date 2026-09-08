@@ -33,7 +33,6 @@ public sealed class FakeConnectionManager : IConnectionManager
 {
     public event Action<GroupViewModel>? GroupPersistNeeded;
     public event Action<GroupViewModel, SlotProfile>? SlotInitialSyncCompleted;
-    public event Action<int>? SlotSyncBatchStarting;
 
     // Never raised: this fake never announces a sync batch before its
     // SlotInitialSyncCompleted calls (see InitializeGroupAsync below), so
