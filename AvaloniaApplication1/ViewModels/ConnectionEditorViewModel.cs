@@ -49,7 +49,7 @@ public class ConnectionEditorResult
 
     public bool AutoConnect { get; init; }
 
-    /// <summary>Tier 2 of Feature-Plaene/Fortschrittsanzeigen.md: exactly what the user typed - see <see cref="Models.ServerConnectionGroup.TrackerReferenceInput"/>.</summary>
+    /// <summary>Tier 2 of Feature-Plaene/Archiv/Fortschrittsanzeigen.md: exactly what the user typed - see <see cref="Models.ServerConnectionGroup.TrackerReferenceInput"/>.</summary>
     public string? TrackerReferenceInput { get; init; }
 
     /// <summary>The resolved tracker id, if any - see <see cref="Models.ServerConnectionGroup.TrackerId"/> and <see cref="ConnectionEditorViewModel.TryResolveTrackerReferenceAsync"/>.</summary>
@@ -128,7 +128,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     private bool _autoConnect;
 
     /// <summary>
-    /// Tier 2 of Feature-Plaene/Fortschrittsanzeigen.md: the free-text field
+    /// Tier 2 of Feature-Plaene/Archiv/Fortschrittsanzeigen.md: the free-text field
     /// accepting a bare tracker id, a tracker URL, or a room URL - see
     /// <see cref="Services.TrackerReferenceParser"/>. Resolved into an actual
     /// tracker id (see <see cref="Models.ServerConnectionGroup.TrackerId"/>)
@@ -234,7 +234,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     /// <summary>Auto-connect is a server-level setting; not relevant when only adding slots to one.</summary>
     public bool ShowAutoConnect => Mode != ConnectionEditorMode.AddSlot;
 
-    /// <summary>Tier 2 of Feature-Plaene/Fortschrittsanzeigen.md is a server-level setting too, same reasoning as <see cref="ShowAutoConnect"/> - not relevant when only adding slots to an existing server.</summary>
+    /// <summary>Tier 2 of Feature-Plaene/Archiv/Fortschrittsanzeigen.md is a server-level setting too, same reasoning as <see cref="ShowAutoConnect"/> - not relevant when only adding slots to an existing server.</summary>
     public bool ShowMultiworldTracker => Mode != ConnectionEditorMode.AddSlot;
 
     public string DialogTitle => Mode switch
@@ -469,7 +469,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Resolves <see cref="TrackerReferenceInput"/> (Tier 2 of Feature-Plaene/Fortschrittsanzeigen.md)
+    /// Resolves <see cref="TrackerReferenceInput"/> (Tier 2 of Feature-Plaene/Archiv/Fortschrittsanzeigen.md)
     /// into <see cref="_resolvedTrackerId"/>, which <see cref="TryBuildResult"/>
     /// then reads. Must be awaited by the view's Save handler *before* calling
     /// <see cref="TryBuildResult"/>, since resolving a room URL needs a

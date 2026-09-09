@@ -34,7 +34,7 @@ public class SettingsWindowTests
     }
 
     /// <summary>
-    /// Feature-Plaene/Auto-Update.md: the default (managed-install-or-macOS)
+    /// Feature-Plaene/Archiv/Auto-Update.md: the default (managed-install-or-macOS)
     /// case - "Check for updates" is the normal, clickable path, and the
     /// unmanaged-install hint is nowhere to be seen.
     /// </summary>

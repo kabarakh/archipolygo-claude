@@ -18,7 +18,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>
     /// Optional - null in every existing test construction site that doesn't
-    /// care about Feature-Plaene/Auto-Update.md, same "purely additive
+    /// care about Feature-Plaene/Archiv/Auto-Update.md, same "purely additive
     /// dependency" reasoning as <see cref="GroupViewModel"/>'s own
     /// <c>IMultiworldTrackerService?</c>. Null just means the startup check
     /// and "Update now"/"Check for updates" actions all silently no-op.
@@ -417,7 +417,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>
     /// Resolves a room id into that room's tracker SUUID (Tier 2 of
-    /// Feature-Plaene/Fortschrittsanzeigen.md) - forwarded to
+    /// Feature-Plaene/Archiv/Fortschrittsanzeigen.md) - forwarded to
     /// <see cref="IMultiworldTrackerService"/> so <see cref="Views.ConnectionEditorWindow"/>
     /// (via <see cref="ConnectionEditorViewModel"/>'s callback-based design)
     /// never needs its own reference to that service.

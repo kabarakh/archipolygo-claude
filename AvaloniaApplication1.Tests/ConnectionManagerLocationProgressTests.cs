@@ -9,7 +9,7 @@ using static AvaloniaApplication1.Tests.ConnectionManagerTestHelpers;
 namespace AvaloniaApplication1.Tests;
 
 /// <summary>
-/// Kategorie B (Test-Umsetzungsplan.md): Tier 1 of Feature-Plaene/Fortschrittsanzeigen.md -
+/// Kategorie B (Test-Umsetzungsplan.md): Tier 1 of Feature-Plaene/Archiv/Fortschrittsanzeigen.md -
 /// <see cref="Archipolygo.Services.ConnectionManager"/> populates
 /// <see cref="Archipolygo.Models.SlotProfile.LocationsChecked"/>/<see cref="Archipolygo.Models.SlotProfile.LocationsTotal"/>
 /// after a successful (fake) login, for both the leader and a catch-up

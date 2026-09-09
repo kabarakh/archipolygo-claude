@@ -6,7 +6,7 @@ namespace AvaloniaApplication1.Tests;
 
 /// <summary>
 /// Kategorie A (Test-Umsetzungsplan.md): the Settings dialog's "Check for
-/// updates" button (Feature-Plaene/Auto-Update.md) - plain callback-reaction
+/// updates" button (Feature-Plaene/Archiv/Auto-Update.md) - plain callback-reaction
 /// logic, no Avalonia/Velopack involved, same pattern as
 /// <see cref="ConnectionEditorViewModelTrackerTests"/>.
 /// </summary>

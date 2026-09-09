@@ -4,7 +4,7 @@ using Archipolygo.Services;
 namespace Archipolygo.TestSupport;
 
 /// <summary>
-/// No-Velopack stand-in for <see cref="IUpdateService"/> - Feature-Plaene/Auto-Update.md.
+/// No-Velopack stand-in for <see cref="IUpdateService"/> - Feature-Plaene/Archiv/Auto-Update.md.
 /// A test arranges whatever version <see cref="CheckForUpdatesAsync"/> should
 /// report up front (or leaves it null for "no update available"); every call
 /// is also recorded so a test can assert

@@ -11,7 +11,7 @@ using Archipolygo.Services;
 namespace AvaloniaApplication1.Tests;
 
 /// <summary>
-/// Kategorie A (Test-Umsetzungsplan.md): Tier 2 of Feature-Plaene/Fortschrittsanzeigen.md -
+/// Kategorie A (Test-Umsetzungsplan.md): Tier 2 of Feature-Plaene/Archiv/Fortschrittsanzeigen.md -
 /// <see cref="MultiworldTrackerService"/>'s JSON parsing and cache-timer
 /// throttling, against fixed embedded fixture responses (the exact examples
 /// from ArchipelagoMW/Archipelago's <c>docs/webhost api.md</c>) via a fake

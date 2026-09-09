@@ -20,7 +20,7 @@ namespace Archipolygo.Services;
 /// (Host:Port) this app already stores and the webhost (archipelago.gg, or a
 /// self-hosted instance of it) are two different things, and a client logged
 /// into the room socket has no way to discover the tracker id on its own
-/// (see Feature-Plaene/Fortschrittsanzeigen.md for the full writeup).
+/// (see Feature-Plaene/Archiv/Fortschrittsanzeigen.md for the full writeup).
 ///
 /// Strictly honors the documented cache timers - <c>/tracker/...</c> at most
 /// once every 60 seconds, <c>/static_tracker/...</c> at most once every 300

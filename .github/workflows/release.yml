@@ -5,7 +5,7 @@ name: Release builds
 # development doesn't trigger a build. Each publish produces one self-
 # contained, single-file build per OS and attaches it to that same release
 # as a downloadable .zip - plus, for Windows and Linux only, a second set of
-# Velopack-packaged assets (see Feature-Plaene/Auto-Update.md) that
+# Velopack-packaged assets (see Feature-Plaene/Archiv/Auto-Update.md) that
 # Services/UpdateService.cs's in-app update check reads. macOS deliberately
 # keeps the .zip only, no Velopack package - see the win/linux-only steps
 # below for why.
@@ -40,7 +40,7 @@ jobs:
     # (a real cost/quota difference - GitHub Actions' free macOS minutes are
     # far more limited than Linux's) and, per Velopack's own docs, working
     # code signing/notarization just for the packaged app to run at all -
-    # both out of scope here; see Feature-Plaene/Auto-Update.md. macOS users
+    # both out of scope here; see Feature-Plaene/Archiv/Auto-Update.md. macOS users
     # keep exactly the same manual .zip download/update flow as today.
     runs-on: ubuntu-latest
     strategy:
@@ -136,7 +136,7 @@ jobs:
       # (the common "v1.2.3" tag convention) so an already-numeric tag just
       # works; anything else still reaches vpk pack below, which then fails
       # only that step (see continue-on-error) rather than the whole release -
-      # see Feature-Plaene/Auto-Update.md's open question about tag naming.
+      # see Feature-Plaene/Archiv/Auto-Update.md's open question about tag naming.
       - name: Compute Velopack-safe version (${{ matrix.rid }})
         if: matrix.velopack_directive != ''
         id: velopack_version

@@ -58,7 +58,7 @@ public class UpdateService : IUpdateService
     {
         // Not a Velopack-installed build at all (every local dotnet build/run,
         // and any manually-unzipped install from before this feature existed -
-        // see Feature-Plaene/Auto-Update.md's "migration path" note) - nothing
+        // see Feature-Plaene/Archiv/Auto-Update.md's "migration path" note) - nothing
         // to check, and calling CheckForUpdatesAsync on an unmanaged install
         // would just fail anyway.
         if (_updateManager is null || !_updateManager.IsInstalled)
@@ -97,7 +97,7 @@ public class UpdateService : IUpdateService
             // has already explicitly confirmed this via the "Update now"
             // button (see MainWindowViewModel.UpdateNowAsync), never
             // triggered automatically in the background while a connection
-            // might be live. See Feature-Plaene/Auto-Update.md's "explicitly
+            // might be live. See Feature-Plaene/Archiv/Auto-Update.md's "explicitly
             // not part of this plan" note for why there's no unattended-
             // restart path here at all.
             _updateManager.ApplyUpdatesAndRestart(_pendingUpdate.TargetFullRelease);

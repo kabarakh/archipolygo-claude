@@ -16,7 +16,7 @@ public enum TrackerReferenceKind
 /// <summary>
 /// Parses the single free-text field Fortschrittsanzeigen.md's Tier 2 (whole-
 /// multiworld progress) accepts for a room's webhost tracker - see
-/// Feature-Plaene/Fortschrittsanzeigen.md, "Konsequenzen für das
+/// Feature-Plaene/Archiv/Fortschrittsanzeigen.md, "Konsequenzen für das
 /// Datenmodell", for the full rationale. Accepts, in any combination of
 /// scheme/trailing-slash/query-or-fragment suffix:
 /// <list type="bullet">

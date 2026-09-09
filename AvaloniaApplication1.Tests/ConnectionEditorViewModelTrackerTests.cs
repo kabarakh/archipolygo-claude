@@ -7,7 +7,7 @@ namespace AvaloniaApplication1.Tests;
 /// <summary>
 /// Kategorie A (Test-Umsetzungsplan.md): <see cref="ConnectionEditorViewModel.TryResolveTrackerReferenceAsync"/> -
 /// plain async C# logic (no session, no Avalonia layout) driving Tier 2 of
-/// Feature-Plaene/Fortschrittsanzeigen.md. The UI-visibility/binding side of
+/// Feature-Plaene/Archiv/Fortschrittsanzeigen.md. The UI-visibility/binding side of
 /// this (the "Multiworld tracker" field itself) is covered separately in
 /// <see cref="ConnectionEditorWindowProgressTests"/>.
 /// </summary>

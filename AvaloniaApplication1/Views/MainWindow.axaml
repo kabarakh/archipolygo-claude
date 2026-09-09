@@ -75,7 +75,7 @@
             <Button Content="Edit server..." Click="OnEditServerClick"/>
             <Button Content="Remove server" Command="{Binding RemoveSelectedGroupCommand}"/>
             <Button Content="Disconnect all" Command="{Binding DisconnectAllGroupsCommand}"/>
-            <!-- Feature-Plaene/Auto-Update.md: a small dot overlaying the
+            <!-- Feature-Plaene/Archiv/Auto-Update.md: a small dot overlaying the
                  corner of "Settings...", same badge idiom as the tab
                  header's unread-events count (see TabControl.ItemTemplate
                  above) - deliberately undecorated (no label of its own) so
@@ -195,7 +195,7 @@
                                            IsVisible="{Binding MultiworldProgressError, Converter={x:Static avconv:StringConverters.IsNotNullOrEmpty}}"/>
                             </StackPanel>
 
-                            <!-- Feature-Plaene/Fortschrittsanzeigen.md, Tier 1+2
+                            <!-- Feature-Plaene/Archiv/Fortschrittsanzeigen.md, Tier 1+2
                                  merged into ONE progress bar, not two separate
                                  ones - own-slot progress (this app's own live
                                  connection) always shows this way, with or

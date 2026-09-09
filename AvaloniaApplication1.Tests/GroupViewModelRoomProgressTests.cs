@@ -6,7 +6,7 @@ using Archipolygo.ViewModels;
 namespace AvaloniaApplication1.Tests;
 
 /// <summary>
-/// Kategorie A (Test-Umsetzungsplan.md): Tier 1 of Feature-Plaene/Fortschrittsanzeigen.md -
+/// Kategorie A (Test-Umsetzungsplan.md): Tier 1 of Feature-Plaene/Archiv/Fortschrittsanzeigen.md -
 /// <see cref="GroupViewModel.RoomChecksCompleted"/>/<see cref="GroupViewModel.RoomChecksTotal"/>/
 /// <see cref="GroupViewModel.HasRoomProgress"/>'s aggregation arithmetic over a
 /// mix of synced/never-synced <see cref="SlotProfile"/>s, and their reactivity

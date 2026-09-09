@@ -12,7 +12,7 @@ using Avalonia.VisualTree;
 namespace AvaloniaApplication1.Tests;
 
 /// <summary>
-/// Kategorie C (Test-Umsetzungsplan.md): Feature-Plaene/Auto-Update.md's
+/// Kategorie C (Test-Umsetzungsplan.md): Feature-Plaene/Archiv/Auto-Update.md's
 /// small dot next to "Settings..." in <see cref="MainWindow"/>, against the
 /// real <c>.axaml</c> and a real layout pass.
 /// </summary>

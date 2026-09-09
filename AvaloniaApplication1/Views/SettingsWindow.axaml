@@ -26,7 +26,7 @@
                    IsVisible="{Binding ValidationError, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"
                    TextWrapping="Wrap"/>
 
-        <!-- Feature-Plaene/Auto-Update.md: manual equivalent of the app's own
+        <!-- Feature-Plaene/Archiv/Auto-Update.md: manual equivalent of the app's own
              startup update check. Status text appears below once a check
              completes; the app also does this same check automatically at
              startup (see MainWindowViewModel.CheckForUpdatesAsync), showing

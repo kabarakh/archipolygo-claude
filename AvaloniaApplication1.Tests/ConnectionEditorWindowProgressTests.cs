@@ -10,7 +10,7 @@ using Avalonia.VisualTree;
 namespace AvaloniaApplication1.Tests;
 
 /// <summary>
-/// Kategorie C (Test-Umsetzungsplan.md): Feature-Plaene/Fortschrittsanzeigen.md's
+/// Kategorie C (Test-Umsetzungsplan.md): Feature-Plaene/Archiv/Fortschrittsanzeigen.md's
 /// Tier 1 per-slot progress row and the Tier 2 "Multiworld tracker" field in
 /// <see cref="ConnectionEditorWindow"/>, against the real <c>.axaml</c> and a
 /// real layout pass - same style as <see cref="RemoveConfiguredSlotButtonTests"/>.

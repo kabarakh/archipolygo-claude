@@ -16,7 +16,7 @@ public partial class ConnectionEditorWindow : Window
     private ConnectionEditorViewModel ViewModel => (ConnectionEditorViewModel)DataContext!;
 
     /// <summary>
-    /// Resolves the Tier 2 tracker reference (Feature-Plaene/Fortschrittsanzeigen.md -
+    /// Resolves the Tier 2 tracker reference (Feature-Plaene/Archiv/Fortschrittsanzeigen.md -
     /// a room URL needs an actual network round-trip, see
     /// <see cref="ConnectionEditorViewModel.TryResolveTrackerReferenceAsync"/>)
     /// before running the rest of the usual synchronous validation.

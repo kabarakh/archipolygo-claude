@@ -15,7 +15,7 @@ using Avalonia.VisualTree;
 namespace AvaloniaApplication1.Tests;
 
 /// <summary>
-/// Kategorie C (Test-Umsetzungsplan.md): Feature-Plaene/Fortschrittsanzeigen.md's
+/// Kategorie C (Test-Umsetzungsplan.md): Feature-Plaene/Archiv/Fortschrittsanzeigen.md's
 /// two progress sections in <see cref="MainWindow"/>'s tab content, against
 /// the real <c>.axaml</c> and a real layout pass - not just the ViewModel
 /// arithmetic already covered by <see cref="GroupViewModelRoomProgressTests"/>.

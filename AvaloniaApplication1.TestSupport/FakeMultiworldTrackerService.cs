@@ -8,7 +8,7 @@ namespace Archipolygo.TestSupport;
 
 /// <summary>
 /// No-network stand-in for <see cref="IMultiworldTrackerService"/> - Tier 2 of
-/// Feature-Plaene/Fortschrittsanzeigen.md. A test arranges whatever
+/// Feature-Plaene/Archiv/Fortschrittsanzeigen.md. A test arranges whatever
 /// <see cref="RoomProgressSnapshot"/>/tracker id it wants returned for a given
 /// key up front; every call is also recorded so a test can assert
 /// <see cref="GroupViewModel.RefreshMultiworldProgressCommand"/> actually

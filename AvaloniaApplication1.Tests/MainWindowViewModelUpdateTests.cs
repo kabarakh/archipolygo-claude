@@ -6,7 +6,7 @@ using Archipolygo.ViewModels;
 namespace AvaloniaApplication1.Tests;
 
 /// <summary>
-/// Kategorie A/B (Test-Umsetzungsplan.md): Feature-Plaene/Auto-Update.md's
+/// Kategorie A/B (Test-Umsetzungsplan.md): Feature-Plaene/Archiv/Auto-Update.md's
 /// own note that only <see cref="MainWindowViewModel"/>'s *reaction* to an
 /// <see cref="IUpdateService"/> result is testable (the actual Velopack
 /// download/restart can't sensibly run in a headless test) - via

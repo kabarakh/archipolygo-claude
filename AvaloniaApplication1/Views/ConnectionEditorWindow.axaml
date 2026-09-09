@@ -126,7 +126,7 @@
                                     <Button Grid.Column="2" Content="✕" Padding="6,0" Click="OnRemoveConfiguredSlotClick"/>
                                 </Grid>
 
-                                <!-- Tier 1 of Feature-Plaene/Fortschrittsanzeigen.md:
+                                <!-- Tier 1 of Feature-Plaene/Archiv/Fortschrittsanzeigen.md:
                                      "X of Y locations checked" for this one
                                      configured slot - null (no row shown at
                                      all) until it has synced at least once,
@@ -155,7 +155,7 @@
 
         <CheckBox Content="Auto-connect" IsChecked="{Binding AutoConnect}" IsVisible="{Binding ShowAutoConnect}"/>
 
-        <!-- Tier 2 of Feature-Plaene/Fortschrittsanzeigen.md: whole-multiworld
+        <!-- Tier 2 of Feature-Plaene/Archiv/Fortschrittsanzeigen.md: whole-multiworld
              progress via the room's webhost tracker - optional, only usable
              for a room hosted through a webhost (archipelago.gg or a
              self-hosted instance). Accepts a bare tracker id, a tracker URL,

@@ -5,7 +5,7 @@ namespace AvaloniaApplication1.Tests;
 /// <summary>
 /// Kategorie A (Test-Umsetzungsplan.md): <see cref="TrackerReferenceParser.TryParseTrackerReference"/> -
 /// pure string logic, no network/Avalonia involved. See
-/// Feature-Plaene/Fortschrittsanzeigen.md, "Konsequenzen für das
+/// Feature-Plaene/Archiv/Fortschrittsanzeigen.md, "Konsequenzen für das
 /// Datenmodell", for the three accepted forms.
 /// </summary>
 public class TrackerReferenceParserTests

@@ -74,7 +74,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Feature-Plaene/Auto-Update.md's update-available dot - a plain
+    /// Feature-Plaene/Archiv/Auto-Update.md's update-available dot - a plain
     /// <c>Border</c>, not a <c>Button</c> (no <c>Click</c> event of its own),
     /// so this opens its attached Flyout directly off the lower-level
     /// pointer event instead.

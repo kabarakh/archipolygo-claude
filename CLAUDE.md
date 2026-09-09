@@ -142,6 +142,16 @@ doc comment explaining what it's for and why it's shaped that way.
   `FakeSessionFactory` for exercising `ConnectionManager` itself) - never
   duplicate one of these into either consuming project instead of adding to
   it here.
+- `Feature-Plaene/` - one Umsetzungsplan-style `.md` per not-yet-built
+  feature idea from `Claude outputs/archipolygo_feature_ideas.md` (that file
+  is the index - check it first for which ideas have a plan at all, and
+  whether it's done). Once a plan is actually implemented, its file moves to
+  `Feature-Plaene/Archiv/` and gains a "Status: ✅ Umgesetzt" section at the
+  top documenting how the real implementation ended up differing from the
+  original plan (Tier 2's UI in `Fortschrittsanzeigen.md`, macOS's exclusion
+  in `Auto-Update.md`, ...) - read that section before touching related code
+  instead of trusting the rest of the plan doc to still match reality
+  exactly.
 
 ## Non-obvious gotchas already worked around here
 
@@ -249,9 +259,11 @@ way first - each was a real bug with a specific root cause.
   code path - that's the established pattern in `ConnectionEditorViewModel`.
 - **Blanket rule for every NuGet package this project references** - not
   just the three most-touched ones (`Archipelago.MultiClient.Net`,
-  `CommunityToolkit.Mvvm`, Avalonia itself), but any of them, including ones
-  only a `Feature-Plaene/*.md` doc proposes adding (e.g. Velopack): when you
-  need to understand a package's behavior, never decompile the locally
+  `CommunityToolkit.Mvvm`, Avalonia itself), but any of them, including newer
+  additions like `Velopack` (see `Services/UpdateService.cs` and
+  `Feature-Plaene/Archiv/Auto-Update.md`) or ones a `Feature-Plaene/*.md`
+  doc still only proposes adding: when you need to understand a package's
+  behavior, never decompile the locally
   installed package DLL to figure it out. Instead check that package's
   official documentation for the exact version this project references (see
   the relevant `.csproj` for the pinned version), and only if that

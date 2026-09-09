@@ -28,7 +28,7 @@ public partial class GroupViewModel : ViewModelBase
 
     /// <summary>
     /// Optional - null in every existing test construction site that doesn't
-    /// care about Tier 2 (Feature-Plaene/Fortschrittsanzeigen.md's whole-
+    /// care about Tier 2 (Feature-Plaene/Archiv/Fortschrittsanzeigen.md's whole-
     /// multiworld progress), so this stays a purely additive dependency
     /// rather than forcing every other call site to thread one through. Null
     /// just means <see cref="RefreshMultiworldProgressAsync"/> silently no-ops.
@@ -860,7 +860,7 @@ public partial class GroupViewModel : ViewModelBase
         // looked at - the first time a tab with a resolved tracker id is
         // actually selected is enough (the static half of the data barely
         // ever changes within a room's lifetime anyway - see
-        // Feature-Plaene/Fortschrittsanzeigen.md). A later manual refresh
+        // Feature-Plaene/Archiv/Fortschrittsanzeigen.md). A later manual refresh
         // (see RefreshMultiworldProgressCommand) still respects the tracker
         // service's own cache timers regardless of how often this fires.
         if (HasMultiworldTracker && MultiworldProgress.Count == 0 && !IsRefreshingMultiworldProgress)
