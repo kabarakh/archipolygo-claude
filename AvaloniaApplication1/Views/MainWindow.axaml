@@ -3,6 +3,7 @@
         xmlns:vm="using:Archipolygo.ViewModels"
         xmlns:m="using:Archipolygo.Models"
         xmlns:conv="using:Archipolygo.Converters"
+        xmlns:avconv="using:Avalonia.Data.Converters"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="550"
@@ -16,6 +17,7 @@
         <conv:EnumEqualsConverter x:Key="EnumEqualsConverter"/>
         <conv:ConnectionStateToBrushConverter x:Key="ConnectionStateToBrushConverter"/>
         <conv:SlotFilterDisplayConverter x:Key="SlotFilterDisplayConverter"/>
+        <conv:CountToStarWidthConverter x:Key="CountToStarWidthConverter"/>
     </Window.Resources>
 
     <Window.Styles>
@@ -122,20 +124,115 @@
                              (Disconnect) - the account dropdown that actually
                              switches the live connection lives down by the message
                              box instead, where it's used (see Grid.Row="2" below). -->
-                        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                            <!-- Explicit VerticalAlignment="Center" on each text
-                                 element: without it, a horizontal StackPanel
-                                 stretches every child to the row's full height
-                                 (set by the tallest child, the Button, whose
-                                 padding makes it taller than plain text), and
-                                 TextBlock content defaults to top-aligned
-                                 within that stretched bounds - which visibly
-                                 sits higher than the button's own (centered)
-                                 label. -->
-                            <TextBlock Text="{Binding Group.HostPort}" VerticalAlignment="Center"/>
-                            <TextBlock Text="-" VerticalAlignment="Center"/>
-                            <TextBlock Text="{Binding ConnectionState}" FontWeight="Bold" VerticalAlignment="Center"/>
-                            <Button Content="Disconnect" Command="{Binding DisconnectCommand}" Margin="8,0,0,0"/>
+                        <!-- Wraps the original horizontal status row plus the
+                             two Fortschrittsanzeigen.md progress sections
+                             below it, still all inside Grid.Row="0" (Auto
+                             height) - deliberately not a new outer Grid row,
+                             so nothing else in this Grid needs its Grid.Row
+                             index shifted. -->
+                        <StackPanel Grid.Row="0" Spacing="4">
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <!-- Explicit VerticalAlignment="Center" on each text
+                                     element: without it, a horizontal StackPanel
+                                     stretches every child to the row's full height
+                                     (set by the tallest child, the Button, whose
+                                     padding makes it taller than plain text), and
+                                     TextBlock content defaults to top-aligned
+                                     within that stretched bounds - which visibly
+                                     sits higher than the button's own (centered)
+                                     label. -->
+                                <TextBlock Text="{Binding Group.HostPort}" VerticalAlignment="Center"/>
+                                <TextBlock Text="-" VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding ConnectionState}" FontWeight="Bold" VerticalAlignment="Center"/>
+                                <!-- Connect/Disconnect are mutually exclusive rather than one
+                                     button that's just disabled sometimes - picking a leader via
+                                     the "Chat as" dropdown to get connected in the first place
+                                     wasn't discoverable, so the offline state gets its own
+                                     explicit affirmative action instead. See CanConnect/CanDisconnect. -->
+                                <Button Content="Connect" Command="{Binding ConnectCommand}" Margin="8,0,0,0"
+                                        IsVisible="{Binding CanConnect}"/>
+                                <Button Content="Disconnect" Command="{Binding DisconnectCommand}" Margin="8,0,0,0"
+                                        IsVisible="{Binding !CanConnect}"/>
+
+                                <!-- Refresh only makes sense once there's a
+                                     tracker to poll - the progress bar itself
+                                     (below, outside this horizontal row)
+                                     always shows regardless, see its own doc
+                                     comment. -->
+                                <Button Content="Refresh" Command="{Binding RefreshMultiworldProgressCommand}"
+                                        IsEnabled="{Binding !IsRefreshingMultiworldProgress}"
+                                        IsVisible="{Binding HasMultiworldTracker}" Margin="16,0,0,0"/>
+                                <TextBlock Text="Refreshing..." Opacity="0.6" VerticalAlignment="Center"
+                                           IsVisible="{Binding IsRefreshingMultiworldProgress}"/>
+                                <TextBlock Text="{Binding MultiworldProgressError}" Foreground="Red" VerticalAlignment="Center"
+                                           IsVisible="{Binding MultiworldProgressError, Converter={x:Static avconv:StringConverters.IsNotNullOrEmpty}}"/>
+                            </StackPanel>
+
+                            <!-- Feature-Plaene/Fortschrittsanzeigen.md, Tier 1+2
+                                 merged into ONE progress bar, not two separate
+                                 ones - own-slot progress (this app's own live
+                                 connection) always shows this way, with or
+                                 without a webhost tracker configured; adding
+                                 one (see the "Multiworld tracker" field in the
+                                 Edit Server dialog) just adds the two "others"
+                                 segments on top, via the same four Star-
+                                 weighted Grid columns (see
+                                 CountToStarWidthConverter - stands in for
+                                 Avalonia's ProgressBar not supporting more
+                                 than one fill color). Own-segments first, then
+                                 others' - not grouped by done/open - so "how
+                                 much is mine" always reads left-to-right
+                                 first. No numbers on the bar itself - hover
+                                 for the exact counts/percentages instead (see
+                                 the tooltip below), which is also where the
+                                 no-tracker-configured fallback explains
+                                 itself instead of a second permanently-visible
+                                 hint text. -->
+                            <Grid Height="10" Margin="0,6" ClipToBounds="True" IsVisible="{Binding HasAnyProgress}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="{Binding OwnChecksDone, Converter={StaticResource CountToStarWidthConverter}}"/>
+                                    <ColumnDefinition Width="{Binding OwnChecksOpen, Converter={StaticResource CountToStarWidthConverter}}"/>
+                                    <ColumnDefinition Width="{Binding OtherChecksDone, Converter={StaticResource CountToStarWidthConverter}}"/>
+                                    <ColumnDefinition Width="{Binding OtherChecksOpen, Converter={StaticResource CountToStarWidthConverter}}"/>
+                                </Grid.ColumnDefinitions>
+                                <!-- Green = own, blue = other; saturated =
+                                     done, dark desaturated (same hue) = open -
+                                     two hues instead of one hue at four
+                                     opacities, so "own" vs. "other" reads as
+                                     a color difference, not just a shade
+                                     difference easy to miss at 10px tall. -->
+                                <Border Grid.Column="0" Background="#2F9E44"/>
+                                <Border Grid.Column="1" Background="#4B5A4B"/>
+                                <Border Grid.Column="2" Background="#1971C2"/>
+                                <Border Grid.Column="3" Background="#3D4A5C"/>
+
+                                <ToolTip.Tip>
+                                    <StackPanel Spacing="4" MaxWidth="240">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <Border Width="10" Height="10" Background="#2F9E44" VerticalAlignment="Center"/>
+                                            <TextBlock Text="{Binding OwnChecksDoneLegendText}"/>
+                                        </StackPanel>
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <Border Width="10" Height="10" Background="#4B5A4B" VerticalAlignment="Center"/>
+                                            <TextBlock Text="{Binding OwnChecksOpenLegendText}"/>
+                                        </StackPanel>
+                                        <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasMultiworldTracker}">
+                                            <Border Width="10" Height="10" Background="#1971C2" VerticalAlignment="Center"/>
+                                            <TextBlock Text="{Binding OtherChecksDoneLegendText}"/>
+                                        </StackPanel>
+                                        <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasMultiworldTracker}">
+                                            <Border Width="10" Height="10" Background="#3D4A5C" VerticalAlignment="Center"/>
+                                            <TextBlock Text="{Binding OtherChecksOpenLegendText}"/>
+                                        </StackPanel>
+                                        <!-- Fallback: no tracker configured for this server at all
+                                             - only "own" data exists (the two rows above), point at
+                                             where to add one instead of silently showing half a legend. -->
+                                        <TextBlock Text="Add a multiworld tracker in Edit Server to also see everyone else's progress in this room."
+                                                   TextWrapping="Wrap" Opacity="0.7" FontStyle="Italic"
+                                                   IsVisible="{Binding !HasMultiworldTracker}"/>
+                                    </StackPanel>
+                                </ToolTip.Tip>
+                            </Grid>
                         </StackPanel>
 
                         <!-- RowDefinitions: header row (Auto) + content row (*).
@@ -209,14 +306,27 @@
 
                                 <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" Margin="0,0,0,4">
                                     <TextBlock Text="Show:" Opacity="0.7" VerticalAlignment="Center"/>
-                                    <ComboBox ItemsSource="{Binding SlotFilterOptions}" SelectedItem="{Binding SelectedEventsSlotFilter}" MinWidth="110">
+                                    <!-- Width fixed (not MinWidth) so this box doesn't
+                                         visibly resize (and shift "Search..." next to it)
+                                         depending on which slot's name+alias happens to
+                                         be selected - see the "Chat as" ComboBox's own,
+                                         more detailed doc comment further down. -->
+                                    <ComboBox Name="EventsSlotFilterComboBox" ItemsSource="{Binding SlotFilterOptions}" SelectedItem="{Binding SelectedEventsSlotFilter}" Width="130">
                                         <ComboBox.ItemTemplate>
                                             <!-- Deliberately untyped (no x:DataType): this list's
                                                  first entry is a null placeholder for "All slots"
                                                  (see SlotFilterOptions), and a compiled binding
                                                  typed to SlotProfile would not match a null item. -->
                                             <DataTemplate>
-                                                <TextBlock Text="{Binding Converter={StaticResource SlotFilterDisplayConverter}}"/>
+                                                <!-- MaxWidth caps this item's OWN measured width - without
+                                                     it, TextTrimming has nothing to trim against yet (an
+                                                     Auto-sized ComboBoxItem just grows to fit the text
+                                                     first), and the open dropdown's popup was visibly
+                                                     growing wider as a longer item scrolled into view and
+                                                     got measured for the first time (Avalonia only
+                                                     realizes/measures virtualized popup items on demand). -->
+                                                <TextBlock Text="{Binding Converter={StaticResource SlotFilterDisplayConverter}}"
+                                                           MaxWidth="110" TextTrimming="CharacterEllipsis"/>
                                             </DataTemplate>
                                         </ComboBox.ItemTemplate>
                                     </ComboBox>
@@ -347,21 +457,38 @@
 
                                 <!-- Row 2 – slot filter (per-panel) + search box (shared, filters active panel) -->
                                 <Grid Grid.Row="2" ColumnDefinitions="Auto,*" Margin="0,0,0,4">
-                                    <ComboBox Grid.Column="0" MinWidth="110" Margin="0,0,8,0"
+                                    <!-- Width fixed, same reasoning as the Events column's slot filter above. -->
+                                    <ComboBox Grid.Column="0" Width="130" Margin="0,0,8,0"
                                               IsVisible="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Hints}"
                                               ItemsSource="{Binding SlotFilterOptions}" SelectedItem="{Binding SelectedHintsSlotFilter}">
                                         <ComboBox.ItemTemplate>
                                             <DataTemplate>
-                                                <TextBlock Text="{Binding Converter={StaticResource SlotFilterDisplayConverter}}"/>
+                                                <!-- MaxWidth caps this item's OWN measured width - without
+                                                     it, TextTrimming has nothing to trim against yet (an
+                                                     Auto-sized ComboBoxItem just grows to fit the text
+                                                     first), and the open dropdown's popup was visibly
+                                                     growing wider as a longer item scrolled into view and
+                                                     got measured for the first time (Avalonia only
+                                                     realizes/measures virtualized popup items on demand). -->
+                                                <TextBlock Text="{Binding Converter={StaticResource SlotFilterDisplayConverter}}"
+                                                           MaxWidth="110" TextTrimming="CharacterEllipsis"/>
                                             </DataTemplate>
                                         </ComboBox.ItemTemplate>
                                     </ComboBox>
-                                    <ComboBox Grid.Column="0" MinWidth="110" Margin="0,0,8,0"
+                                    <ComboBox Grid.Column="0" Width="130" Margin="0,0,8,0"
                                               IsVisible="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ReceivedItems}"
                                               ItemsSource="{Binding SlotFilterOptions}" SelectedItem="{Binding SelectedItemsSlotFilter}">
                                         <ComboBox.ItemTemplate>
                                             <DataTemplate>
-                                                <TextBlock Text="{Binding Converter={StaticResource SlotFilterDisplayConverter}}"/>
+                                                <!-- MaxWidth caps this item's OWN measured width - without
+                                                     it, TextTrimming has nothing to trim against yet (an
+                                                     Auto-sized ComboBoxItem just grows to fit the text
+                                                     first), and the open dropdown's popup was visibly
+                                                     growing wider as a longer item scrolled into view and
+                                                     got measured for the first time (Avalonia only
+                                                     realizes/measures virtualized popup items on demand). -->
+                                                <TextBlock Text="{Binding Converter={StaticResource SlotFilterDisplayConverter}}"
+                                                           MaxWidth="110" TextTrimming="CharacterEllipsis"/>
                                             </DataTemplate>
                                         </ComboBox.ItemTemplate>
                                     </ComboBox>
@@ -449,11 +576,26 @@
                                  even though the bound value itself is fine. Forcing one
                                  explicit resync once this instance is actually loaded fixes
                                  the display without touching the underlying value. -->
+                            <!-- Width fixed (not just MinWidth) so this box's
+                                 own closed-state size never changes with
+                                 whichever slot happens to be selected - e.g.
+                                 the "Chat as" dropdown otherwise visibly grew
+                                 and shifted the message box/Send button next
+                                 to it every time a longer-named slot (now
+                                 also including the alias, see
+                                 SlotProfile.DisplayName) became selected.
+                                 TextTrimming truncates whatever doesn't fit
+                                 instead of the box growing to accommodate it. -->
                             <ComboBox Name="ChatSlotComboBox" Grid.Column="0" ItemsSource="{Binding Slots}" SelectedItem="{Binding SelectedChatSlot}"
-                                      MinWidth="140" Margin="0,0,8,0" Loaded="OnChatSlotComboBoxLoaded">
+                                      Width="160" Margin="0,0,8,0" Loaded="OnChatSlotComboBoxLoaded">
                                 <ComboBox.ItemTemplate>
                                     <DataTemplate DataType="m:SlotProfile">
-                                        <TextBlock Text="{Binding SlotName}"/>
+                                        <!-- MaxWidth caps this item's own measured width - see the
+                                             slot filter dropdowns' matching comment for why this,
+                                             not just TextTrimming alone, is what actually stops the
+                                             open popup from growing wider as a longer item scrolls
+                                             into view and gets measured for the first time. -->
+                                        <TextBlock Text="{Binding DisplayName}" MaxWidth="140" TextTrimming="CharacterEllipsis"/>
                                     </DataTemplate>
                                 </ComboBox.ItemTemplate>
                             </ComboBox>

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Threading.Tasks;
 using Archipelago.MultiClient.Net;
 using Archipelago.MultiClient.Net.Enums;
@@ -36,7 +37,8 @@ public sealed class FakeArchipelagoSession : IArchipelagoSession
     public FakeReceivedItemsHelper Items { get; } = new();
     IReceivedItemsHelper IArchipelagoSession.Items => Items;
 
-    public ILocationCheckHelper Locations => throw new NotImplementedException();
+    public FakeLocationCheckHelper Locations { get; } = new();
+    ILocationCheckHelper IArchipelagoSession.Locations => Locations;
 
     public FakePlayerHelper Players { get; } = new();
     IPlayerHelper IArchipelagoSession.Players => Players;
@@ -156,6 +158,45 @@ public sealed class FakeReceivedItemsHelper : IReceivedItemsHelper
     public bool Any() => false;
     public ItemInfo PeekItem() => throw new NotImplementedException();
     public ItemInfo DequeueItem() => throw new NotImplementedException();
+}
+
+/// <summary>
+/// Fake <see cref="ILocationCheckHelper"/> - <see cref="AllLocations"/>/
+/// <see cref="AllLocationsChecked"/> are plain settable lists (a test
+/// arranges whatever counts it wants <c>ConnectionManager</c> to read after a
+/// simulated login), and <see cref="RaiseCheckedLocationsUpdated"/> lets a
+/// test simulate a live update to the leader's own tracked session. Every
+/// other member (checks/scouting/name lookups) is never exercised by
+/// Kategorie B's ordering-only tests and throws deliberately, same "only what
+/// ConnectionManager actually touches" principle as the other fakes in this file.
+/// </summary>
+public sealed class FakeLocationCheckHelper : ILocationCheckHelper
+{
+    public ReadOnlyCollection<long> AllLocations { get; set; } = new(Array.Empty<long>());
+
+    public ReadOnlyCollection<long> AllLocationsChecked { get; set; } = new(Array.Empty<long>());
+
+    public ReadOnlyCollection<long> AllMissingLocations =>
+        new(AllLocations.Except(AllLocationsChecked).ToList());
+
+    public event LocationCheckHelper.CheckedLocationsUpdatedHandler? CheckedLocationsUpdated;
+
+    /// <summary>Simulates the server reporting newly-checked locations (e.g. a remote !collect) for this slot's session.</summary>
+    public void RaiseCheckedLocationsUpdated(ReadOnlyCollection<long> newlyCheckedLocations) =>
+        CheckedLocationsUpdated?.Invoke(newlyCheckedLocations);
+
+    public void CompleteLocationChecks(params long[] ids) => throw new NotImplementedException();
+    public Task CompleteLocationChecksAsync(params long[] ids) => throw new NotImplementedException();
+
+    public Task<Dictionary<long, ScoutedItemInfo>> ScoutLocationsAsync(HintCreationPolicy hintCreationPolicy, params long[] ids) =>
+        throw new NotImplementedException();
+    public Task<Dictionary<long, ScoutedItemInfo>> ScoutLocationsAsync(bool createAsHint, params long[] ids) =>
+        throw new NotImplementedException();
+    public Task<Dictionary<long, ScoutedItemInfo>> ScoutLocationsAsync(params long[] ids) =>
+        throw new NotImplementedException();
+
+    public long GetLocationIdFromName(string game, string locationName) => throw new NotImplementedException();
+    public string GetLocationNameFromId(long locationId, string? game = null) => throw new NotImplementedException();
 }
 
 /// <summary>Fake <see cref="IPlayerHelper"/> - <see cref="AllPlayers"/> defaults to empty (settable) since <c>ConnectionManager</c>'s roster-building runs unconditionally on every leader connect.</summary>

@@ -25,11 +25,11 @@ public partial class MainWindow : Window
     private async void OnAddServerClick(object? sender, RoutedEventArgs e)
     {
         var defaultAutoConnect = ViewModel.LoadSettings().DefaultAutoConnect;
-        var editorViewModel = ConnectionEditorViewModel.ForNewGroup(defaultAutoConnect, ViewModel.GetAllGroups());
+        var editorViewModel = ConnectionEditorViewModel.ForNewGroup(defaultAutoConnect, ViewModel.GetAllGroups(), ViewModel.ResolveTrackerIdAsync);
         var result = await ConnectionEditorWindow.ShowDialogAsync(this, editorViewModel);
         if (result is not null)
         {
-            ViewModel.AddNewGroup(result.Name, result.Host, result.Port, result.Password, result.SlotName, result.AutoConnect);
+            ViewModel.AddNewGroup(result.Name, result.Host, result.Port, result.Password, result.SlotName, result.AutoConnect, result.TrackerReferenceInput, result.TrackerId);
         }
     }
 
@@ -63,12 +63,12 @@ public partial class MainWindow : Window
 
         var editorViewModel = ConnectionEditorViewModel.ForEditGroup(
             selectedGroup.Group,
-            slot => ViewModel.RemoveSlotFromGroup(selectedGroup, slot),
-            ViewModel.GetAllGroups());
+            ViewModel.GetAllGroups(),
+            ViewModel.ResolveTrackerIdAsync);
         var result = await ConnectionEditorWindow.ShowDialogAsync(this, editorViewModel);
         if (result is not null)
         {
-            ViewModel.UpdateGroup(selectedGroup, result.Name, result.Host, result.Port, result.Password, result.AutoConnect, result.PreferredLeaderSlotId);
+            await ViewModel.UpdateGroup(selectedGroup, result.Name, result.Host, result.Port, result.Password, result.AutoConnect, result.PreferredLeaderSlotId, result.SlotsToRemove, result.TrackerReferenceInput, result.TrackerId);
         }
     }
 

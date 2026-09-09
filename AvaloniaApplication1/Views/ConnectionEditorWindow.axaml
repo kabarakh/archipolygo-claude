@@ -112,18 +112,35 @@
                 <ItemsControl ItemsSource="{Binding ConfiguredSlotRows}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate DataType="m:ConfiguredSlotRow">
-                            <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,2">
-                                <TextBlock Grid.Column="0" Text="{Binding Slot.SlotName}" VerticalAlignment="Center"/>
-                                <TextBlock Grid.Column="1" Text="Default leader" Opacity="0.6" VerticalAlignment="Center"
-                                           Margin="0,0,8,0" IsVisible="{Binding IsDefaultLeader}"/>
-                                <!-- Click (not Command), same reason as
-                                     OnUnstageSlotClick above: this template's own
-                                     DataContext is the ConfiguredSlotRow, not the
-                                     window's ConnectionEditorViewModel. -->
-                                <Button Grid.Column="1" Content="Make default" Margin="0,0,8,0"
-                                        IsVisible="{Binding !IsDefaultLeader}" Click="OnMakeDefaultLeaderClick"/>
-                                <Button Grid.Column="2" Content="✕" Padding="6,0" Click="OnRemoveConfiguredSlotClick"/>
-                            </Grid>
+                            <StackPanel Margin="0,2" Spacing="2">
+                                <Grid ColumnDefinitions="*,Auto,Auto">
+                                    <TextBlock Grid.Column="0" Text="{Binding Slot.DisplayName}" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="Default leader" Opacity="0.6" VerticalAlignment="Center"
+                                               Margin="0,0,8,0" IsVisible="{Binding IsDefaultLeader}"/>
+                                    <!-- Click (not Command), same reason as
+                                         OnUnstageSlotClick above: this template's own
+                                         DataContext is the ConfiguredSlotRow, not the
+                                         window's ConnectionEditorViewModel. -->
+                                    <Button Grid.Column="1" Content="Make default" Margin="0,0,8,0"
+                                            IsVisible="{Binding !IsDefaultLeader}" Click="OnMakeDefaultLeaderClick"/>
+                                    <Button Grid.Column="2" Content="✕" Padding="6,0" Click="OnRemoveConfiguredSlotClick"/>
+                                </Grid>
+
+                                <!-- Tier 1 of Feature-Plaene/Fortschrittsanzeigen.md:
+                                     "X of Y locations checked" for this one
+                                     configured slot - null (no row shown at
+                                     all) until it has synced at least once,
+                                     see SlotProfile.HasLocationProgress. -->
+                                <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding Slot.HasLocationProgress}">
+                                    <ProgressBar Grid.Column="0" Height="6" VerticalAlignment="Center"
+                                                 Minimum="0" Maximum="{Binding Slot.LocationsTotalValue}"
+                                                 Value="{Binding Slot.LocationsCheckedValue}"/>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="8,0,0,0">
+                                        <TextBlock Opacity="0.6" FontSize="11" Text="{Binding Slot.LocationsChecked}"/>
+                                        <TextBlock Opacity="0.6" FontSize="11" Text="{Binding Slot.LocationsTotal, StringFormat='/{0}'}"/>
+                                    </StackPanel>
+                                </Grid>
+                            </StackPanel>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
@@ -137,6 +154,21 @@
         <TextBox Text="{Binding Password}" PasswordChar="*" IsVisible="{Binding !ShowPlayerPicker}"/>
 
         <CheckBox Content="Auto-connect" IsChecked="{Binding AutoConnect}" IsVisible="{Binding ShowAutoConnect}"/>
+
+        <!-- Tier 2 of Feature-Plaene/Fortschrittsanzeigen.md: whole-multiworld
+             progress via the room's webhost tracker - optional, only usable
+             for a room hosted through a webhost (archipelago.gg or a
+             self-hosted instance). Accepts a bare tracker id, a tracker URL,
+             or a room URL - see Services/TrackerReferenceParser.cs. Resolved
+             (a room URL needs an actual network call) when Save is clicked,
+             not on every keystroke - see ConnectionEditorWindow.axaml.cs. -->
+        <StackPanel IsVisible="{Binding ShowMultiworldTracker}" Spacing="4">
+            <TextBlock Text="Multiworld tracker (optional)"/>
+            <TextBox Text="{Binding TrackerReferenceInput}"
+                     Watermark="Room- or tracker URL, or tracker id"
+                     IsEnabled="{Binding !IsResolvingTracker}"/>
+            <TextBlock Text="Resolving tracker..." Opacity="0.6" IsVisible="{Binding IsResolvingTracker}"/>
+        </StackPanel>
 
         <TextBlock Text="{Binding ValidationError}"
                    Foreground="Red"

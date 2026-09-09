@@ -1,4 +1,5 @@
 using System.Linq;
+using Archipolygo.Services;
 using Archipolygo.TestSupport;
 using Archipolygo.ViewModels;
 using Archipolygo.Views;
@@ -37,7 +38,7 @@ public class ChatSlotComboBoxTests
     public void OnFirstTabActivation_ChatSlotComboBox_ResolvesSelectedItemCorrectly()
     {
         var connectionManager = new FakeConnectionManager();
-        var mainWindowViewModel = new MainWindowViewModel(new FakePersistenceService(), connectionManager);
+        var mainWindowViewModel = new MainWindowViewModel(new FakePersistenceService(), connectionManager, new MultiworldTrackerService());
 
         // Two servers, each auto-connecting its own single slot as leader
         // right away (see MainWindowViewModel.AddNewGroup) - deterministic

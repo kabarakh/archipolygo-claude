@@ -23,7 +23,7 @@ public class MessageHistoryService : IMessageHistoryService
 
     public void HandleConnected(GroupViewModel group, SlotProfile slot)
     {
-        var slotName = slot.SlotName;
+        var slotName = slot.DisplayName;
         AddEvent(group, new EventEntry
         {
             SlotId = slot.Id,
@@ -35,7 +35,7 @@ public class MessageHistoryService : IMessageHistoryService
 
     public void HandleDisconnected(GroupViewModel group, SlotProfile slot, string reason)
     {
-        var slotName = slot.SlotName;
+        var slotName = slot.DisplayName;
         AddEvent(group, new EventEntry
         {
             SlotId = slot.Id,
@@ -111,7 +111,7 @@ public class MessageHistoryService : IMessageHistoryService
         var entry = new ReceivedItemEntry
         {
             SlotId            = slot.Id,
-            ReceivingSlotName = slot.SlotName,
+            ReceivingSlotName = slot.DisplayName,
             ItemName          = item.ItemDisplayName,
             LocationName      = item.LocationDisplayName,
             SenderName        = senderName,
@@ -130,7 +130,7 @@ public class MessageHistoryService : IMessageHistoryService
         {
             SlotId = targetSlot.Id,
             Type = EventType.ItemReceived,
-            Text = $"{senderName} sent {itemDisplayName} to {targetSlot.SlotName} ({locationDisplayName})",
+            Text = $"{senderName} sent {itemDisplayName} to {targetSlot.DisplayName} ({locationDisplayName})",
             Segments = EventSegmentBuilder.BuildItemReceivedSegments(itemDisplayName, itemFlags, locationDisplayName),
             ConcernsOwnSlot = true
         });
@@ -138,7 +138,7 @@ public class MessageHistoryService : IMessageHistoryService
         var entry = new ReceivedItemEntry
         {
             SlotId            = targetSlot.Id,
-            ReceivingSlotName = targetSlot.SlotName,
+            ReceivingSlotName = targetSlot.DisplayName,
             ItemName          = itemDisplayName,
             LocationName      = locationDisplayName,
             SenderName        = senderName,

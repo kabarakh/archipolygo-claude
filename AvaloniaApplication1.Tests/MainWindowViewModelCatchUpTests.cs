@@ -28,7 +28,7 @@ public class MainWindowViewModelCatchUpTests
         var manager = new ConnectionManager(
             new NoOpMessageHistoryService(), new NoOpHintService(), factory,
             itemBacklogGracePeriod: TimeSpan.Zero, transientConnectRetryDelay: TimeSpan.Zero);
-        var mainWindowViewModel = new MainWindowViewModel(new FakePersistenceService(), manager);
+        var mainWindowViewModel = new MainWindowViewModel(new FakePersistenceService(), manager, new MultiworldTrackerService());
 
         var aliceSession = new FakeArchipelagoSession(numericSlot: 1);
         factory.Enqueue(aliceSession);

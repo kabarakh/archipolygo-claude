@@ -15,8 +15,19 @@ public partial class ConnectionEditorWindow : Window
 
     private ConnectionEditorViewModel ViewModel => (ConnectionEditorViewModel)DataContext!;
 
-    private void OnSaveClick(object? sender, RoutedEventArgs e)
+    /// <summary>
+    /// Resolves the Tier 2 tracker reference (Feature-Plaene/Fortschrittsanzeigen.md -
+    /// a room URL needs an actual network round-trip, see
+    /// <see cref="ConnectionEditorViewModel.TryResolveTrackerReferenceAsync"/>)
+    /// before running the rest of the usual synchronous validation.
+    /// </summary>
+    private async void OnSaveClick(object? sender, RoutedEventArgs e)
     {
+        if (!await ViewModel.TryResolveTrackerReferenceAsync())
+        {
+            return; // ValidationError already set.
+        }
+
         if (ViewModel.TryBuildResult(out var result))
         {
             Close(result);
@@ -38,12 +49,9 @@ public partial class ConnectionEditorWindow : Window
     }
 
     /// <summary>
-    /// Removes a row's slot right away - same DataContext situation as
-    /// <see cref="OnMakeDefaultLeaderClick"/>. Bound command name is
-    /// "RemoveConfiguredSlotCommand", not "...AsyncCommand" - the
-    /// [RelayCommand] source generator drops the "Async" suffix from the
-    /// method name (<c>RemoveConfiguredSlotAsync</c>) when naming the
-    /// generated command property.
+    /// Stages a row's slot for removal (applied on Save, see
+    /// <see cref="ConnectionEditorViewModel.RemoveConfiguredSlot"/>) - same
+    /// DataContext situation as <see cref="OnMakeDefaultLeaderClick"/>.
     /// </summary>
     private void OnRemoveConfiguredSlotClick(object? sender, RoutedEventArgs e)
     {

@@ -59,6 +59,31 @@ public partial class ServerConnectionGroup : ObservableObject
     /// </summary>
     public ObservableCollection<SlotProfile> Slots { get; } = new();
 
+    /// <summary>
+    /// Tier 2 of Fortschrittsanzeigen.md (whole-multiworld progress, not just
+    /// this app's own configured slots): exactly what the user originally
+    /// typed into the tracker field - the bare tracker SUUID, a room URL, or
+    /// a tracker URL. Kept separately from <see cref="TrackerId"/> (the
+    /// actually-resolved id <see cref="Services.IMultiworldTrackerService"/>
+    /// polls) purely so the connection editor can show back what the user
+    /// typed when they reopen it - a single combined field couldn't tell a
+    /// room URL apart from an already-resolved tracker id on redisplay. Null/
+    /// empty means Tier 2 is disabled for this group (the common case for a
+    /// custom-hosted room with no webhost at all).
+    /// </summary>
+    [ObservableProperty]
+    private string? _trackerReferenceInput;
+
+    /// <summary>
+    /// The resolved tracker SUUID <see cref="Services.IMultiworldTrackerService"/>
+    /// actually polls - either <see cref="TrackerReferenceInput"/> verbatim
+    /// (if it was already a bare tracker id/tracker URL) or the result of
+    /// resolving a room URL via <c>/room_status/&lt;room_id&gt;</c>. Null
+    /// means Tier 2 is a no-op for this group.
+    /// </summary>
+    [ObservableProperty]
+    private string? _trackerId;
+
     /// <summary>"host:port" with no surrounding/inner whitespace, for compact display.</summary>
     public string HostPort => $"{Host}:{Port}";
 

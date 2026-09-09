@@ -22,7 +22,7 @@ public partial class TestHarnessApp : Application
         {
             var persistenceService = new FakePersistenceService();
             var connectionManager = new FakeConnectionManager();
-            var mainWindowViewModel = new MainWindowViewModel(persistenceService, connectionManager);
+            var mainWindowViewModel = new MainWindowViewModel(persistenceService, connectionManager, new Archipolygo.Services.MultiworldTrackerService());
 
             // One demo server with two slots, connected as leader right away
             // (see FakeConnectionManager.SwitchLeaderAsync) - enough to

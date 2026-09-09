@@ -37,6 +37,7 @@ public partial class App : Application
         services.AddSingleton<IHintService, HintService>();
         services.AddSingleton<ISessionFactory, ArchipelagoSessionFactoryAdapter>();
         services.AddSingleton<IConnectionManager, ConnectionManager>();
+        services.AddSingleton<IMultiworldTrackerService, MultiworldTrackerService>();
         services.AddSingleton<MainWindowViewModel>();
 
         Services = services.BuildServiceProvider();

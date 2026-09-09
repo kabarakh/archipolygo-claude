@@ -708,7 +708,7 @@ public class ConnectionManager : IConnectionManager
                     SetConnectionState(group, ConnectionState.Error);
                 }
 
-                _messageHistoryService.HandleError(group, $"Could not create session for {slot.SlotName}: {ex.Message}");
+                _messageHistoryService.HandleError(group, $"Could not create session for {slot.DisplayName}: {ex.Message}");
                 return null;
             }
 
@@ -740,7 +740,7 @@ public class ConnectionManager : IConnectionManager
                     return;
                 }
 
-                _messageHistoryService.HandleError(group, $"[{slot.SlotName}] {message}");
+                _messageHistoryService.HandleError(group, $"[{slot.DisplayName}] {message}");
             };
 
             if (isLeaderSession)
@@ -806,7 +806,7 @@ public class ConnectionManager : IConnectionManager
                         SetConnectionState(group, ConnectionState.Error);
                     }
 
-                    _messageHistoryService.HandleError(group, $"Login failed for {slot.SlotName}: {errorText}");
+                    _messageHistoryService.HandleError(group, $"Login failed for {slot.DisplayName}: {errorText}");
                     await TryCloseSocketAsync(group, slot, session);
                     return null; // a real rejection, not a transient hiccup - never retried.
                 }
@@ -819,7 +819,7 @@ public class ConnectionManager : IConnectionManager
                 await TryCloseSocketAsync(group, slot, session);
                 _messageHistoryService.HandleError(
                     group,
-                    $"Connecting {slot.SlotName} hit a transient error ({ex.GetType().Name}), retrying ({attempt}/{MaxTransientConnectRetries})...");
+                    $"Connecting {slot.DisplayName} hit a transient error ({ex.GetType().Name}), retrying ({attempt}/{MaxTransientConnectRetries})...");
 
                 try
                 {
@@ -841,12 +841,27 @@ public class ConnectionManager : IConnectionManager
                     SetConnectionState(group, ConnectionState.Error);
                 }
 
-                _messageHistoryService.HandleError(group, $"Connection failed for {slot.SlotName}: {ex.Message}");
+                _messageHistoryService.HandleError(group, $"Connection failed for {slot.DisplayName}: {ex.Message}");
                 await TryCloseSocketAsync(group, slot, session);
                 return null;
             }
 
             _sessions[slot.Id] = session;
+
+            // Tier 1 of Fortschrittsanzeigen.md: "X of Y locations checked"
+            // for this slot. Populated after every successful login, leader
+            // and catch-up sessions alike - both already have a fully synced
+            // IArchipelagoSession.Locations at this point, no extra request
+            // needed. Kept live afterward only for the leader (via
+            // CheckedLocationsUpdated) - a catch-up session is about to be
+            // torn back down by its caller anyway, so there's nothing to
+            // keep live for it.
+            UpdateLocationProgress(slot, session);
+
+            if (isLeaderSession)
+            {
+                session.Locations.CheckedLocationsUpdated += _ => UpdateLocationProgress(slot, session);
+            }
 
             // Fires immediately with this slot's own currently unlocked hints,
             // then again on every later change to them.
@@ -1012,7 +1027,7 @@ public class ConnectionManager : IConnectionManager
             // logged visibly (as a normal Error event, same as any other
             // connection problem) rather than swallowed without a trace.
             _messageHistoryService.HandleError(
-                group, $"[{slot?.SlotName ?? "unknown slot"}] internal cleanup workaround (socket abort) failed: {ex.Message}");
+                group, $"[{slot?.DisplayName ?? "unknown slot"}] internal cleanup workaround (socket abort) failed: {ex.Message}");
         }
 
         try
@@ -1023,7 +1038,7 @@ public class ConnectionManager : IConnectionManager
         {
             // See above - same reasoning, other half of the workaround.
             _messageHistoryService.HandleError(
-                group, $"[{slot?.SlotName ?? "unknown slot"}] internal cleanup workaround (send queue) failed: {ex.Message}");
+                group, $"[{slot?.DisplayName ?? "unknown slot"}] internal cleanup workaround (send queue) failed: {ex.Message}");
         }
     }
 
@@ -1209,6 +1224,12 @@ public class ConnectionManager : IConnectionManager
     /// recognized in chat/item/hint broadcasts observed via another slot's
     /// session - see <see cref="OnLeaderMessageReceived"/> and
     /// <see cref="OnHintsUpdated"/>.
+    ///
+    /// Side effect: also keeps <see cref="SlotProfile.Alias"/> current for
+    /// every matched slot - this runs constantly while the leader is
+    /// connected (every chat/item/hint event), so it's a convenient, no-extra-
+    /// cost place to learn/refresh aliases for every configured slot, not
+    /// just the leader's own.
     /// </summary>
     private static Dictionary<int, SlotProfile> BuildSlotRoster(IArchipelagoSession session, ServerConnectionGroup serverGroup)
     {
@@ -1220,6 +1241,12 @@ public class ConnectionManager : IConnectionManager
             if (match is not null)
             {
                 roster[match.Slot] = slot;
+
+                if (!string.Equals(slot.Alias, match.Alias, StringComparison.Ordinal))
+                {
+                    var alias = match.Alias;
+                    Dispatcher.UIThread.Post(() => slot.Alias = alias);
+                }
             }
         }
 
@@ -1434,4 +1461,25 @@ public class ConnectionManager : IConnectionManager
 
     private static void SetConnectionState(GroupViewModel group, ConnectionState state) =>
         Dispatcher.UIThread.Post(() => group.ConnectionState = state);
+
+    /// <summary>
+    /// Reads <paramref name="session"/>'s current "X of Y locations checked"
+    /// counts and writes them onto <paramref name="slot"/> - see
+    /// <see cref="SlotProfile.LocationsChecked"/>/<see cref="SlotProfile.LocationsTotal"/>.
+    /// Read synchronously (both properties are plain in-memory collections
+    /// on the session, no I/O), but written via Dispatcher.UIThread.Post like
+    /// every other UI-observable mutation this class makes, since this can
+    /// run from a session's own background event thread (the
+    /// CheckedLocationsUpdated subscription in <see cref="ConnectSlotSessionAsync"/>).
+    /// </summary>
+    private static void UpdateLocationProgress(SlotProfile slot, IArchipelagoSession session)
+    {
+        var checkedCount = session.Locations.AllLocationsChecked.Count;
+        var totalCount = session.Locations.AllLocations.Count;
+        Dispatcher.UIThread.Post(() =>
+        {
+            slot.LocationsChecked = checkedCount;
+            slot.LocationsTotal = totalCount;
+        });
+    }
 }

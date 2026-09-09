@@ -1,5 +1,6 @@
 using System.Linq;
 using Archipolygo.Models;
+using Archipolygo.Services;
 using Archipolygo.TestSupport;
 using Archipolygo.ViewModels;
 using Archipolygo.Views;
@@ -31,7 +32,7 @@ public class EventsListAutoScrollTests
 {
     private static (MainWindow window, GroupViewModel group, ListBox listBox, ScrollViewer scrollViewer) SetUp()
     {
-        var mainWindowViewModel = new MainWindowViewModel(new FakePersistenceService(), new FakeConnectionManager());
+        var mainWindowViewModel = new MainWindowViewModel(new FakePersistenceService(), new FakeConnectionManager(), new MultiworldTrackerService());
         mainWindowViewModel.AddNewGroup("Server1", "host1", 1, string.Empty, "Alice", autoConnect: false);
         var group = mainWindowViewModel.Groups[0];
 

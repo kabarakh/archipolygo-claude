@@ -14,6 +14,7 @@ public partial class MainWindowViewModel : ViewModelBase
 {
     private readonly IPersistenceService _persistenceService;
     private readonly IConnectionManager _connectionManager;
+    private readonly IMultiworldTrackerService _multiworldTrackerService;
 
     public ObservableCollection<GroupViewModel> Groups { get; } = new();
 
@@ -62,7 +63,7 @@ public partial class MainWindowViewModel : ViewModelBase
     /// DI container as explicit singletons instead.
     /// </summary>
     public MainWindowViewModel()
-        : this(new PersistenceService(), CreateDesignTimeConnectionManager())
+        : this(new PersistenceService(), CreateDesignTimeConnectionManager(), new MultiworldTrackerService())
     {
     }
 
@@ -80,10 +81,11 @@ public partial class MainWindowViewModel : ViewModelBase
     /// Also directly usable by tests that need to substitute either
     /// dependency with a fake/mock.
     /// </summary>
-    public MainWindowViewModel(IPersistenceService persistenceService, IConnectionManager connectionManager)
+    public MainWindowViewModel(IPersistenceService persistenceService, IConnectionManager connectionManager, IMultiworldTrackerService multiworldTrackerService)
     {
         _persistenceService = persistenceService;
         _connectionManager = connectionManager;
+        _multiworldTrackerService = multiworldTrackerService;
 
         // Keeps AutoConnect/PreferredLeaderSlotId changes made by
         // ConnectionManager itself (see IConnectionManager.GroupPersistNeeded)
@@ -117,7 +119,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         foreach (var group in _persistenceService.LoadGroups())
         {
-            Groups.Add(new GroupViewModel(group, _connectionManager));
+            Groups.Add(new GroupViewModel(group, _connectionManager, _multiworldTrackerService));
         }
 
         SelectedGroup = Groups.Count > 0 ? Groups[0] : null;
@@ -184,7 +186,7 @@ public partial class MainWindowViewModel : ViewModelBase
     /// controls whether this group reconnects automatically at the *next*
     /// app start (or after an unexpected drop) - see <see cref="ServerConnectionGroup.AutoConnect"/>.
     /// </summary>
-    public void AddNewGroup(string name, string host, int port, string password, string slotName, bool autoConnect)
+    public void AddNewGroup(string name, string host, int port, string password, string slotName, bool autoConnect, string? trackerReferenceInput = null, string? trackerId = null)
     {
         var group = new ServerConnectionGroup
         {
@@ -192,7 +194,9 @@ public partial class MainWindowViewModel : ViewModelBase
             Host = host,
             Port = port,
             Password = password,
-            AutoConnect = autoConnect
+            AutoConnect = autoConnect,
+            TrackerReferenceInput = trackerReferenceInput,
+            TrackerId = trackerId
         };
 
         var slot = new SlotProfile { GroupId = group.Id, SlotName = slotName };
@@ -203,7 +207,7 @@ public partial class MainWindowViewModel : ViewModelBase
             group.PreferredLeaderSlotId = slot.Id;
         }
 
-        var groupViewModel = new GroupViewModel(group, _connectionManager);
+        var groupViewModel = new GroupViewModel(group, _connectionManager, _multiworldTrackerService);
         Groups.Add(groupViewModel);
         SelectedGroup = groupViewModel;
         PersistGroups();
@@ -293,8 +297,24 @@ public partial class MainWindowViewModel : ViewModelBase
             .ToList();
     }
 
-    /// <summary>Edits a server's Name/Host/Port/Password/AutoConnect/default leader.</summary>
-    public void UpdateGroup(GroupViewModel groupViewModel, string name, string host, int port, string password, bool autoConnect, Guid? preferredLeaderSlotId)
+    /// <summary>
+    /// Edits a server's Name/Host/Port/Password/AutoConnect/default leader/
+    /// Tier 2 tracker reference, and applies every slot removal staged during
+    /// this same dialog session (see <see cref="ConnectionEditorViewModel.RemoveConfiguredSlot"/>/
+    /// <see cref="ConnectionEditorResult.SlotsToRemove"/>) - all as one atomic
+    /// "Save" action. Slot removal (including disconnecting the group first,
+    /// if the removed slot was the live leader - see <see cref="RemoveSlotFromGroupCoreAsync"/>)
+    /// used to happen the instant "✕" was clicked in the dialog, before Save;
+    /// that could disconnect the user mid-edit purely from picking a new
+    /// default leader and then removing the old one in the same session, with
+    /// no chance to reconsider via Cancel. Deferring it here means Cancel now
+    /// actually cancels a removal too, same as every other field in that
+    /// dialog.
+    /// </summary>
+    public async Task UpdateGroup(
+        GroupViewModel groupViewModel, string name, string host, int port, string password, bool autoConnect,
+        Guid? preferredLeaderSlotId, IReadOnlyList<SlotProfile>? slotsToRemove = null,
+        string? trackerReferenceInput = null, string? trackerId = null)
     {
         groupViewModel.Group.Name = name;
         groupViewModel.Group.Host = host;
@@ -302,8 +322,32 @@ public partial class MainWindowViewModel : ViewModelBase
         groupViewModel.Group.Password = password;
         groupViewModel.Group.AutoConnect = autoConnect;
         groupViewModel.Group.PreferredLeaderSlotId = preferredLeaderSlotId;
+        groupViewModel.Group.TrackerReferenceInput = trackerReferenceInput;
+        groupViewModel.Group.TrackerId = trackerId;
+
+        if (slotsToRemove is { Count: > 0 })
+        {
+            // One at a time, not concurrently - same "slots never connect/
+            // disconnect concurrently" invariant as everywhere else in this
+            // app, and in practice at most one of these can actually be the
+            // live leader anyway (only ever one leader per group).
+            foreach (var slot in slotsToRemove)
+            {
+                await RemoveSlotFromGroupCoreAsync(groupViewModel, slot);
+            }
+        }
+
         PersistGroups();
     }
+
+    /// <summary>
+    /// Resolves a room id into that room's tracker SUUID (Tier 2 of
+    /// Feature-Plaene/Fortschrittsanzeigen.md) - forwarded to
+    /// <see cref="IMultiworldTrackerService"/> so <see cref="Views.ConnectionEditorWindow"/>
+    /// (via <see cref="ConnectionEditorViewModel"/>'s callback-based design)
+    /// never needs its own reference to that service.
+    /// </summary>
+    public Task<string?> ResolveTrackerIdAsync(string roomId) => _multiworldTrackerService.ResolveTrackerIdAsync(roomId);
 
     public void RenameSlot(SlotProfile slot, string newName)
     {
@@ -312,11 +356,25 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Removes one already-configured slot from a server (see
-    /// <see cref="Views.ConnectionEditorWindow"/>'s slot-management list) -
-    /// unlike every other change made through that dialog, this takes effect
-    /// immediately rather than waiting for its Save button, since there's no
-    /// clean way to undo the disconnect below on Cancel.
+    /// Removes one already-configured slot from a server immediately (as
+    /// opposed to <see cref="UpdateGroup"/>'s staged, Save-time batch) -
+    /// currently unused by <see cref="Views.ConnectionEditorWindow"/> itself
+    /// (see <see cref="UpdateGroup"/>'s doc comment for why removal there is
+    /// deferred instead), kept as a public building block for any future
+    /// call site that genuinely wants an immediate removal outside that
+    /// dialog's edit-then-save flow.
+    /// </summary>
+    public async Task RemoveSlotFromGroup(GroupViewModel groupViewModel, SlotProfile slot)
+    {
+        await RemoveSlotFromGroupCoreAsync(groupViewModel, slot);
+        PersistGroups();
+    }
+
+    /// <summary>
+    /// The actual removal logic shared by <see cref="RemoveSlotFromGroup"/>
+    /// (immediate) and <see cref="UpdateGroup"/>'s staged batch - deliberately
+    /// does not call <see cref="PersistGroups"/> itself, so a batch of several
+    /// removals persists once at the end instead of once per slot.
     ///
     /// If the removed slot is the current leader, disconnects it first
     /// (<see cref="IConnectionManager.DisconnectGroupAsync"/> also clears
@@ -330,7 +388,7 @@ public partial class MainWindowViewModel : ViewModelBase
     /// for why: a raw removal used to make the *leader* silently vanish from
     /// the "Chat as" dropdown whenever some other, unrelated slot was removed.
     /// </summary>
-    public async Task RemoveSlotFromGroup(GroupViewModel groupViewModel, SlotProfile slot)
+    private async Task RemoveSlotFromGroupCoreAsync(GroupViewModel groupViewModel, SlotProfile slot)
     {
         if (groupViewModel.LeaderSlotId == slot.Id)
         {
@@ -358,7 +416,6 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         groupViewModel.RemoveSlotFromGroup(slot);
-        PersistGroups();
     }
 
     /// <summary>

@@ -26,6 +26,15 @@ public partial class GroupViewModel : ViewModelBase
 {
     private readonly IConnectionManager _connectionManager;
 
+    /// <summary>
+    /// Optional - null in every existing test construction site that doesn't
+    /// care about Tier 2 (Feature-Plaene/Fortschrittsanzeigen.md's whole-
+    /// multiworld progress), so this stays a purely additive dependency
+    /// rather than forcing every other call site to thread one through. Null
+    /// just means <see cref="RefreshMultiworldProgressAsync"/> silently no-ops.
+    /// </summary>
+    private readonly IMultiworldTrackerService? _multiworldTrackerService;
+
     /// <summary>Guards <see cref="OnSelectedChatSlotChanged"/> while a switch/initial-select is already applying, so it doesn't re-enter itself.</summary>
     private bool _applyingLeaderChange;
 
@@ -171,6 +180,15 @@ public partial class GroupViewModel : ViewModelBase
     public bool IsLeaderConnected => LeaderSlotId is not null && ConnectionState == ConnectionState.Connected;
 
     public bool CanDisconnect => LeaderSlotId is not null || ConnectionState is ConnectionState.Connecting or ConnectionState.Reconnecting;
+
+    /// <summary>
+    /// Mirror of <see cref="CanDisconnect"/> for the Connect button that
+    /// replaces Disconnect while the group is offline - picking a leader via
+    /// the "Chat as" dropdown to get connected wasn't discoverable, so this
+    /// gives the not-connected state an explicit affirmative action instead.
+    /// Requires a configured slot to connect as (nothing to pick otherwise).
+    /// </summary>
+    public bool CanConnect => !CanDisconnect && Slots.Count > 0;
 
     /// <summary>
     /// Hints filtered by found/unfound, role ("mine" = concerns any configured
@@ -319,10 +337,11 @@ public partial class GroupViewModel : ViewModelBase
     /// </summary>
     public ObservableCollection<SlotProfile?> SlotFilterOptions { get; } = new() { null };
 
-    public GroupViewModel(ServerConnectionGroup group, IConnectionManager connectionManager)
+    public GroupViewModel(ServerConnectionGroup group, IConnectionManager connectionManager, IMultiworldTrackerService? multiworldTrackerService = null)
     {
         _group = group;
         _connectionManager = connectionManager;
+        _multiworldTrackerService = multiworldTrackerService;
 
         Events.CollectionChanged += OnEventsCollectionChanged;
         Hints.CollectionChanged += OnHintsCollectionChanged;
@@ -331,10 +350,223 @@ public partial class GroupViewModel : ViewModelBase
 
         RefreshSlotOrder();
 
+        foreach (var slot in Group.Slots)
+        {
+            SubscribeSlotProgress(slot);
+        }
+
         Group.Slots.CollectionChanged += OnSlotsCollectionChanged;
     }
 
-    private void OnSlotsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) => RefreshSlotOrder();
+    private void OnSlotsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (e.OldItems is not null)
+        {
+            foreach (SlotProfile slot in e.OldItems)
+            {
+                UnsubscribeSlotProgress(slot);
+            }
+        }
+
+        if (e.NewItems is not null)
+        {
+            foreach (SlotProfile slot in e.NewItems)
+            {
+                SubscribeSlotProgress(slot);
+            }
+        }
+
+        RefreshSlotOrder();
+        RaiseRoomProgressChanged();
+    }
+
+    private void SubscribeSlotProgress(SlotProfile slot) => slot.PropertyChanged += OnSlotProgressPropertyChanged;
+
+    private void UnsubscribeSlotProgress(SlotProfile slot) => slot.PropertyChanged -= OnSlotProgressPropertyChanged;
+
+    private void OnSlotProgressPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(SlotProfile.LocationsChecked) or nameof(SlotProfile.LocationsTotal))
+        {
+            RaiseRoomProgressChanged();
+        }
+    }
+
+    /// <summary>
+    /// Tier 1 of Fortschrittsanzeigen.md: how many of this room's own
+    /// configured slots' locations have been checked so far, summed over
+    /// every slot that has ever successfully synced (see
+    /// <see cref="SlotProfile.LocationsChecked"/>) - a slot that has never
+    /// connected contributes nothing rather than a misleading 0.
+    /// </summary>
+    public int RoomChecksCompleted => Group.Slots.Where(s => s.LocationsChecked is not null).Sum(s => s.LocationsChecked!.Value);
+
+    public int RoomChecksTotal => Group.Slots.Where(s => s.LocationsTotal is not null).Sum(s => s.LocationsTotal!.Value);
+
+    /// <summary>Whether at least one configured slot has ever synced its location progress - drives whether the aggregated progress bar is shown at all.</summary>
+    public bool HasRoomProgress => Group.Slots.Any(s => s.LocationsTotal is not null);
+
+    public string RoomProgressText => HasRoomProgress ? $"{RoomChecksCompleted}/{RoomChecksTotal}" : string.Empty;
+
+    /// <summary>0-100. Exposed under this exact name for Feature-Plaene/Dashboard-Tab.md, which plans to show this as an app-wide aggregate once that dashboard exists - see that plan's "Sobald der Fortschrittsanzeigen-Plan umgesetzt ist" note.</summary>
+    public double RoomProgressPercent => RoomChecksTotal > 0 ? (double)RoomChecksCompleted / RoomChecksTotal * 100.0 : 0;
+
+    private void RaiseRoomProgressChanged()
+    {
+        OnPropertyChanged(nameof(RoomChecksCompleted));
+        OnPropertyChanged(nameof(RoomChecksTotal));
+        OnPropertyChanged(nameof(HasRoomProgress));
+        OnPropertyChanged(nameof(RoomProgressText));
+        OnPropertyChanged(nameof(RoomProgressPercent));
+
+        // OwnChecksDone/Total (part of the combined Tier 1+2 bar) are Tier 1
+        // values themselves - see RaiseCombinedProgressChanged's doc comment.
+        RaiseCombinedProgressChanged();
+    }
+
+    /// <summary>Tier 2 of Fortschrittsanzeigen.md: whether this group has a resolved tracker id to poll at all - drives whether the whole-multiworld progress section shows up.</summary>
+    public bool HasMultiworldTracker => !string.IsNullOrWhiteSpace(Group.TrackerId);
+
+    [ObservableProperty]
+    private bool _isRefreshingMultiworldProgress;
+
+    /// <summary>Set on a failed refresh (network error, tracker not found, ...) - see <see cref="IMultiworldTrackerService"/>'s "never throws" contract. Cleared on the next successful refresh.</summary>
+    [ObservableProperty]
+    private string? _multiworldProgressError;
+
+    /// <summary>
+    /// Every player's whole-multiworld progress, from the room's webhost
+    /// tracker - see <see cref="RefreshMultiworldProgressAsync"/>. Empty
+    /// until the first successful refresh. Not bound to directly by the UI
+    /// (a per-player list/bar would mean one bar per player in the room -
+    /// hundreds for a large multiworld) - only ever aggregated, see
+    /// <see cref="OwnChecksDone"/>/<see cref="OtherChecksDone"/> and friends
+    /// below.
+    /// </summary>
+    public ObservableCollection<PlayerProgress> MultiworldProgress { get; } = new();
+
+    /// <summary>Sum of every tracked player's <see cref="PlayerProgress.ChecksDone"/> - the whole room, this app's own configured slots included.</summary>
+    public int MultiworldChecksDone => MultiworldProgress.Sum(p => p.ChecksDone);
+
+    /// <summary>Sum of every tracked player's <see cref="PlayerProgress.ChecksTotal"/> (treating "not yet known" as 0) - the whole room's total.</summary>
+    public int MultiworldChecksTotal => MultiworldProgress.Sum(p => p.ChecksTotal ?? 0);
+
+    /// <summary>
+    /// This app's own configured slots' share of the combined Tier 1+2 bar -
+    /// deliberately just <see cref="RoomChecksCompleted"/>/<see cref="RoomChecksTotal"/>
+    /// (Tier 1's own live-connection data) rather than trying to pick "which
+    /// of the tracker's numeric players are mine": the tracker API gives no
+    /// reliable slot-name mapping unless the tracker was resolved from a room
+    /// URL (see <see cref="Services.IMultiworldTrackerService.ResolveTrackerIdAsync"/>),
+    /// and a player's tracker alias need not match its configured slot name
+    /// at all. Subtracting this from the tracker's whole-room totals (see
+    /// <see cref="OtherChecksDone"/>) sidesteps that matching problem
+    /// entirely - two independently-sourced aggregates instead of one
+    /// per-player join.
+    /// </summary>
+    public int OwnChecksDone => RoomChecksCompleted;
+
+    public int OwnChecksTotal => RoomChecksTotal;
+
+    public int OwnChecksOpen => Math.Max(0, OwnChecksTotal - OwnChecksDone);
+
+    /// <summary>
+    /// Everyone else in the room: the tracker's whole-room total minus this
+    /// app's own slots' Tier 1 total. Clamped to never go negative - Tier 1
+    /// (live, updates instantly) and Tier 2 (polled, up to 60s/300s stale,
+    /// see <see cref="IMultiworldTrackerService"/>) can briefly disagree
+    /// about "own", e.g. right after a check that Tier 1 already reflects
+    /// but the tracker hasn't polled again for yet.
+    /// </summary>
+    public int OtherChecksDone => Math.Max(0, MultiworldChecksDone - OwnChecksDone);
+
+    public int OtherChecksTotal => Math.Max(0, MultiworldChecksTotal - OwnChecksTotal);
+
+    public int OtherChecksOpen => Math.Max(0, OtherChecksTotal - OtherChecksDone);
+
+    /// <summary>
+    /// Whether there's anything at all to show in the one combined progress
+    /// bar - true the moment at least one own configured slot has synced,
+    /// even with no tracker configured at all (see the bar's own doc comment
+    /// in MainWindow.axaml: the fallback case is just this same bar with its
+    /// two "other" segments collapsed to zero width, not a separate element).
+    /// </summary>
+    public bool HasAnyProgress => OwnChecksTotal + OtherChecksTotal > 0;
+
+    /// <summary>The four segments' combined denominator - what each segment's own share of the bar (and its legend percentage) is measured against.</summary>
+    private int GrandTotalChecks => OwnChecksTotal + OtherChecksTotal;
+
+    private static string FormatPercentOfGrandTotal(int part, int grandTotal) =>
+        grandTotal > 0 ? $"{Math.Round(part * 100.0 / grandTotal)}%" : "0%";
+
+    // Legend lines for the combined bar's hover tooltip (see MainWindow.axaml) -
+    // the on-bar text label was removed once the tooltip took over showing
+    // absolute numbers/percentages, per user request.
+    public string OwnChecksDoneLegendText => $"Own, done: {OwnChecksDone} ({FormatPercentOfGrandTotal(OwnChecksDone, GrandTotalChecks)})";
+
+    public string OwnChecksOpenLegendText => $"Own, open: {OwnChecksOpen} ({FormatPercentOfGrandTotal(OwnChecksOpen, GrandTotalChecks)})";
+
+    public string OtherChecksDoneLegendText => $"Others, done: {OtherChecksDone} ({FormatPercentOfGrandTotal(OtherChecksDone, GrandTotalChecks)})";
+
+    public string OtherChecksOpenLegendText => $"Others, open: {OtherChecksOpen} ({FormatPercentOfGrandTotal(OtherChecksOpen, GrandTotalChecks)})";
+
+    private void RaiseCombinedProgressChanged()
+    {
+        OnPropertyChanged(nameof(MultiworldChecksDone));
+        OnPropertyChanged(nameof(MultiworldChecksTotal));
+        OnPropertyChanged(nameof(OwnChecksDone));
+        OnPropertyChanged(nameof(OwnChecksTotal));
+        OnPropertyChanged(nameof(OwnChecksOpen));
+        OnPropertyChanged(nameof(OtherChecksDone));
+        OnPropertyChanged(nameof(OtherChecksTotal));
+        OnPropertyChanged(nameof(OtherChecksOpen));
+        OnPropertyChanged(nameof(HasAnyProgress));
+        OnPropertyChanged(nameof(OwnChecksDoneLegendText));
+        OnPropertyChanged(nameof(OwnChecksOpenLegendText));
+        OnPropertyChanged(nameof(OtherChecksDoneLegendText));
+        OnPropertyChanged(nameof(OtherChecksOpenLegendText));
+    }
+
+    /// <summary>
+    /// Fetches (or re-fetches) Tier 2 progress for this room - see
+    /// <see cref="IMultiworldTrackerService.GetProgressAsync"/>, which itself
+    /// throttles to the tracker API's own documented cache timers regardless
+    /// of how often this is called. No-op if this group has no resolved
+    /// tracker id, or no <see cref="IMultiworldTrackerService"/> was supplied
+    /// at all (every existing construction site that doesn't need Tier 2).
+    /// </summary>
+    [RelayCommand]
+    private async Task RefreshMultiworldProgressAsync()
+    {
+        if (_multiworldTrackerService is null || string.IsNullOrWhiteSpace(Group.TrackerId))
+        {
+            return;
+        }
+
+        IsRefreshingMultiworldProgress = true;
+        try
+        {
+            var snapshot = await _multiworldTrackerService.GetProgressAsync(Group.TrackerId);
+            if (snapshot is null)
+            {
+                MultiworldProgressError = "Could not fetch multiworld progress right now.";
+                return;
+            }
+
+            MultiworldProgressError = null;
+            MultiworldProgress.Clear();
+            foreach (var player in snapshot.Players.OrderBy(p => p.Player))
+            {
+                MultiworldProgress.Add(player);
+            }
+
+            RaiseCombinedProgressChanged();
+        }
+        finally
+        {
+            IsRefreshingMultiworldProgress = false;
+        }
+    }
 
     /// <summary>
     /// Adds several new slots to <see cref="Group"/>'s <c>Slots</c> in one
@@ -354,6 +586,7 @@ public partial class GroupViewModel : ViewModelBase
             foreach (var slot in newSlots)
             {
                 Group.Slots.Add(slot);
+                SubscribeSlotProgress(slot);
             }
         }
         finally
@@ -362,6 +595,7 @@ public partial class GroupViewModel : ViewModelBase
         }
 
         InsertSlotsInOrder(newSlots);
+        RaiseRoomProgressChanged();
     }
 
     /// <summary>
@@ -438,6 +672,7 @@ public partial class GroupViewModel : ViewModelBase
         try
         {
             Group.Slots.Remove(slot);
+            UnsubscribeSlotProgress(slot);
         }
         finally
         {
@@ -446,6 +681,7 @@ public partial class GroupViewModel : ViewModelBase
 
         Slots.Remove(slot);
         SlotFilterOptions.Remove(slot);
+        RaiseRoomProgressChanged();
     }
 
     /// <summary>
@@ -511,6 +747,11 @@ public partial class GroupViewModel : ViewModelBase
             SlotFilterOptions.Add(slot);
         }
 
+        // Slots.Count just changed (or this is the initial build) - re-evaluate
+        // whether there's anything left to Connect as (see CanConnect).
+        OnPropertyChanged(nameof(CanConnect));
+        ConnectCommand.NotifyCanExecuteChanged();
+
         SelectedChatSlot = previousChatSlot is not null && ordered.Contains(previousChatSlot) ? previousChatSlot : null;
         SelectedEventsSlotFilter = previousEventsFilter is not null && ordered.Contains(previousEventsFilter) ? previousEventsFilter : null;
         SelectedHintsSlotFilter = previousHintsFilter is not null && ordered.Contains(previousHintsFilter) ? previousHintsFilter : null;
@@ -533,16 +774,20 @@ public partial class GroupViewModel : ViewModelBase
     {
         OnPropertyChanged(nameof(IsLeaderConnected));
         OnPropertyChanged(nameof(CanDisconnect));
+        OnPropertyChanged(nameof(CanConnect));
         SendMessageCommand.NotifyCanExecuteChanged();
         DisconnectCommand.NotifyCanExecuteChanged();
+        ConnectCommand.NotifyCanExecuteChanged();
     }
 
     partial void OnLeaderSlotIdChanged(Guid? value)
     {
         OnPropertyChanged(nameof(IsLeaderConnected));
         OnPropertyChanged(nameof(CanDisconnect));
+        OnPropertyChanged(nameof(CanConnect));
         SendMessageCommand.NotifyCanExecuteChanged();
         DisconnectCommand.NotifyCanExecuteChanged();
+        ConnectCommand.NotifyCanExecuteChanged();
 
         // The leader just changed, so it might need to move to the front of
         // Slots/SlotFilterOptions - see RefreshSlotOrder.
@@ -603,9 +848,24 @@ public partial class GroupViewModel : ViewModelBase
 
     partial void OnIsSelectedChanged(bool value)
     {
-        if (value)
+        if (!value)
         {
-            UnreadEventCount = 0;
+            return;
+        }
+
+        UnreadEventCount = 0;
+
+        // Tier 2 progress is fetched lazily rather than on some background
+        // timer for every group regardless of whether its tab is even being
+        // looked at - the first time a tab with a resolved tracker id is
+        // actually selected is enough (the static half of the data barely
+        // ever changes within a room's lifetime anyway - see
+        // Feature-Plaene/Fortschrittsanzeigen.md). A later manual refresh
+        // (see RefreshMultiworldProgressCommand) still respects the tracker
+        // service's own cache timers regardless of how often this fires.
+        if (HasMultiworldTracker && MultiworldProgress.Count == 0 && !IsRefreshingMultiworldProgress)
+        {
+            _ = RefreshMultiworldProgressAsync();
         }
     }
 
@@ -694,6 +954,23 @@ public partial class GroupViewModel : ViewModelBase
         {
             OnPropertyChanged(nameof(HeaderText));
         }
+
+        if (e.PropertyName == nameof(ServerConnectionGroup.TrackerId))
+        {
+            OnPropertyChanged(nameof(HasMultiworldTracker));
+
+            // A freshly (re-)configured tracker id has no data yet - and an
+            // id that just got cleared should stop showing stale progress
+            // from whatever room it used to point at.
+            MultiworldProgressError = null;
+            MultiworldProgress.Clear();
+            RaiseCombinedProgressChanged();
+
+            if (HasMultiworldTracker && IsSelected)
+            {
+                _ = RefreshMultiworldProgressAsync();
+            }
+        }
     }
 
     private void RaiseHintAggregatesChanged()
@@ -715,6 +992,30 @@ public partial class GroupViewModel : ViewModelBase
         // dropdown reflects "not connected") without re-entering
         // OnSelectedChatSlotChanged - nothing more to do here.
         _connectionManager.DisconnectGroupAsync(this);
+
+    /// <summary>
+    /// The explicit "get connected" action shown in place of Disconnect
+    /// while the group is offline (see <see cref="CanConnect"/>) - picking a
+    /// leader used to be possible only via the "Chat as" dropdown further
+    /// down (see <see cref="OnSelectedChatSlotChanged"/>), which isn't
+    /// discoverable as *the* way to connect at all when nothing is connected
+    /// yet. Picks the same slot startup would (see
+    /// <see cref="IConnectionManager.InitializeGroupAsync"/>): the group's
+    /// remembered <see cref="ServerConnectionGroup.PreferredLeaderSlotId"/>
+    /// if it still refers to a configured slot, else the first configured
+    /// slot. <see cref="SwitchLeaderAsync"/> itself sets both
+    /// AutoConnect/PreferredLeaderSlotId and triggers the sibling catch-up
+    /// sweep, same as connecting via the dropdown would.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanConnect))]
+    private Task ConnectAsync()
+    {
+        var preferredId = Group.PreferredLeaderSlotId;
+        var targetSlot = (preferredId is not null ? Group.Slots.FirstOrDefault(s => s.Id == preferredId.Value) : null)
+                          ?? Group.Slots.FirstOrDefault();
+
+        return targetSlot is null ? Task.CompletedTask : _connectionManager.SwitchLeaderAsync(this, targetSlot);
+    }
 
     [RelayCommand(CanExecute = nameof(IsLeaderConnected))]
     private async Task SendMessageAsync()

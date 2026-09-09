@@ -247,11 +247,16 @@ way first - each was a real bug with a specific root cause.
 - When a dialog or view needs a new mode/branch, prefer adding a bool
   computed property (`ShowXxx`) driven off an existing mode enum over a new
   code path - that's the established pattern in `ConnectionEditorViewModel`.
-- When you need to understand a NuGet dependency's behavior (e.g.
-  `Archipelago.MultiClient.Net`, `CommunityToolkit.Mvvm`, Avalonia itself),
-  never decompile the locally installed package DLL to figure it out.
-  Instead check that package's official documentation for the exact version
-  this project references (see the `.csproj` for the pinned version), and
-  only if that documentation doesn't cover it, look at its source on GitHub
-  (or wherever it's hosted) at the matching tag/version - not decompiled
-  output, not an unrelated/newer version's docs.
+- **Blanket rule for every NuGet package this project references** - not
+  just the three most-touched ones (`Archipelago.MultiClient.Net`,
+  `CommunityToolkit.Mvvm`, Avalonia itself), but any of them, including ones
+  only a `Feature-Plaene/*.md` doc proposes adding (e.g. Velopack): when you
+  need to understand a package's behavior, never decompile the locally
+  installed package DLL to figure it out. Instead check that package's
+  official documentation for the exact version this project references (see
+  the relevant `.csproj` for the pinned version), and only if that
+  documentation doesn't cover it, look at its source on GitHub (or wherever
+  it's hosted) at the matching tag/version - not decompiled output, not an
+  unrelated/newer version's docs. This applies to Avalonia itself just as
+  much as to `Archipelago.MultiClient.Net` - Avalonia being the UI framework
+  the whole app is built on doesn't make it exempt.

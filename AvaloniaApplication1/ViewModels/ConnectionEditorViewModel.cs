@@ -5,6 +5,7 @@ using System.ComponentModel;
 using System.Linq;
 using System.Threading.Tasks;
 using Archipolygo.Models;
+using Archipolygo.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -48,6 +49,12 @@ public class ConnectionEditorResult
 
     public bool AutoConnect { get; init; }
 
+    /// <summary>Tier 2 of Feature-Plaene/Fortschrittsanzeigen.md: exactly what the user typed - see <see cref="Models.ServerConnectionGroup.TrackerReferenceInput"/>.</summary>
+    public string? TrackerReferenceInput { get; init; }
+
+    /// <summary>The resolved tracker id, if any - see <see cref="Models.ServerConnectionGroup.TrackerId"/> and <see cref="ConnectionEditorViewModel.TryResolveTrackerReferenceAsync"/>.</summary>
+    public string? TrackerId { get; init; }
+
     /// <summary>
     /// <see cref="ConnectionEditorMode.AddSlot"/> only: every checked slot in
     /// the picker, each with its own optional per-slot password override
@@ -65,6 +72,20 @@ public class ConnectionEditorResult
     /// applicable.
     /// </summary>
     public Guid? PreferredLeaderSlotId { get; init; }
+
+    /// <summary>
+    /// <see cref="ConnectionEditorMode.EditGroup"/> only: every slot the user
+    /// clicked "✕" on in the slot-management list during this dialog session -
+    /// see <see cref="ConnectionEditorViewModel.RemoveConfiguredSlot"/>.
+    /// Staged, not applied until Save: clicking "✕" used to remove a slot
+    /// (and disconnect it, if it was the live leader) immediately, which
+    /// meant "make a different slot the default, then remove the old
+    /// leader" could disconnect the user mid-edit, before they'd even
+    /// clicked Save. Applying every removal here instead, in one batch, once
+    /// the whole edit is confirmed, means Cancel now actually cancels a
+    /// removal too - not just every other field in this dialog.
+    /// </summary>
+    public IReadOnlyList<SlotProfile> SlotsToRemove { get; init; } = Array.Empty<SlotProfile>();
 }
 
 /// <summary>
@@ -106,6 +127,35 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     [ObservableProperty]
     private bool _autoConnect;
 
+    /// <summary>
+    /// Tier 2 of Feature-Plaene/Fortschrittsanzeigen.md: the free-text field
+    /// accepting a bare tracker id, a tracker URL, or a room URL - see
+    /// <see cref="Services.TrackerReferenceParser"/>. Resolved into an actual
+    /// tracker id (see <see cref="Models.ServerConnectionGroup.TrackerId"/>)
+    /// by <see cref="TryResolveTrackerReferenceAsync"/>, which the view's
+    /// Save handler awaits before calling <see cref="TryBuildResult"/>.
+    /// </summary>
+    [ObservableProperty]
+    private string _trackerReferenceInput = string.Empty;
+
+    /// <summary>Whether a room-URL resolution (a <c>/room_status/...</c> call, via <see cref="_resolveTrackerId"/>) is currently in flight - lets the view show a brief loading state instead of looking stuck.</summary>
+    [ObservableProperty]
+    private bool _isResolvingTracker;
+
+    /// <summary>
+    /// Resolves a room id into a tracker id (a <c>/room_status/&lt;id&gt;</c>
+    /// call) - delegated to whoever opened the dialog (see
+    /// <see cref="ForNewGroup"/>/<see cref="ForEditGroup"/>), since this
+    /// lightweight dialog view model has no <c>IMultiworldTrackerService</c>
+    /// of its own. Null in every mode/call site that doesn't wire one up, in
+    /// which case a room URL simply can't be resolved here (see
+    /// <see cref="TryResolveTrackerReferenceAsync"/>).
+    /// </summary>
+    private Func<string, Task<string?>>? _resolveTrackerId;
+
+    /// <summary>Set once <see cref="TryResolveTrackerReferenceAsync"/> has run successfully - what actually flows into <see cref="ConnectionEditorResult.TrackerId"/>.</summary>
+    private string? _resolvedTrackerId;
+
     [ObservableProperty]
     private string? _validationError;
 
@@ -140,7 +190,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     /// <see cref="ConnectionEditorMode.EditGroup"/> only: every slot already
     /// configured on this server, for the slot-management list (default
     /// leader + remove per row) - see <see cref="ForEditGroup"/>,
-    /// <see cref="MakeDefaultLeader"/> and <see cref="RemoveConfiguredSlotAsync"/>.
+    /// <see cref="MakeDefaultLeader"/> and <see cref="RemoveConfiguredSlot"/>.
     /// </summary>
     public ObservableCollection<ConfiguredSlotRow> ConfiguredSlotRows { get; } = new();
 
@@ -154,14 +204,18 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     private Guid? _preferredLeaderSlotId;
 
     /// <summary>
+    /// Every slot clicked "✕" on so far this dialog session - see
+    /// <see cref="RemoveConfiguredSlot"/> and <see cref="ConnectionEditorResult.SlotsToRemove"/>.
     /// Removing a configured slot has a real side effect (disconnecting a
-    /// live leader) that this lightweight dialog view model has no way to
-    /// perform itself, so it's delegated to whoever opened the dialog (see
-    /// <see cref="ForEditGroup"/>) - unlike every other change here, this
-    /// takes effect immediately when clicked rather than waiting for Save,
-    /// since there's no clean way to "undo" a disconnect on Cancel.
+    /// live leader, if it's the current one) that this lightweight dialog
+    /// view model has no way to perform itself - unlike the old immediate-
+    /// removal design, though, that side effect is deliberately deferred to
+    /// Save (see <see cref="MainWindowViewModel.UpdateGroup"/>) rather than
+    /// applied the moment "✕" is clicked, so a same-session "make a
+    /// different slot the default, then remove the old leader" can no
+    /// longer disconnect the user mid-edit before they've even saved.
     /// </summary>
-    private Func<SlotProfile, Task>? _removeSlotAsync;
+    private readonly List<SlotProfile> _slotsToRemove = new();
 
     public ConnectionEditorMode Mode { get; private init; }
 
@@ -179,6 +233,9 @@ public partial class ConnectionEditorViewModel : ViewModelBase
 
     /// <summary>Auto-connect is a server-level setting; not relevant when only adding slots to one.</summary>
     public bool ShowAutoConnect => Mode != ConnectionEditorMode.AddSlot;
+
+    /// <summary>Tier 2 of Feature-Plaene/Fortschrittsanzeigen.md is a server-level setting too, same reasoning as <see cref="ShowAutoConnect"/> - not relevant when only adding slots to an existing server.</summary>
+    public bool ShowMultiworldTracker => Mode != ConnectionEditorMode.AddSlot;
 
     public string DialogTitle => Mode switch
     {
@@ -210,11 +267,15 @@ public partial class ConnectionEditorViewModel : ViewModelBase
 
     partial void OnSearchTextChanged(string value) => RefreshFilter();
 
-    public static ConnectionEditorViewModel ForNewGroup(bool defaultAutoConnect = false, IReadOnlyList<ServerConnectionGroup>? existingGroups = null) => new()
+    public static ConnectionEditorViewModel ForNewGroup(
+        bool defaultAutoConnect = false,
+        IReadOnlyList<ServerConnectionGroup>? existingGroups = null,
+        Func<string, Task<string?>>? resolveTrackerId = null) => new()
     {
         Mode = ConnectionEditorMode.NewGroup,
         AutoConnect = defaultAutoConnect,
-        _existingGroups = existingGroups ?? Array.Empty<ServerConnectionGroup>()
+        _existingGroups = existingGroups ?? Array.Empty<ServerConnectionGroup>(),
+        _resolveTrackerId = resolveTrackerId
     };
 
     /// <summary>
@@ -253,17 +314,10 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         return viewModel;
     }
 
-    /// <param name="removeSlotAsync">
-    /// Called (by <see cref="RemoveConfiguredSlotAsync"/>) with the slot the
-    /// user clicked "✕" on, to actually remove it - including disconnecting
-    /// it first if it's the current leader - since this lightweight dialog
-    /// view model has no <c>IConnectionManager</c>/<c>MainWindowViewModel</c>
-    /// of its own to do that with.
-    /// </param>
     public static ConnectionEditorViewModel ForEditGroup(
         ServerConnectionGroup group,
-        Func<SlotProfile, Task> removeSlotAsync,
-        IReadOnlyList<ServerConnectionGroup>? existingGroups = null)
+        IReadOnlyList<ServerConnectionGroup>? existingGroups = null,
+        Func<string, Task<string?>>? resolveTrackerId = null)
     {
         var viewModel = new ConnectionEditorViewModel
         {
@@ -273,9 +327,11 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             Password = group.Password,
             AutoConnect = group.AutoConnect,
             PreferredLeaderSlotId = group.PreferredLeaderSlotId,
+            TrackerReferenceInput = group.TrackerReferenceInput ?? string.Empty,
             _targetGroup = group,
-            _removeSlotAsync = removeSlotAsync,
-            _existingGroups = existingGroups ?? Array.Empty<ServerConnectionGroup>()
+            _existingGroups = existingGroups ?? Array.Empty<ServerConnectionGroup>(),
+            _resolveTrackerId = resolveTrackerId,
+            _resolvedTrackerId = group.TrackerId
         };
 
         // Default leader first, then alphabetical - same ordering rule as
@@ -392,25 +448,87 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Actually removes a configured slot right away (see <see cref="_removeSlotAsync"/>)
-    /// and drops its row from the list. If the removed slot was the default
-    /// leader, that preference is cleared too rather than silently pointing
-    /// at a slot that no longer exists.
+    /// Stages a configured slot for removal (see <see cref="_slotsToRemove"/>)
+    /// and drops its row from the list right away, so the dialog reflects
+    /// the pending change - but the actual removal (and any disconnect it
+    /// triggers, if this was the live leader) only happens on Save, via
+    /// <see cref="ConnectionEditorResult.SlotsToRemove"/>. If the removed
+    /// slot was the default leader, that preference is cleared too rather
+    /// than silently pointing at a slot that's about to no longer exist.
     /// </summary>
     [RelayCommand]
-    private async Task RemoveConfiguredSlotAsync(ConfiguredSlotRow row)
+    private void RemoveConfiguredSlot(ConfiguredSlotRow row)
     {
-        if (_removeSlotAsync is null)
-        {
-            return;
-        }
-
-        await _removeSlotAsync(row.Slot);
+        _slotsToRemove.Add(row.Slot);
         ConfiguredSlotRows.Remove(row);
 
         if (row.IsDefaultLeader)
         {
             PreferredLeaderSlotId = null;
+        }
+    }
+
+    /// <summary>
+    /// Resolves <see cref="TrackerReferenceInput"/> (Tier 2 of Feature-Plaene/Fortschrittsanzeigen.md)
+    /// into <see cref="_resolvedTrackerId"/>, which <see cref="TryBuildResult"/>
+    /// then reads. Must be awaited by the view's Save handler *before* calling
+    /// <see cref="TryBuildResult"/>, since resolving a room URL needs a
+    /// network round-trip that plain synchronous validation can't do. An
+    /// empty field is not an error - it just means Tier 2 stays disabled for
+    /// this group. Sets <see cref="ValidationError"/> and returns false on
+    /// any failure, same convention as <see cref="TryBuildResult"/>.
+    /// </summary>
+    public async Task<bool> TryResolveTrackerReferenceAsync()
+    {
+        if (!ShowMultiworldTracker)
+        {
+            _resolvedTrackerId = null;
+            return true;
+        }
+
+        var input = TrackerReferenceInput.Trim();
+        if (input.Length == 0)
+        {
+            _resolvedTrackerId = null;
+            return true;
+        }
+
+        if (!TrackerReferenceParser.TryParseTrackerReference(input, out var kind, out var value))
+        {
+            ValidationError = "Could not recognize this as a tracker id, tracker URL, or room URL.";
+            return false;
+        }
+
+        if (kind == TrackerReferenceKind.TrackerId)
+        {
+            ValidationError = null;
+            _resolvedTrackerId = value;
+            return true;
+        }
+
+        if (_resolveTrackerId is null)
+        {
+            ValidationError = "Cannot resolve a room URL right now.";
+            return false;
+        }
+
+        IsResolvingTracker = true;
+        try
+        {
+            var resolved = await _resolveTrackerId(value);
+            if (resolved is null)
+            {
+                ValidationError = "Could not find a tracker for that room - check the URL, or that the room is hosted via a webhost.";
+                return false;
+            }
+
+            ValidationError = null;
+            _resolvedTrackerId = resolved;
+            return true;
+        }
+        finally
+        {
+            IsResolvingTracker = false;
         }
     }
 
@@ -490,7 +608,10 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             SlotName = slotName,
             AutoConnect = AutoConnect,
             SlotsToAdd = slotsToAdd,
-            PreferredLeaderSlotId = PreferredLeaderSlotId
+            PreferredLeaderSlotId = PreferredLeaderSlotId,
+            SlotsToRemove = _slotsToRemove,
+            TrackerReferenceInput = ShowMultiworldTracker ? TrackerReferenceInput.Trim() : null,
+            TrackerId = ShowMultiworldTracker ? _resolvedTrackerId : null
         };
         return true;
     }

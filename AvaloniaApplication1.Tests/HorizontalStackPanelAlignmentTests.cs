@@ -1,4 +1,5 @@
 using System.Linq;
+using Archipolygo.Services;
 using Archipolygo.TestSupport;
 using Archipolygo.ViewModels;
 using Archipolygo.Views;
@@ -27,7 +28,7 @@ public class HorizontalStackPanelAlignmentTests
     public void StatusRow_HostPortTextBlock_IsVerticallyCenteredWithDisconnectButton()
     {
         var connectionManager = new FakeConnectionManager();
-        var mainWindowViewModel = new MainWindowViewModel(new FakePersistenceService(), connectionManager);
+        var mainWindowViewModel = new MainWindowViewModel(new FakePersistenceService(), connectionManager, new MultiworldTrackerService());
         mainWindowViewModel.AddNewGroup("Server1", "host1", 12345, string.Empty, "Alice", autoConnect: false);
         var group = mainWindowViewModel.Groups[0];
 
