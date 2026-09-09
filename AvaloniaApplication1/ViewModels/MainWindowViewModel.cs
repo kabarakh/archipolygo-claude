@@ -16,6 +16,15 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly IConnectionManager _connectionManager;
     private readonly IMultiworldTrackerService _multiworldTrackerService;
 
+    /// <summary>
+    /// Optional - null in every existing test construction site that doesn't
+    /// care about Feature-Plaene/Auto-Update.md, same "purely additive
+    /// dependency" reasoning as <see cref="GroupViewModel"/>'s own
+    /// <c>IMultiworldTrackerService?</c>. Null just means the startup check
+    /// and "Update now"/"Check for updates" actions all silently no-op.
+    /// </summary>
+    private readonly IUpdateService? _updateService;
+
     public ObservableCollection<GroupViewModel> Groups { get; } = new();
 
     [ObservableProperty]
@@ -63,7 +72,7 @@ public partial class MainWindowViewModel : ViewModelBase
     /// DI container as explicit singletons instead.
     /// </summary>
     public MainWindowViewModel()
-        : this(new PersistenceService(), CreateDesignTimeConnectionManager(), new MultiworldTrackerService())
+        : this(new PersistenceService(), CreateDesignTimeConnectionManager(), new MultiworldTrackerService(), new UpdateService())
     {
     }
 
@@ -81,11 +90,12 @@ public partial class MainWindowViewModel : ViewModelBase
     /// Also directly usable by tests that need to substitute either
     /// dependency with a fake/mock.
     /// </summary>
-    public MainWindowViewModel(IPersistenceService persistenceService, IConnectionManager connectionManager, IMultiworldTrackerService multiworldTrackerService)
+    public MainWindowViewModel(IPersistenceService persistenceService, IConnectionManager connectionManager, IMultiworldTrackerService multiworldTrackerService, IUpdateService? updateService = null)
     {
         _persistenceService = persistenceService;
         _connectionManager = connectionManager;
         _multiworldTrackerService = multiworldTrackerService;
+        _updateService = updateService;
 
         // Keeps AutoConnect/PreferredLeaderSlotId changes made by
         // ConnectionManager itself (see IConnectionManager.GroupPersistNeeded)
@@ -130,6 +140,71 @@ public partial class MainWindowViewModel : ViewModelBase
         // configured slot at once would otherwise hit all of them with a
         // burst of simultaneous handshakes.
         _ = InitializeGroupsAsync();
+
+        // Fire-and-forget, after everything else above - never blocks
+        // startup, never crashes it either (see IUpdateService's own "never
+        // throws" contract). Deliberately no visible "checking..." state for
+        // this one - unlike the Settings dialog's own "Check for updates"
+        // button, nobody explicitly asked for this to happen, so there's
+        // nothing to show progress for; the small dot next to "Settings..."
+        // (see MainWindow.axaml) either quietly appears once this resolves,
+        // or it doesn't.
+        _ = CheckForUpdatesAsync();
+    }
+
+    /// <summary>Whether a new version is available - drives the small dot next to the "Settings..." button in MainWindow.axaml.</summary>
+    [ObservableProperty]
+    private bool _isUpdateAvailable;
+
+    /// <summary>The new version's display string, if <see cref="IsUpdateAvailable"/> - shown in the update Flyout.</summary>
+    [ObservableProperty]
+    private string? _newUpdateVersion;
+
+    /// <summary>
+    /// Whether to show the Settings dialog's "you're on an unmanaged install"
+    /// hint (see <see cref="SettingsViewModel.ShowUnmanagedInstallHint"/>) -
+    /// true only when auto-update could plausibly work here (this platform
+    /// has a Velopack package at all - see <see cref="IUpdateService.SupportsManagedInstall"/>,
+    /// false on macOS) but doesn't right now, because this particular install
+    /// isn't Velopack-managed (a manually downloaded/unzipped build - see
+    /// <see cref="IUpdateService.IsManagedInstall"/>). Never changes for the
+    /// life of the running process, same as <see cref="AppVersionInfo.Current"/> -
+    /// no <c>[ObservableProperty]</c> needed.
+    /// </summary>
+    public bool ShowUnmanagedInstallHint =>
+        _updateService is not null && _updateService.SupportsManagedInstall && !_updateService.IsManagedInstall;
+
+    /// <summary>
+    /// Checks for an update (see <see cref="IUpdateService.CheckForUpdatesAsync"/>)
+    /// and updates <see cref="IsUpdateAvailable"/>/<see cref="NewUpdateVersion"/>
+    /// accordingly - called once at startup, and again from the Settings
+    /// dialog's own "Check for updates" button, so either path keeps the
+    /// badge current. No-op (never available) if no <see cref="IUpdateService"/>
+    /// was supplied at all.
+    /// </summary>
+    public async Task<string?> CheckForUpdatesAsync()
+    {
+        if (_updateService is null)
+        {
+            return null;
+        }
+
+        var version = await _updateService.CheckForUpdatesAsync();
+        NewUpdateVersion = version;
+        IsUpdateAvailable = version is not null;
+        return version;
+    }
+
+    /// <summary>Downloads and applies whatever update was last found, restarting the app into it - see <see cref="IUpdateService.DownloadAndApplyUpdateAsync"/>.</summary>
+    [RelayCommand]
+    private async Task UpdateNowAsync()
+    {
+        if (_updateService is null)
+        {
+            return;
+        }
+
+        await _updateService.DownloadAndApplyUpdateAsync();
     }
 
     /// <summary>

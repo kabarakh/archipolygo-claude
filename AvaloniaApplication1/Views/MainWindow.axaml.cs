@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
@@ -72,9 +73,23 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Feature-Plaene/Auto-Update.md's update-available dot - a plain
+    /// <c>Border</c>, not a <c>Button</c> (no <c>Click</c> event of its own),
+    /// so this opens its attached Flyout directly off the lower-level
+    /// pointer event instead.
+    /// </summary>
+    private void OnUpdateBadgeClick(object? sender, PointerPressedEventArgs e)
+    {
+        if (sender is Control control)
+        {
+            FlyoutBase.ShowAttachedFlyout(control);
+        }
+    }
+
     private async void OnSettingsClick(object? sender, RoutedEventArgs e)
     {
-        var settingsViewModel = SettingsViewModel.FromSettings(ViewModel.LoadSettings());
+        var settingsViewModel = SettingsViewModel.FromSettings(ViewModel.LoadSettings(), ViewModel.CheckForUpdatesAsync, ViewModel.ShowUnmanagedInstallHint);
         var settings = await SettingsWindow.ShowDialogAsync(this, settingsViewModel);
         if (settings is not null)
         {

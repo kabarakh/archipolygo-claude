@@ -32,4 +32,51 @@ public class SettingsWindowTests
 
         Assert.NotNull(versionText);
     }
+
+    /// <summary>
+    /// Feature-Plaene/Auto-Update.md: the default (managed-install-or-macOS)
+    /// case - "Check for updates" is the normal, clickable path, and the
+    /// unmanaged-install hint is nowhere to be seen.
+    /// </summary>
+    [AvaloniaFact]
+    public void SettingsWindow_ManagedInstall_ShowsCheckForUpdatesButton_NoHint()
+    {
+        var viewModel = SettingsViewModel.FromSettings(new AppSettings(), showUnmanagedInstallHint: false);
+        var window = new SettingsWindow { DataContext = viewModel };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var checkButton = window.GetVisualDescendants().OfType<Button>()
+            .FirstOrDefault(b => Equals(b.Content, "Check for updates"));
+        Assert.NotNull(checkButton);
+        Assert.True(checkButton!.IsEffectivelyVisible);
+
+        var hint = window.GetVisualDescendants().OfType<TextBlock>()
+            .FirstOrDefault(t => t.Text is not null && t.Text.Contains("manually downloaded build"));
+        Assert.False(hint?.IsEffectivelyVisible ?? false);
+    }
+
+    /// <summary>The unmanaged-install case - the hint replaces "Check for updates" entirely, not just alongside it.</summary>
+    [AvaloniaFact]
+    public void SettingsWindow_UnmanagedInstall_ShowsHint_HidesCheckForUpdatesButton()
+    {
+        var viewModel = SettingsViewModel.FromSettings(new AppSettings(), showUnmanagedInstallHint: true);
+        var window = new SettingsWindow { DataContext = viewModel };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var checkButton = window.GetVisualDescendants().OfType<Button>()
+            .FirstOrDefault(b => Equals(b.Content, "Check for updates"));
+        Assert.False(checkButton?.IsEffectivelyVisible ?? false);
+
+        var hint = window.GetVisualDescendants().OfType<TextBlock>()
+            .FirstOrDefault(t => t.Text is not null && t.Text.Contains("manually downloaded build"));
+        Assert.NotNull(hint);
+        Assert.True(hint!.IsEffectivelyVisible);
+
+        // The version number is still shown somewhere - just not in the
+        // now-hidden "Check for updates" row.
+        var expectedVersionText = $"Version {AppVersionInfo.Current}";
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == expectedVersionText && t.IsEffectivelyVisible);
+    }
 }

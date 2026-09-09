@@ -4,7 +4,11 @@ name: Release builds
 # published, not left as a draft) - not on every push/tag, so ordinary
 # development doesn't trigger a build. Each publish produces one self-
 # contained, single-file build per OS and attaches it to that same release
-# as a downloadable .zip.
+# as a downloadable .zip - plus, for Windows and Linux only, a second set of
+# Velopack-packaged assets (see Feature-Plaene/Auto-Update.md) that
+# Services/UpdateService.cs's in-app update check reads. macOS deliberately
+# keeps the .zip only, no Velopack package - see the win/linux-only steps
+# below for why.
 on:
   release:
     types: [published]
@@ -25,10 +29,19 @@ jobs:
   build:
     name: Build (${{ matrix.asset_name }})
     needs: test
-    # A single ubuntu runner builds all three OS targets - .NET's
+    # A single ubuntu runner builds all four OS targets - .NET's
     # self-contained publish is cross-compiling by design (it just downloads
     # the target OS's runtime pack from NuGet), so no actual Windows/macOS
-    # runner is needed just to produce those builds.
+    # runner is needed just to produce those builds. Velopack's own
+    # packaging step (vpk pack, below) can also target Windows and Linux
+    # from this same Linux runner - but NOT macOS, which has hard
+    # dependencies on codesign/xcrun/productbuild that only exist on a real
+    # macOS machine. Adding that would need an actual macos-latest runner
+    # (a real cost/quota difference - GitHub Actions' free macOS minutes are
+    # far more limited than Linux's) and, per Velopack's own docs, working
+    # code signing/notarization just for the packaged app to run at all -
+    # both out of scope here; see Feature-Plaene/Auto-Update.md. macOS users
+    # keep exactly the same manual .zip download/update flow as today.
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -36,12 +49,25 @@ jobs:
         include:
           - rid: win-x64
             asset_name: windows-x64
+            velopack_directive: "[win]"
+            velopack_main_exe: Archipolygo.exe
           - rid: linux-x64
             asset_name: linux-x64
+            velopack_directive: "[linux]"
+            velopack_main_exe: Archipolygo
+          # Explicit empty strings (not just omitted keys) for the two
+          # Velopack-only fields - GitHub Actions expressions can coerce a
+          # missing/null property and an empty string differently in a
+          # `!= ''` comparison, so every step's `if:` guard below compares
+          # string-to-string unambiguously either way.
           - rid: osx-x64
             asset_name: macos-x64
+            velopack_directive: ""
+            velopack_main_exe: ""
           - rid: osx-arm64
             asset_name: macos-arm64
+            velopack_directive: ""
+            velopack_main_exe: ""
 
     steps:
       - name: Checkout
@@ -84,7 +110,10 @@ jobs:
       # zip (not PowerShell's Compress-Archive, even for the Windows build -
       # this all still runs on the ubuntu runner) so the Linux/macOS
       # executable's +x bit is preserved inside the archive and survives an
-      # unzip on those platforms.
+      # unzip on those platforms. Unchanged for every RID, including the two
+      # that also get a Velopack package below - a manually-downloading user
+      # (or a macOS one, who never gets a Velopack package at all) sees no
+      # difference from before this feature existed.
       - name: Package ${{ matrix.rid }} build
         run: |
           cd publish/${{ matrix.rid }}
@@ -95,5 +124,78 @@ jobs:
         with:
           tag_name: ${{ github.event.release.tag_name }}
           files: Archipolygo-${{ github.event.release.tag_name }}-${{ matrix.asset_name }}.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ---- Everything below is Velopack-only, win-x64/linux-x64 only ----
+      # (matrix.velopack_directive is only set on those two entries above -
+      # every step here no-ops for osx-x64/osx-arm64).
+
+      # Velopack requires a strict SemVer2 --packVersion, unlike the free-form
+      # tag name -p:InformationalVersion above accepts - strips a leading "v"
+      # (the common "v1.2.3" tag convention) so an already-numeric tag just
+      # works; anything else still reaches vpk pack below, which then fails
+      # only that step (see continue-on-error) rather than the whole release -
+      # see Feature-Plaene/Auto-Update.md's open question about tag naming.
+      - name: Compute Velopack-safe version (${{ matrix.rid }})
+        if: matrix.velopack_directive != ''
+        id: velopack_version
+        shell: bash
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      # A separate publish, not a reuse of publish/${{ matrix.rid }} above -
+      # Velopack's own install/update mechanism (diffing individual files,
+      # its own installer stub) wants the plain multi-file self-contained
+      # output, not the single-file bundle the .zip uses.
+      - name: Publish for Velopack (${{ matrix.rid }})
+        if: matrix.velopack_directive != ''
+        run: >
+          dotnet publish AvaloniaApplication1/AvaloniaApplication1.csproj
+          -c Release
+          -r ${{ matrix.rid }}
+          --self-contained true
+          -p:DebugType=none
+          -p:InformationalVersion=${{ github.event.release.tag_name }}
+          -o publish-velopack/${{ matrix.rid }}
+
+      - name: Install vpk
+        if: matrix.velopack_directive != ''
+        run: dotnet tool install -g vpk
+
+      # --packId must stay the same across every release ever published -
+      # it's how Velopack's own update feed groups versions together.
+      # --channel is left at its default (the target OS's short name, "win"/
+      # "linux") so the two never collide in the same release's feed.
+      # continue-on-error: a bad tag name (see the version step above), or
+      # any other packaging hiccup, only skips this one asset rather than
+      # failing the whole release - the .zip for this RID has already been
+      # attached above regardless.
+      - name: Velopack pack (${{ matrix.rid }})
+        if: matrix.velopack_directive != ''
+        continue-on-error: true
+        run: >
+          vpk ${{ matrix.velopack_directive }} pack
+          --packId Archipolygo
+          --packTitle Archipolygo
+          --packVersion ${{ steps.velopack_version.outputs.version }}
+          --packDir publish-velopack/${{ matrix.rid }}
+          --mainExe ${{ matrix.velopack_main_exe }}
+          --runtime ${{ matrix.rid }}
+          --outputDir velopack-releases/${{ matrix.rid }}
+
+      # Attaches whatever vpk pack produced (full .nupkg, portable .zip,
+      # releases.{channel}.json, and a Setup.exe on Windows / .AppImage on
+      # Linux) to this same release, the same way as the plain .zip above -
+      # this is what Services/UpdateService.cs's GithubSource reads to learn
+      # about new releases and download them.
+      - name: Attach Velopack release (${{ matrix.rid }})
+        if: matrix.velopack_directive != ''
+        continue-on-error: true
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          files: velopack-releases/${{ matrix.rid }}/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
