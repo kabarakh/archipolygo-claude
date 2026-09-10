@@ -25,4 +25,22 @@ public interface IPersistenceService
     AppSettings LoadSettings();
 
     void SaveSettings(AppSettings settings);
+
+    /// <summary>
+    /// The cached item-name vocabulary for <paramref name="game"/>, scoped to
+    /// <paramref name="groupId"/> (see <see cref="Models.DataPackageCacheEntry"/>) -
+    /// null if nothing is cached yet, or the cache file is missing/corrupted.
+    /// </summary>
+    DataPackageCacheEntry? LoadDataPackageCache(Guid groupId, string game);
+
+    void SaveDataPackageCache(Guid groupId, string game, DataPackageCacheEntry entry);
+
+    /// <summary>
+    /// Deletes every cached game's <see cref="DataPackageCacheEntry"/> for
+    /// <paramref name="groupId"/> - called when that server is removed
+    /// entirely (see <c>MainWindowViewModel.RemoveSelectedGroupAsync</c>), so
+    /// removed servers don't leave orphaned cache files behind forever.
+    /// No-op if nothing was ever cached for this group.
+    /// </summary>
+    void DeleteDataPackageCacheForGroup(Guid groupId);
 }

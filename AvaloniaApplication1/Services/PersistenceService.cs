@@ -46,6 +46,7 @@ public class PersistenceService : IPersistenceService
 
     private readonly string _syncStateDirectory;
     private readonly string _settingsFilePath;
+    private readonly string _dataPackageCacheDirectory;
 
     public PersistenceService()
         : this(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Archipolygo"))
@@ -67,9 +68,13 @@ public class PersistenceService : IPersistenceService
         _legacyProfilesFilePath = Path.Combine(_appDataDirectory, "profiles.json");
         _syncStateDirectory = Path.Combine(_appDataDirectory, "sync-state");
         _settingsFilePath = Path.Combine(_appDataDirectory, "settings.json");
+        _dataPackageCacheDirectory = Path.Combine(_appDataDirectory, "datapackage-cache");
 
         Directory.CreateDirectory(_appDataDirectory);
         Directory.CreateDirectory(_syncStateDirectory);
+        // Not _dataPackageCacheDirectory itself - created lazily per group in
+        // SaveDataPackageCache, since most groups never end up needing one
+        // (Item mode in the Hint picker may never be opened for them).
     }
 
     public List<ServerConnectionGroup> LoadGroups()
@@ -153,6 +158,74 @@ public class PersistenceService : IPersistenceService
     {
         var json = JsonSerializer.Serialize(settings, JsonOptions);
         File.WriteAllText(_settingsFilePath, json);
+    }
+
+    public DataPackageCacheEntry? LoadDataPackageCache(Guid groupId, string game)
+    {
+        var path = GetDataPackageCacheFilePath(groupId, game);
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            var json = File.ReadAllText(path);
+            return JsonSerializer.Deserialize<DataPackageCacheEntry>(json, JsonOptions);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    public void SaveDataPackageCache(Guid groupId, string game, DataPackageCacheEntry entry)
+    {
+        var path = GetDataPackageCacheFilePath(groupId, game);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var json = JsonSerializer.Serialize(entry, JsonOptions);
+        File.WriteAllText(path, json);
+    }
+
+    public void DeleteDataPackageCacheForGroup(Guid groupId)
+    {
+        var groupDirectory = Path.Combine(_dataPackageCacheDirectory, groupId.ToString());
+        try
+        {
+            if (Directory.Exists(groupDirectory))
+            {
+                Directory.Delete(groupDirectory, recursive: true);
+            }
+        }
+        catch (Exception)
+        {
+            // Best-effort cleanup - an orphaned cache folder is harmless
+            // clutter, not worth failing the actual group removal over.
+        }
+    }
+
+    /// <summary>
+    /// One file per (group, game) rather than one shared file per group, so a
+    /// single corrupted/partially-written entry (e.g. app killed mid-write)
+    /// can't take down every other cached game for that same server -
+    /// consistent with <see cref="LoadDataPackageCache"/>/<see cref="LoadSyncState"/>
+    /// both tolerating a corrupt file by falling back rather than throwing.
+    /// <paramref name="game"/> is sanitized since it's server-controlled,
+    /// arbitrary text (an Archipelago game name), not something this app
+    /// generates itself the way a <see cref="Guid"/> is.
+    /// </summary>
+    private string GetDataPackageCacheFilePath(Guid groupId, string game) =>
+        Path.Combine(_dataPackageCacheDirectory, groupId.ToString(), $"{SanitizeFileName(game)}.json");
+
+    private static string SanitizeFileName(string name)
+    {
+        var sanitized = name;
+        foreach (var invalidChar in Path.GetInvalidFileNameChars())
+        {
+            sanitized = sanitized.Replace(invalidChar, '_');
+        }
+
+        return sanitized;
     }
 
     /// <summary>

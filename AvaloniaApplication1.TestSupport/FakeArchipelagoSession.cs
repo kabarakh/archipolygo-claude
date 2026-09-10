@@ -79,12 +79,21 @@ public sealed class FakeArchipelagoSession : IArchipelagoSession
     }
 
     /// <summary>
+    /// Settable - what <see cref="ConnectAsync"/> resolves with. Defaults to
+    /// null (every existing Kategorie B test that doesn't care); a test
+    /// exercising <c>ConnectionManager.GetHintableItemsAsync</c>'s checksum
+    /// cache (Feature-Plaene/Archiv/Hint-Eingabefeld.md) sets this to a
+    /// <see cref="RoomInfoPacket"/> with a populated <c>DataPackageChecksums</c>.
+    /// </summary>
+    public RoomInfoPacket? RoomInfoToReturn { get; set; }
+
+    /// <summary>
     /// Always completes immediately - only <see cref="LoginAsync"/> is a
     /// deliberate control point (see the class doc comment); every Kategorie
     /// B scenario the plan describes hinges on when *login* resolves, not
     /// the socket-level connect underneath it.
     /// </summary>
-    public Task<RoomInfoPacket> ConnectAsync() => Task.FromResult<RoomInfoPacket>(null!);
+    public Task<RoomInfoPacket> ConnectAsync() => Task.FromResult<RoomInfoPacket>(RoomInfoToReturn!);
 
     public Task<LoginResult> LoginAsync(string game, string name, ItemsHandlingFlags itemsHandlingFlags,
         Version? version = null, string[]? tags = null, string? uuid = null, string? password = null, bool requestSlotData = true) =>
@@ -109,8 +118,12 @@ public sealed class FakeArchipelagoSession : IArchipelagoSession
 /// Fake <see cref="IArchipelagoSocketHelper"/> - only <see cref="SocketClosed"/>
 /// (a test fires this to simulate an unexpected drop),
 /// <see cref="ErrorReceived"/> (subscribed to but never raised in Kategorie B),
-/// and <see cref="DisconnectAsync"/> (recorded via <see cref="DisconnectCallCount"/>,
-/// so a test can assert a session was actually torn down) have real behavior.
+/// <see cref="DisconnectAsync"/> (recorded via <see cref="DisconnectCallCount"/>,
+/// so a test can assert a session was actually torn down), <see cref="SendPacket"/>
+/// (recorded via <see cref="SentPackets"/> - see
+/// <c>ConnectionManagerDataPackageTests</c>, Feature-Plaene/Archiv/Hint-Eingabefeld.md)
+/// and <see cref="RaisePacketReceived"/> (a test simulating the server's
+/// response to one of those) have real behavior.
 /// </summary>
 public sealed class FakeArchipelagoSocketHelper : IArchipelagoSocketHelper
 {
@@ -126,9 +139,15 @@ public sealed class FakeArchipelagoSocketHelper : IArchipelagoSocketHelper
 
     public int DisconnectCallCount { get; private set; }
 
-    public void SendPacket(ArchipelagoPacketBase packet) => throw new NotImplementedException();
+    /// <summary>Every packet <see cref="SendPacket"/> was called with, in order.</summary>
+    public List<ArchipelagoPacketBase> SentPackets { get; } = new();
+
+    public void SendPacket(ArchipelagoPacketBase packet) => SentPackets.Add(packet);
     public void SendMultiplePackets(List<ArchipelagoPacketBase> packets) => throw new NotImplementedException();
     public void SendMultiplePackets(params ArchipelagoPacketBase[] packets) => throw new NotImplementedException();
+
+    /// <summary>Simulates the server sending a packet (e.g. a <c>DataPackagePacket</c> reply to a <c>GetDataPackagePacket</c>).</summary>
+    public void RaisePacketReceived(ArchipelagoPacketBase packet) => PacketReceived?.Invoke(packet);
 
     public Task ConnectAsync() => throw new NotImplementedException();
 

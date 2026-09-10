@@ -285,4 +285,29 @@ public sealed class FakeConnectionManager : IConnectionManager
         SentItemHints.Add((slot.Id, itemName));
         return Task.CompletedTask;
     }
+
+    /// <summary>Settable via <see cref="SetHintableItems"/> - see Feature-Plaene/Archiv/Hint-Eingabefeld.md's "Status" section for what this replaced.</summary>
+    private readonly Dictionary<Guid, List<string>> _hintableItemsBySlot = new();
+
+    /// <summary>How many times <see cref="GetHintableItemsAsync"/> was called, total across every slot - lets a test confirm <c>HintPickerViewModel</c> doesn't needlessly re-fetch (e.g. just toggling the exclude checkbox).</summary>
+    public int GetHintableItemsCallCount { get; private set; }
+
+    public void SetHintableItems(SlotProfile slot, IReadOnlyList<string> itemNames) =>
+        _hintableItemsBySlot[slot.Id] = itemNames.ToList();
+
+    public Task<IReadOnlyList<string>> GetHintableItemsAsync(GroupViewModel group, SlotProfile slot)
+    {
+        GetHintableItemsCallCount++;
+        return Task.FromResult<IReadOnlyList<string>>(
+            _hintableItemsBySlot.TryGetValue(slot.Id, out var items) ? items : Array.Empty<string>());
+    }
+
+    /// <summary>Every (group, slot) pair <see cref="ReleaseHeldSessionAsync"/> was called with, in order - lets a test confirm <c>HintPickerViewModel</c> releases the right slot at the right time (slot switch, picker close).</summary>
+    public List<SlotProfile> ReleasedHeldSessionSlots { get; } = new();
+
+    public Task ReleaseHeldSessionAsync(GroupViewModel group, SlotProfile slot)
+    {
+        ReleasedHeldSessionSlots.Add(slot);
+        return Task.CompletedTask;
+    }
 }

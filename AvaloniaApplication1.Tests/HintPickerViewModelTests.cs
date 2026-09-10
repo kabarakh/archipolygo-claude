@@ -148,6 +148,69 @@ public class HintPickerViewModelTests
         Assert.DoesNotContain("Compass", namesAfterExclude);
     }
 
+    /// <summary>
+    /// Dev-reported bug fix (see Feature-Plaene/Archiv/Hint-Eingabefeld.md's
+    /// "Status" section): the candidate pool used to be *only* received/hinted
+    /// names - since that made "exclude already found/hinted" pointless (the
+    /// whole pool was already nothing but found/hinted items). Now it's the
+    /// game's full DataPackage item list (<see cref="FakeConnectionManager.SetHintableItems"/>),
+    /// which must include names the slot has never received or been hinted
+    /// at all.
+    /// </summary>
+    [Fact]
+    public void ItemMode_CandidatePool_IncludesGameItemsNeverReceivedOrHinted()
+    {
+        var (viewModel, group, manager) = MakeGroup("Alice");
+        var alice = group.Slots[0];
+
+        manager.SetHintableItems(alice, new[] { "Fire Rod", "Ice Rod", "Cane of Somaria" });
+        viewModel.ReceivedItems.Add(ReceivedItem(alice, "Fire Rod"));
+
+        viewModel.HintPicker.OnOpened();
+
+        Assert.Equal(
+            new[] { "Cane of Somaria", "Fire Rod", "Ice Rod" },
+            viewModel.HintPicker.FilteredRows.Select(r => r.Name));
+    }
+
+    /// <summary>
+    /// The exact "checkbox makes no sense" complaint: with the old
+    /// received/hinted-only pool, every row was already found/hinted, so
+    /// checking "exclude" hid everything. With the full game item list, most
+    /// rows are neither received nor hinted at all - the checkbox must leave
+    /// those completely alone.
+    /// </summary>
+    [Fact]
+    public void ItemMode_ExcludeCheckbox_NeverHidesItemsNeverReceivedOrHinted()
+    {
+        var (viewModel, group, manager) = MakeGroup("Alice");
+        var alice = group.Slots[0];
+
+        manager.SetHintableItems(alice, new[] { "Fire Rod", "Ice Rod", "Cane of Somaria" });
+        viewModel.ReceivedItems.Add(ReceivedItem(alice, "Fire Rod")); // the only one actually resolved
+
+        viewModel.HintPicker.OnOpened();
+        viewModel.HintPicker.ExcludeAlreadyFoundOrHinted = true;
+
+        Assert.Equal(new[] { "Cane of Somaria", "Ice Rod" }, viewModel.HintPicker.FilteredRows.Select(r => r.Name));
+    }
+
+    [Fact]
+    public void ItemMode_TogglingExcludeCheckbox_ReFiltersWithoutRefetching()
+    {
+        var (viewModel, group, manager) = MakeGroup("Alice");
+        var alice = group.Slots[0];
+        manager.SetHintableItems(alice, new[] { "Fire Rod" });
+
+        viewModel.HintPicker.OnOpened();
+        Assert.Equal(1, manager.GetHintableItemsCallCount);
+
+        viewModel.HintPicker.ExcludeAlreadyFoundOrHinted = true;
+        viewModel.HintPicker.ExcludeAlreadyFoundOrHinted = false;
+
+        Assert.Equal(1, manager.GetHintableItemsCallCount); // still just the one fetch from OnOpened()
+    }
+
     [Fact]
     public void LocationMode_ExcludesAlreadyHintedLocations_ViaGroupHints()
     {
@@ -245,5 +308,61 @@ public class HintPickerViewModelTests
 
         Assert.Single(viewModel.HintPicker.FilteredRows); // stays visible - see class doc comment
         Assert.Contains((alice.Id, "Fire Rod"), manager.SentItemHints);
+    }
+
+    [Fact]
+    public void LoadingText_MatchesTheCurrentMode()
+    {
+        var (viewModel, _, _) = MakeGroup("Alice");
+
+        Assert.Equal(HintTargetMode.Item, viewModel.HintPicker.Mode); // default
+        Assert.Equal("Loading items...", viewModel.HintPicker.LoadingText);
+
+        viewModel.HintPicker.Mode = HintTargetMode.Location;
+        Assert.Equal("Loading locations...", viewModel.HintPicker.LoadingText);
+    }
+
+    /// <summary>
+    /// Feature-Plaene/Archiv/Hint-Eingabefeld.md's "Status" section: a
+    /// connection held open for a non-leader slot should be released the
+    /// moment the picker moves on to a *different* slot - not before (the
+    /// very first slot selection, from <c>OnOpened</c>, has nothing to
+    /// release yet) and not for the newly-selected slot itself.
+    /// </summary>
+    [Fact]
+    public void SwitchingSelectedSlot_ReleasesThePreviousSlotOnly()
+    {
+        var (viewModel, group, manager) = MakeGroup("Alice", "Bob");
+        var alice = group.Slots[0];
+        var bob = group.Slots[1];
+
+        viewModel.HintPicker.OnOpened(); // first-ever selection - nothing to release
+        Assert.Empty(manager.ReleasedHeldSessionSlots);
+
+        viewModel.HintPicker.SelectedSlot = bob;
+
+        Assert.Equal(new[] { alice }, manager.ReleasedHeldSessionSlots);
+    }
+
+    [Fact]
+    public async Task OnClosedAsync_ReleasesTheCurrentlySelectedSlot()
+    {
+        var (viewModel, group, manager) = MakeGroup("Alice");
+        var alice = group.Slots[0];
+        viewModel.HintPicker.OnOpened();
+
+        await viewModel.HintPicker.OnClosedAsync();
+
+        Assert.Equal(new[] { alice }, manager.ReleasedHeldSessionSlots);
+    }
+
+    [Fact]
+    public async Task OnClosedAsync_NoSlotEverSelected_DoesNotCallRelease()
+    {
+        var (viewModel, _, manager) = MakeGroup(); // no slots at all - SelectedSlot stays null
+
+        await viewModel.HintPicker.OnClosedAsync();
+
+        Assert.Empty(manager.ReleasedHeldSessionSlots);
     }
 }

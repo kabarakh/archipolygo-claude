@@ -12,6 +12,7 @@ using Archipelago.MultiClient.Net.Helpers;
 using Archipelago.MultiClient.Net.MessageLog.Messages;
 using Archipelago.MultiClient.Net.MessageLog.Parts;
 using Archipelago.MultiClient.Net.Models;
+using Archipelago.MultiClient.Net.Packets;
 using Archipolygo.Models;
 using Archipolygo.ViewModels;
 using Avalonia.Threading;
@@ -88,9 +89,28 @@ public class ConnectionManager : IConnectionManager
     // that a genuinely broken connection still fails within a few seconds.
     private static readonly TimeSpan DefaultTransientConnectRetryDelay = TimeSpan.FromSeconds(2);
 
+    // How long GetHintableItemsAsync waits for the server's DataPackagePacket
+    // response before giving up and returning whatever's cached (or empty) -
+    // a request/response round trip over an already-open socket, not
+    // something that should ever genuinely take long; this only guards
+    // against a server that never answers at all.
+    private static readonly TimeSpan DefaultDataPackageRequestTimeout = TimeSpan.FromSeconds(10);
+
     private readonly IMessageHistoryService _messageHistoryService;
     private readonly IHintService _hintService;
     private readonly ISessionFactory _sessionFactory;
+
+    /// <summary>
+    /// Optional - null in every existing test construction site that doesn't
+    /// care about Feature-Plaene/Archiv/Hint-Eingabefeld.md's Item-mode
+    /// DataPackage cache, same "purely additive dependency" reasoning as
+    /// <see cref="Archipolygo.ViewModels.MainWindowViewModel"/>'s own
+    /// <c>IUpdateService?</c>. Null just means <see cref="GetHintableItemsAsync"/>
+    /// never checks or writes a disk cache - it always fetches fresh.
+    /// </summary>
+    private readonly IPersistenceService? _persistenceService;
+
+    private readonly TimeSpan _dataPackageRequestTimeout;
 
     // Real delays above (constructor-overridable, defaulting to the same
     // values the real app always used before this existed) - Kategorie B's
@@ -108,10 +128,13 @@ public class ConnectionManager : IConnectionManager
     private readonly TimeSpan _transientConnectRetryDelay;
 
     // Keyed by SlotProfile.Id. A session exists here while that slot has ANY
-    // active connection - as the group's leader, or as a short-lived
-    // catch-up/switch-target session in flight. At most two entries can
-    // exist for the same group at once (old leader + new leader during a
-    // switch, or leader + one catch-up dip), and only ever briefly.
+    // active connection - as the group's leader, a short-lived catch-up/
+    // switch-target session in flight, or a Hint-picker probe session
+    // deliberately kept alive (see RunAsSlotAsync's keepAlive parameter and
+    // ReleaseHeldSessionAsync) for as long as that slot stays selected in the
+    // picker. At most two or three entries can exist for the same group at
+    // once (old leader + new leader during a switch, leader + one catch-up
+    // dip, or leader + one held Hint-picker probe for a different slot).
     //
     // IArchipelagoSession (the interface ArchipelagoSession itself already
     // implements, see ISessionFactory), not the concrete type - so tests can
@@ -121,6 +144,30 @@ public class ConnectionManager : IConnectionManager
     // same members used either way (Socket/MessageLog/Items/Hints/Players/
     // LoginAsync are all already interface-typed on the concrete class too).
     private readonly ConcurrentDictionary<Guid, IArchipelagoSession> _sessions = new();
+
+    // Keyed by SlotProfile.Id - that slot's most recently learned "missing
+    // locations" (see Feature-Plaene/Archiv/Hint-Eingabefeld.md), refreshed on
+    // every successful connect (leader or catch-up alike, same as
+    // UpdateLocationProgress right next to it) and kept live afterward for
+    // the leader via CheckedLocationsUpdated. Deliberately in-memory only,
+    // never persisted to groups.json (unlike the plain LocationsChecked/
+    // LocationsTotal *counts* on SlotProfile itself) - a full location list
+    // would bloat that file considerably for a large game, and it's cheap to
+    // rebuild from the next connect regardless. This is what lets
+    // GetHintableLocationsAsync answer instantly for any slot that's
+    // connected even once since this app started, without a probe-connect
+    // just to browse - only sending (or a slot that's genuinely never
+    // connected at all yet) still needs one.
+    private readonly ConcurrentDictionary<Guid, IReadOnlyList<HintableLocation>> _missingLocationsBySlot = new();
+
+    // Keyed by SlotProfile.Id - the RoomInfoPacket from that slot's most
+    // recent ConnectAsync() call, kept purely so GetHintableItemsAsync can
+    // read RoomInfoPacket.DataPackageChecksums without a separate network
+    // round trip. Overwritten on every (re)connect for that slot; a stale
+    // entry between connects is harmless - GetHintableItemsAsync only ever
+    // reads whatever's here at the moment of a fresh RunAsSlotAsync call for
+    // that same slot, which just connected (or is already the live leader).
+    private readonly ConcurrentDictionary<Guid, RoomInfoPacket> _roomInfoBySlot = new();
 
     // GroupId -> the SlotProfile.Id that currently holds the persistent
     // leader connection. Absent = the group has no leader right now.
@@ -165,13 +212,17 @@ public class ConnectionManager : IConnectionManager
         IHintService hintService,
         ISessionFactory sessionFactory,
         TimeSpan? itemBacklogGracePeriod = null,
-        TimeSpan? transientConnectRetryDelay = null)
+        TimeSpan? transientConnectRetryDelay = null,
+        IPersistenceService? persistenceService = null,
+        TimeSpan? dataPackageRequestTimeout = null)
     {
         _messageHistoryService = messageHistoryService;
         _hintService = hintService;
         _sessionFactory = sessionFactory;
         _itemBacklogGracePeriod = itemBacklogGracePeriod ?? DefaultItemBacklogGracePeriod;
         _transientConnectRetryDelay = transientConnectRetryDelay ?? DefaultTransientConnectRetryDelay;
+        _persistenceService = persistenceService;
+        _dataPackageRequestTimeout = dataPackageRequestTimeout ?? DefaultDataPackageRequestTimeout;
     }
 
     public async Task SwitchLeaderAsync(GroupViewModel group, SlotProfile targetSlot)
@@ -660,33 +711,38 @@ public class ConnectionManager : IConnectionManager
 
     public async Task<IReadOnlyList<HintableLocation>> GetHintableLocationsAsync(GroupViewModel group, SlotProfile slot)
     {
+        // Fast path: this slot has connected at least once since this app
+        // started (leader, a startup catch-up dip, or an earlier Hint-picker
+        // call for it) - see _missingLocationsBySlot's own doc comment. No
+        // connection at all needed to just browse.
+        if (_missingLocationsBySlot.TryGetValue(slot.Id, out var cached))
+        {
+            return cached;
+        }
+
         var groupId = group.Group.Id;
         var gate = _groupLocks.GetOrAdd(groupId, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync();
         try
         {
-            var result = await RunAsSlotAsync(group, slot, session =>
+            // Re-check with the gate held: a concurrent call for this same
+            // slot (or the sibling catch-up sweep finishing) may have
+            // populated the cache while this call was waiting.
+            if (_missingLocationsBySlot.TryGetValue(slot.Id, out cached))
             {
-                // The login is a generic "Tracker" client with an empty game
-                // (see ConnectSlotSessionAsync's LoginAsync call) - unlike a
-                // real game client, session.ConnectionInfo.Game is never
-                // actually set, so the connected slot's own game has to come
-                // from the room roster instead, same as TrackHints already
-                // does for other players' hints.
-                var ownGame = session.Players.GetPlayerInfo(session.ConnectionInfo.Slot)?.Game;
+                return cached;
+            }
 
-                IReadOnlyList<HintableLocation> locations = session.Locations.AllMissingLocations
-                    .Select(id => new HintableLocation
-                    {
-                        LocationId = id,
-                        Name = session.Locations.GetLocationNameFromId(id, ownGame) ?? $"Location #{id}"
-                    })
-                    .ToList();
+            // Slot has genuinely never connected yet - connect once, which
+            // populates _missingLocationsBySlot as a side effect (see
+            // ConnectSlotSessionAsync), then just read that back. keepAlive:
+            // this session stays open afterward (see RunAsSlotAsync) so the
+            // very next browse/send for this slot in the same Hint-picker
+            // session doesn't reconnect either - ReleaseHeldSessionAsync is
+            // what eventually tears it down again.
+            await RunAsSlotAsync<object?>(group, slot, _ => Task.FromResult<object?>(null), keepAlive: true);
 
-                return Task.FromResult(locations);
-            });
-
-            return result ?? Array.Empty<HintableLocation>();
+            return _missingLocationsBySlot.TryGetValue(slot.Id, out cached) ? cached : Array.Empty<HintableLocation>();
         }
         finally
         {
@@ -710,7 +766,7 @@ public class ConnectionManager : IConnectionManager
                 // look like it does.
                 session.Hints.CreateHints(locationIds: new[] { locationId });
                 return Task.FromResult<object?>(null);
-            });
+            }, keepAlive: true);
         }
         finally
         {
@@ -734,7 +790,7 @@ public class ConnectionManager : IConnectionManager
             {
                 session.Say($"!hint {itemName}");
                 return Task.FromResult<object?>(null);
-            });
+            }, keepAlive: true);
         }
         finally
         {
@@ -743,24 +799,183 @@ public class ConnectionManager : IConnectionManager
     }
 
     /// <summary>
+    /// Dev question, verified against the official network protocol: the
+    /// game-name lookup, the RoomInfo checksum, and the DataPackage
+    /// request/response itself are all room-wide information, not tied to
+    /// which slot is asking - RoomInfo is sent to any connecting socket
+    /// before login even happens, and GetDataPackage "does not require
+    /// client authentication" at all. So if this group already has ANY live
+    /// session open (in practice, always the leader's - see
+    /// <see cref="_leaderSlotByGroup"/>), it's reused to answer this
+    /// entirely, without connecting <paramref name="slot"/> itself even
+    /// briefly - only when the group has no live session at all does this
+    /// fall back to the previous behavior (a brief, kept-alive probe-connect
+    /// as <paramref name="slot"/> - see Feature-Plaene/Archiv/Hint-Eingabefeld.md's
+    /// "Status" section).
+    /// </summary>
+    public async Task<IReadOnlyList<string>> GetHintableItemsAsync(GroupViewModel group, SlotProfile slot)
+    {
+        var groupId = group.Group.Id;
+        var gate = _groupLocks.GetOrAdd(groupId, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync();
+        try
+        {
+            if (_leaderSlotByGroup.TryGetValue(groupId, out var leaderId) &&
+                _sessions.TryGetValue(leaderId, out var leaderSession))
+            {
+                return await FetchHintableItemsViaSessionAsync(groupId, slot, leaderSession, leaderId);
+            }
+
+            var result = await RunAsSlotAsync<IReadOnlyList<string>>(
+                group, slot,
+                session => FetchHintableItemsViaSessionAsync(groupId, slot, session, slot.Id),
+                keepAlive: true);
+
+            return result ?? Array.Empty<string>();
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Does the actual game-lookup/checksum-check/DataPackage-fetch work for
+    /// <see cref="GetHintableItemsAsync"/>, against whichever session was
+    /// handed to it - <paramref name="session"/> doesn't have to belong to
+    /// <paramref name="slot"/> at all (see that method's doc comment); the
+    /// only slot-specific thing here is looking <paramref name="slot"/> up
+    /// by name in <paramref name="session"/>'s own room roster, same
+    /// matching convention <see cref="BuildSlotRoster"/> already uses.
+    /// <paramref name="roomInfoOwnerSlotId"/> is whichever slot actually owns
+    /// <paramref name="session"/> (the leader, or <paramref name="slot"/>
+    /// itself in the fallback path) - the key <see cref="_roomInfoBySlot"/>
+    /// was populated under for it.
+    /// </summary>
+    private async Task<IReadOnlyList<string>> FetchHintableItemsViaSessionAsync(
+        Guid groupId, SlotProfile slot, IArchipelagoSession session, Guid roomInfoOwnerSlotId)
+    {
+        var ownGame = session.Players.AllPlayers
+            .FirstOrDefault(p => string.Equals(p.Name, slot.SlotName, StringComparison.OrdinalIgnoreCase))?.Game;
+        if (string.IsNullOrEmpty(ownGame))
+        {
+            return Array.Empty<string>();
+        }
+
+        _roomInfoBySlot.TryGetValue(roomInfoOwnerSlotId, out var roomInfo);
+        var currentChecksum = roomInfo?.DataPackageChecksums is { } checksums && checksums.TryGetValue(ownGame, out var checksum)
+            ? checksum
+            : null;
+
+        var cached = _persistenceService?.LoadDataPackageCache(groupId, ownGame);
+        if (cached is not null && currentChecksum is not null &&
+            string.Equals(cached.Checksum, currentChecksum, StringComparison.Ordinal))
+        {
+            return cached.ItemNames;
+        }
+
+        var itemNames = await FetchItemNamesFromDataPackageAsync(session, ownGame, _dataPackageRequestTimeout);
+
+        // Only worth caching if we actually learned a checksum to validate it
+        // against later - otherwise every future call would just treat it as
+        // stale (no checksum to compare) anyway, so there's no point writing
+        // a cache entry that can never be trusted.
+        if (itemNames.Count > 0 && currentChecksum is not null)
+        {
+            _persistenceService?.SaveDataPackageCache(groupId, ownGame,
+                new DataPackageCacheEntry { Checksum = currentChecksum, ItemNames = itemNames.ToList() });
+        }
+
+        return itemNames;
+    }
+
+    /// <summary>
+    /// Asks the server for <paramref name="game"/>'s full DataPackage
+    /// (<c>item_name_to_id</c> table) - unlike single id/name lookups
+    /// (<c>GetLocationNameFromId</c> etc.), nothing in this library version's
+    /// public API enumerates that, so this sends the raw <see cref="GetDataPackagePacket"/>
+    /// and awaits the matching <see cref="DataPackagePacket"/> on the socket
+    /// directly (verified against the official Archipelago network protocol
+    /// and the pinned Archipelago.MultiClient.Net source at its exact tag -
+    /// see Feature-Plaene/Archiv/Hint-Eingabefeld.md's "Status" section).
+    /// Scoping <see cref="GetDataPackagePacket.Games"/> to just this one game
+    /// avoids pulling every other game in the room's DataPackage too. Empty
+    /// list (not a hang) if the server never answers within
+    /// <paramref name="timeout"/>, or closes the socket first.
+    /// </summary>
+    private static async Task<IReadOnlyList<string>> FetchItemNamesFromDataPackageAsync(IArchipelagoSession session, string game, TimeSpan timeout)
+    {
+        var tcs = new TaskCompletionSource<IReadOnlyList<string>>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        void OnPacketReceived(ArchipelagoPacketBase packet)
+        {
+            if (packet is DataPackagePacket dataPackagePacket)
+            {
+                var names = dataPackagePacket.DataPackage.Games.TryGetValue(game, out var gameData)
+                    ? (IReadOnlyList<string>)gameData.ItemLookup.Keys.ToList()
+                    : Array.Empty<string>();
+                tcs.TrySetResult(names);
+            }
+        }
+
+        void OnSocketClosed(string reason) => tcs.TrySetResult(Array.Empty<string>());
+
+        session.Socket.PacketReceived += OnPacketReceived;
+        session.Socket.SocketClosed += OnSocketClosed;
+        try
+        {
+            session.Socket.SendPacket(new GetDataPackagePacket { Games = new[] { game } });
+
+            var completed = await Task.WhenAny(tcs.Task, Task.Delay(timeout));
+            return completed == tcs.Task ? await tcs.Task : Array.Empty<string>();
+        }
+        catch (Exception)
+        {
+            // Socket already closed/errored trying to send - same
+            // "no connection, empty result" fallback as every other
+            // Hint-picker method here.
+            return Array.Empty<string>();
+        }
+        finally
+        {
+            session.Socket.PacketReceived -= OnPacketReceived;
+            session.Socket.SocketClosed -= OnSocketClosed;
+        }
+    }
+
+    /// <summary>
     /// Runs <paramref name="action"/> against a session for exactly
-    /// <paramref name="slot"/> - reusing an already-open one (the leader, or
-    /// a catch-up dip already in flight) if one exists, otherwise briefly
-    /// connecting as this slot purely for the duration of the call and
-    /// disconnecting again right after. Never touches the group's leader if
-    /// <paramref name="slot"/> isn't it - same "the two sessions simply
-    /// coexist for a few seconds" pattern as <see cref="CatchUpSyncCoreAsync"/>,
+    /// <paramref name="slot"/> - reusing an already-open one (the leader, a
+    /// catch-up dip already in flight, or a held Hint-picker probe from an
+    /// earlier call - see <paramref name="keepAlive"/>) if one exists,
+    /// otherwise briefly connecting as this slot for the call. Never touches
+    /// the group's leader if <paramref name="slot"/> isn't it - same "the two
+    /// sessions simply coexist" pattern as <see cref="CatchUpSyncCoreAsync"/>,
     /// just running an arbitrary action instead of only waiting out the
     /// backlog grace period. Callers must already hold this group's
     /// <see cref="_groupLocks"/> gate - this method doesn't acquire it itself,
-    /// so <see cref="GetHintableLocationsAsync"/>/<see cref="SendHintAsync"/>/
-    /// <see cref="SendItemHintAsync"/> each wrap their own call in it instead
-    /// (mirroring the public/gated vs. private/ungated split <see cref="CatchUpSyncAsync"/>
-    /// and <see cref="CatchUpSyncCoreAsync"/> already use, just without a
-    /// second caller needing the ungated version directly). Returns default
-    /// if no connection could be established at all.
+    /// so <see cref="GetHintableLocationsAsync"/>/<see cref="GetHintableItemsAsync"/>/
+    /// <see cref="SendHintAsync"/>/<see cref="SendItemHintAsync"/> each wrap
+    /// their own call in it instead (mirroring the public/gated vs.
+    /// private/ungated split <see cref="CatchUpSyncAsync"/> and
+    /// <see cref="CatchUpSyncCoreAsync"/> already use, just without a second
+    /// caller needing the ungated version directly). Returns default if no
+    /// connection could be established at all.
     /// </summary>
-    private async Task<T?> RunAsSlotAsync<T>(GroupViewModel group, SlotProfile slot, Func<IArchipelagoSession, Task<T>> action)
+    /// <param name="keepAlive">
+    /// If this call creates a brand-new non-leader session, leave it open
+    /// afterward (registered in <see cref="_sessions"/>) instead of
+    /// disconnecting it immediately - see Feature-Plaene/Archiv/Hint-Eingabefeld.md's
+    /// "Status" section (dev feedback: every Hint-picker browse/send for a
+    /// non-leader slot was reconnecting from scratch, even several in a row
+    /// for the same slot). <see cref="ReleaseHeldSessionAsync"/> is what
+    /// eventually tears a kept-alive session back down, once the picker
+    /// actually moves on from that slot. Ignored if an existing session was
+    /// reused instead of a new one being created - nothing new to keep alive
+    /// in that case, and this method must never decide to tear down a
+    /// session (e.g. the leader's) that it didn't itself just open.
+    /// </param>
+    private async Task<T?> RunAsSlotAsync<T>(GroupViewModel group, SlotProfile slot, Func<IArchipelagoSession, Task<T>> action, bool keepAlive = false)
     {
         if (_sessions.TryGetValue(slot.Id, out var existingSession))
         {
@@ -773,6 +988,13 @@ public class ConnectionManager : IConnectionManager
             return default;
         }
 
+        if (keepAlive)
+        {
+            // Left registered in _sessions (ConnectSlotSessionAsync already
+            // put it there) - ReleaseHeldSessionAsync tears it down later.
+            return await action(session);
+        }
+
         try
         {
             return await action(session);
@@ -783,6 +1005,42 @@ public class ConnectionManager : IConnectionManager
             {
                 await TryCloseSocketAsync(group, slot, session);
             }
+        }
+    }
+
+    /// <summary>
+    /// Disconnects a Hint-picker probe session for <paramref name="slot"/>
+    /// that was kept alive via <see cref="RunAsSlotAsync"/>'s <c>keepAlive</c>
+    /// parameter - called when the picker moves on from that slot (a
+    /// different slot gets selected, or the picker closes entirely) rather
+    /// than reconnecting from scratch for every single browse/send. A no-op
+    /// if <paramref name="slot"/> is currently the group's leader (never
+    /// disconnects that - the leader has its own independent lifecycle,
+    /// managed by <see cref="SwitchLeaderAsync"/>/<see cref="DisconnectGroupAsync"/>
+    /// only) or if nothing is actually held for it right now (e.g. it was
+    /// only ever answered from <see cref="_missingLocationsBySlot"/>'s cache,
+    /// with no real connection made at all).
+    /// </summary>
+    public async Task ReleaseHeldSessionAsync(GroupViewModel group, SlotProfile slot)
+    {
+        var groupId = group.Group.Id;
+        var gate = _groupLocks.GetOrAdd(groupId, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync();
+        try
+        {
+            if (_leaderSlotByGroup.TryGetValue(groupId, out var leaderId) && leaderId == slot.Id)
+            {
+                return;
+            }
+
+            if (_sessions.TryRemove(slot.Id, out var session))
+            {
+                await TryCloseSocketAsync(group, slot, session);
+            }
+        }
+        finally
+        {
+            gate.Release();
         }
     }
 
@@ -892,7 +1150,16 @@ public class ConnectionManager : IConnectionManager
 
             try
             {
-                await session.ConnectAsync();
+                var roomInfo = await session.ConnectAsync();
+                if (roomInfo is not null)
+                {
+                    // See GetHintableItemsAsync - lets it read
+                    // DataPackageChecksums without a separate request. A null
+                    // RoomInfoPacket (only ever a FakeArchipelagoSession that
+                    // didn't bother setting one) just means that lookup comes
+                    // back empty later, same as "nothing cached yet".
+                    _roomInfoBySlot[slot.Id] = roomInfo;
+                }
 
                 if (cancellationToken.IsCancellationRequested)
                 {
@@ -986,9 +1253,19 @@ public class ConnectionManager : IConnectionManager
             // keep live for it.
             UpdateLocationProgress(slot, session);
 
+            // Feature-Plaene/Archiv/Hint-Eingabefeld.md's missing-locations
+            // cache for the Hint picker's Location mode - same "populate now,
+            // keep live for the leader" shape as UpdateLocationProgress right
+            // above, just the full named list instead of a plain count.
+            UpdateMissingLocationsCache(slot, session);
+
             if (isLeaderSession)
             {
-                session.Locations.CheckedLocationsUpdated += _ => UpdateLocationProgress(slot, session);
+                session.Locations.CheckedLocationsUpdated += _ =>
+                {
+                    UpdateLocationProgress(slot, session);
+                    UpdateMissingLocationsCache(slot, session);
+                };
             }
 
             // DeathLink (Feature-Plaene/Archiv/DeathLink.md): only the leader has
@@ -1634,5 +1911,31 @@ public class ConnectionManager : IConnectionManager
             slot.LocationsChecked = checkedCount;
             slot.LocationsTotal = totalCount;
         });
+    }
+
+    /// <summary>
+    /// Refreshes <see cref="_missingLocationsBySlot"/> for <paramref name="slot"/> -
+    /// see that field's own doc comment. Not dispatched to the UI thread like
+    /// <see cref="UpdateLocationProgress"/>: this is a plain
+    /// <see cref="ConcurrentDictionary{TKey,TValue}"/> entry, not an
+    /// <c>ObservableObject</c> property, so it's safe to write from whatever
+    /// thread a session callback happens to fire on.
+    /// </summary>
+    private void UpdateMissingLocationsCache(SlotProfile slot, IArchipelagoSession session)
+    {
+        // Same roster-based game lookup as GetHintableItemsAsync - see that
+        // method's comment for why ConnectionInfo.Game itself is never
+        // actually set for this generic "Tracker" client.
+        var ownGame = session.Players.GetPlayerInfo(session.ConnectionInfo.Slot)?.Game;
+
+        IReadOnlyList<HintableLocation> missingLocations = session.Locations.AllMissingLocations
+            .Select(id => new HintableLocation
+            {
+                LocationId = id,
+                Name = session.Locations.GetLocationNameFromId(id, ownGame) ?? $"Location #{id}"
+            })
+            .ToList();
+
+        _missingLocationsBySlot[slot.Id] = missingLocations;
     }
 }

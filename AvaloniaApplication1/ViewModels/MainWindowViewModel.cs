@@ -539,6 +539,11 @@ public partial class MainWindowViewModel : ViewModelBase
 
         SelectedGroup = Groups.Count > 0 ? Groups[Math.Min(index, Groups.Count - 1)] : null;
 
+        // Feature-Plaene/Archiv/Hint-Eingabefeld.md's per-group DataPackage
+        // cache has nothing left to serve once this server is gone - clean it
+        // up rather than leaving an orphaned cache folder behind forever.
+        _persistenceService.DeleteDataPackageCacheForGroup(groupToRemove.Group.Id);
+
         PersistGroups();
     }
 

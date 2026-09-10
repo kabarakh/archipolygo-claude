@@ -230,4 +230,37 @@ public class HintPickerWindowTests
         Assert.NotNull(emptyText);
         Assert.True(emptyText!.IsEffectivelyVisible);
     }
+
+    /// <summary>
+    /// Dev-reported bug: the Slot ComboBox's open popup items showed a large,
+    /// asymmetric-looking gap before the name text. Root cause: the item
+    /// template's <c>TextBlock</c> defaulted to <c>HorizontalAlignment="Stretch"</c>,
+    /// which - combined with its own <c>MaxWidth="240"</c> - made Avalonia's
+    /// layout CENTER the text within the popup item's content area instead of
+    /// placing it flush left, once that area is wider than 240px (true here
+    /// since this ComboBox, unlike MainWindow.axaml's fixed-Width "Chat as"/
+    /// slot-filter ones, stretches across most of the dialog). Fixed with an
+    /// explicit <c>HorizontalAlignment="Left"</c> on that TextBlock.
+    /// </summary>
+    [AvaloniaFact]
+    public void SlotComboBox_OpenPopupItem_TextIsFlushLeft_NotCenteredInTheGap()
+    {
+        var (viewModel, _, _) = MakeGroup("KabaLADX", "KabaDalton", "KabaJigsaw");
+        viewModel.HintPicker.OnOpened();
+
+        var window = new HintPickerWindow { DataContext = viewModel.HintPicker, Width = 460 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var comboBox = window.GetVisualDescendants().OfType<ComboBox>().Single();
+        comboBox.IsDropDownOpen = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var item = window.GetVisualDescendants().OfType<ComboBoxItem>().First();
+        var text = item.GetVisualDescendants().OfType<TextBlock>().Single();
+
+        // The text's left edge should sit at the item's own left padding, not
+        // pushed further right by leftover centered space.
+        Assert.Equal(item.Padding.Left, text.Bounds.X, precision: 1);
+    }
 }

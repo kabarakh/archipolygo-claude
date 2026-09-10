@@ -32,4 +32,14 @@ public sealed class FakePersistenceService : IPersistenceService
     public void SaveSettings(AppSettings settings)
     {
     }
+
+    public DataPackageCacheEntry? LoadDataPackageCache(Guid groupId, string game) => null;
+
+    public void SaveDataPackageCache(Guid groupId, string game, DataPackageCacheEntry entry)
+    {
+    }
+
+    public void DeleteDataPackageCacheForGroup(Guid groupId)
+    {
+    }
 }

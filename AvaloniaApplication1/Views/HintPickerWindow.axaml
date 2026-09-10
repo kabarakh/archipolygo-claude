@@ -38,7 +38,18 @@
                       HorizontalAlignment="Stretch">
                 <ComboBox.ItemTemplate>
                     <DataTemplate DataType="m:SlotProfile">
-                        <TextBlock Text="{Binding DisplayName}" MaxWidth="240" TextTrimming="CharacterEllipsis"/>
+                        <!-- HorizontalAlignment="Left", not the TextBlock
+                             default Stretch: this ComboBox (unlike the
+                             fixed-Width "Chat as"/slot-filter ones in
+                             MainWindow.axaml) stretches across most of the
+                             dialog, so a Stretch-aligned item capped by
+                             MaxWidth gets CENTERED in the leftover space
+                             instead of arranged flush left - the same layout
+                             behavior those narrower dropdowns have too, just
+                             invisible there since MaxWidth leaves them almost
+                             no leftover space to center within. -->
+                        <TextBlock Text="{Binding DisplayName}" MaxWidth="240" TextTrimming="CharacterEllipsis"
+                                   HorizontalAlignment="Left"/>
                     </DataTemplate>
                 </ComboBox.ItemTemplate>
             </ComboBox>
@@ -94,7 +105,7 @@
                 </ItemsControl>
             </ScrollViewer>
 
-            <TextBlock Text="Loading locations..." Opacity="0.6" IsVisible="{Binding IsLoading}"/>
+            <TextBlock Text="{Binding LoadingText}" Opacity="0.6" IsVisible="{Binding IsLoading}"/>
             <!-- Two distinct empty states: "nothing left to hint for this
                  slot/mode at all" reads differently from "your search
                  matched nothing". -->

@@ -168,19 +168,20 @@ public interface IConnectionManager
     /// <summary>
     /// <paramref name="slot"/>'s own not-yet-found locations, for the "Hint..."
     /// picker's Location mode (see Feature-Plaene/Archiv/Hint-Eingabefeld.md).
-    /// Reuses an already-open session for exactly this slot (typically the
-    /// leader) if there is one; otherwise briefly connects as this slot
-    /// purely to read <c>ILocationCheckHelper.AllMissingLocations</c>, then
-    /// disconnects again - the group's actual leader (if <paramref name="slot"/>
-    /// isn't it) is never touched, the two sessions simply coexist for the
-    /// few seconds this takes, same as <see cref="CatchUpSyncAsync"/>.
-    /// Serializes against <see cref="SwitchLeaderAsync"/>/
-    /// <see cref="CatchUpSyncAsync"/>/<see cref="DisconnectGroupAsync"/> via
-    /// the same per-group gate those use. Empty list if no connection could
-    /// be established at all. Does not itself exclude already-hinted
-    /// locations - callers cross-reference <see cref="HintableLocation"/>
-    /// against <c>GroupViewModel.Hints</c> for that, since this method has no
-    /// access to the UI-owned hint list.
+    /// Answered instantly, with no connection at all, if <paramref name="slot"/>
+    /// has connected even once since this app started (leader, a startup
+    /// catch-up dip, or an earlier Hint-picker call - see that plan's
+    /// "Status" section) - only a slot that's genuinely never connected yet
+    /// falls back to a brief probe-connect, which is then kept open (see
+    /// <see cref="ReleaseHeldSessionAsync"/>) rather than torn back down
+    /// immediately. The group's actual leader (if <paramref name="slot"/>
+    /// isn't it) is never touched either way. Serializes against
+    /// <see cref="SwitchLeaderAsync"/>/<see cref="CatchUpSyncAsync"/>/
+    /// <see cref="DisconnectGroupAsync"/> via the same per-group gate those
+    /// use. Empty list if no connection could be established at all. Does
+    /// not itself exclude already-hinted locations - callers cross-reference
+    /// <see cref="HintableLocation"/> against <c>GroupViewModel.Hints</c> for
+    /// that, since this method has no access to the UI-owned hint list.
     /// </summary>
     Task<IReadOnlyList<HintableLocation>> GetHintableLocationsAsync(GroupViewModel group, SlotProfile slot);
 
@@ -188,10 +189,12 @@ public interface IConnectionManager
     /// Hints <paramref name="locationId"/> - one of <paramref name="slot"/>'s
     /// own locations, from <see cref="GetHintableLocationsAsync"/> - via
     /// <c>session.Hints.CreateHints(locationId)</c>. Same session-reuse-or-
-    /// brief-probe-connect behavior as <see cref="GetHintableLocationsAsync"/>;
-    /// no-op if no connection could be established at all. The resulting hint
-    /// arrives back through the normal <c>OnHintsUpdated</c>/<c>TrackHints</c>
-    /// pipeline like any other hint - no special-casing needed.
+    /// brief-probe-connect behavior as <see cref="GetHintableLocationsAsync"/>
+    /// (including keeping a newly-opened non-leader session alive afterward -
+    /// see <see cref="ReleaseHeldSessionAsync"/>); no-op if no connection could
+    /// be established at all. The resulting hint arrives back through the
+    /// normal <c>OnHintsUpdated</c>/<c>TrackHints</c> pipeline like any other
+    /// hint - no special-casing needed.
     /// </summary>
     Task SendHintAsync(GroupViewModel group, SlotProfile slot, long locationId);
 
@@ -210,4 +213,43 @@ public interface IConnectionManager
     /// be established, or if <paramref name="itemName"/> is blank.
     /// </summary>
     Task SendItemHintAsync(GroupViewModel group, SlotProfile slot, string itemName);
+
+    /// <summary>
+    /// Disconnects a non-leader probe session for <paramref name="slot"/> that
+    /// <see cref="GetHintableLocationsAsync"/>/<see cref="GetHintableItemsAsync"/>/
+    /// <see cref="SendHintAsync"/>/<see cref="SendItemHintAsync"/> opened and
+    /// kept alive - called by the Hint picker when it moves on from that slot
+    /// (a different slot gets selected in its dropdown, or the picker window
+    /// closes) rather than reconnecting from scratch for every single
+    /// browse/send of the same slot within one picker session. A no-op if
+    /// <paramref name="slot"/> is currently the group's leader (that has its
+    /// own independent lifecycle - never touched here) or if nothing is
+    /// actually held for it (e.g. it was only ever answered from the
+    /// in-memory location cache, no real connection made at all).
+    /// </summary>
+    Task ReleaseHeldSessionAsync(GroupViewModel group, SlotProfile slot);
+
+    /// <summary>
+    /// Every item name <paramref name="slot"/>'s own game defines, for the
+    /// "Hint..." picker's Item mode (see Feature-Plaene/Archiv/Hint-Eingabefeld.md's
+    /// "Status" section - this replaced the original "only items already
+    /// received or hinted" candidate pool, which made the "exclude already
+    /// found/hinted" checkbox useless since that pool was *already* nothing
+    /// but found/hinted items). Comes from the server's DataPackage (the
+    /// <c>item_name_to_id</c> table for that game) - not just what's actually
+    /// placed in this seed, so a game's options excluding some items entirely
+    /// can still list a name that's never findable here; see that same
+    /// "Status" section for why this tradeoff was chosen anyway. Everything
+    /// this needs (the game-name lookup, the checksum, the DataPackage
+    /// exchange itself) is room-wide, not slot-specific - so if the group
+    /// already has any live session (almost always the leader's), this
+    /// answers through that directly with no connection for
+    /// <paramref name="slot"/> at all; only when the group is fully
+    /// disconnected does this fall back to a brief, kept-alive probe-connect
+    /// as <paramref name="slot"/> (same as <see cref="GetHintableLocationsAsync"/>'s
+    /// own fallback). Empty list on failure. Does not itself exclude
+    /// already-found/hinted names - same cross-referencing responsibility
+    /// split as <see cref="GetHintableLocationsAsync"/>.
+    /// </summary>
+    Task<IReadOnlyList<string>> GetHintableItemsAsync(GroupViewModel group, SlotProfile slot);
 }

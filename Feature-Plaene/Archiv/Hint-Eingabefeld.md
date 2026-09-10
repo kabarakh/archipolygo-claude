@@ -35,6 +35,151 @@ Alle drei Testkategorien (`HintPickerViewModelTests.cs`,
 `ConnectionManagerHintTests.cs`, `HintPickerWindowTests.cs` - 28 Tests)
 sind geschrieben und grün (166/166 in der Gesamt-Suite).
 
+**Nachträglicher Dev-Bugreport (2026-09-10): Item-Modus zeigte zu wenige
+Items, Exclude-Checkbox dadurch sinnlos.** Der ursprüngliche Plan (siehe
+"Scope für die erste Version" unten) ging davon aus, es gäbe "keinen
+Client-seitigen Weg, alle Item-Namen eines Spiels aufzuzählen" - das war
+falsch verifiziert. Tatsächlich liefert der Server genau das über das
+DataPackage-Protokoll (`GetDataPackagePacket`/`DataPackagePacket`,
+`item_name_to_id` pro Spiel) - nur eben nicht über eine bequeme Methode auf
+`IArchipelagoSession`/`ILocationCheckHelper` (die pinnte
+Archipelago.MultiClient.Net-Version hält das DataPackage nur `internal`,
+siehe `DataPackageCache`/`ItemInfoResolver` im Quellcode bei Tag `v6.7.1`),
+sondern nur über das rohe Paket selbst (`session.Socket.SendPacket`/
+`PacketReceived`, öffentlich, aber ohne High-Level-Wrapper). Dadurch bestand
+der Item-Modus-Kandidatenpool nur aus bereits erhaltenen/gehinteten Namen -
+und da die Exclude-Checkbox genau diese Teilmenge ausblendet, blendete sie
+praktisch alles aus.
+
+Behoben: `IConnectionManager.GetHintableItemsAsync` fragt jetzt das
+DataPackage des Slot-eigenen Spiels ab (`ConnectionManager.FetchItemNamesFromDataPackageAsync`)
+und cached das Ergebnis auf Festplatte pro `(ServerConnectionGroup, Spiel)`
+(`IPersistenceService.LoadDataPackageCache`/`SaveDataPackageCache`,
+`%AppData%/Archipolygo/datapackage-cache/<groupId>/<spiel>.json`),
+validiert gegen `RoomInfoPacket.DataPackageChecksums` (kostenlos aus dem
+ohnehin nötigen `ConnectAsync()` - kein Extra-Request, wenn der Cache noch
+gültig ist). Absichtlich **pro Server-Gruppe**, nicht global über alle
+Gruppen hinweg gecacht - einfachere Aufräum-Semantik: wird ein Server
+entfernt (`MainWindowViewModel.RemoveSelectedGroupAsync`), löscht
+`DeleteDataPackageCacheForGroup` einfach dessen ganzen Cache-Ordner, auf
+Kosten eines erneuten Fetches, falls zwei Gruppen zufällig dasselbe Spiel
+teilen. Item-Modus braucht dadurch jetzt (wie Location-Modus) eine echte
+Verbindung/einen Probe-Connect - war vorher rein aus dem Speicher bedient.
+
+Nebenbei entdeckter und gefixter Bug (beim Testen der neuen Fetch-Logik
+aufgefallen): `HintPickerViewModel.OnOpened()` feuerte
+`RefreshAvailableRowsAsync` **doppelt** bei jedem allerersten Öffnen einer
+Session (der Konstruktor läuft, bevor die Gruppe überhaupt Slots hat, also
+ist `SelectedSlot` zunächst `null` - der Übergang `null` → echter Slot beim
+ersten `OnOpened()` löste zusätzlich zum expliziten Aufruf auch noch
+`OnSelectedSlotChanged` aus). Für den Item-Modus war das ein unnötiger
+zweiter DataPackage-Request; für den Location-Modus sogar ein zweiter
+kompletter Probe-Connect für einen Nicht-Leader-Slot. Gefixt in `OnOpened()`
+selbst - siehe dessen Doc-Kommentar.
+
+Ergänzte Tests: `ConnectionManagerDataPackageTests.cs` (Kategorie B - Fetch,
+Checksum-Cache-Hit/Miss, Timeout, falsches Spiel in der Antwort - gegen einen
+echten `PersistenceService` in einem Temp-Verzeichnis, nicht den no-op
+`FakePersistenceService`), `PersistenceServiceTests.cs` (Kategorie A -
+Cache-Roundtrip, Sonderzeichen im Spielnamen, Cleanup einer Gruppe),
+`MainWindowViewModelGroupRemovalTests.cs` (Kategorie A - Cache-Cleanup beim
+Entfernen einer Gruppe, andere Gruppen bleiben unangetastet), sowie neue
+Fälle in `HintPickerViewModelTests.cs` (Item-Pool enthält nie erhaltene/
+gehintete Namen, Exclude-Checkbox lässt unbekannte Namen unangetastet, kein
+Re-Fetch beim Checkbox-Toggle, `LoadingText`). 186/186 in der Gesamt-Suite.
+
+**Dev-gemeldeter Layout-Bug (2026-09-10): Slot-Dropdown im Popup mit großer,
+linksseitiger Lücke vor dem Text.** Ursache: das `TextBlock` im
+`ComboBox.ItemTemplate` hatte `MaxWidth="240"`, aber kein explizites
+`HorizontalAlignment` (Default: `Stretch`) - kombiniert zentriert Avalonias
+Layout ein Stretch-ausgerichtetes, durch `MaxWidth` gedeckeltes Element in
+der Lücke, statt es linksbündig zu setzen, sobald die Inhaltsfläche breiter
+als 240px ist. Bei den fest-breiten Dropdowns in `MainWindow.axaml` (130/160px)
+fällt das nicht auf, da dort kaum Rest zum Zentrieren bleibt; diese
+`ComboBox` ist aber `HorizontalAlignment="Stretch"` über fast die ganze
+Dialogbreite. Gefixt mit explizitem `HorizontalAlignment="Left"` auf dem
+TextBlock, verifiziert per echten gemessenen `Bounds` (nicht nur XAML-Attribut)
+in `HintPickerWindowTests.SlotComboBox_OpenPopupItem_TextIsFlushLeft_NotCenteredInTheGap`.
+
+**Dev-gemeldete Architektur-Verbesserung (2026-09-10): unnötige Connects pro
+Slot-Wechsel/Hint-Versand im Picker.** Vorher verband/trennte jeder
+`GetHintableLocationsAsync`/`GetHintableItemsAsync`/`SendHintAsync`/
+`SendItemHintAsync`-Aufruf für einen Nicht-Leader-Slot jedes Mal neu - auch
+beim bloßen Browsen, und auch bei mehreren Hints in Folge für denselben Slot.
+Zwei Verbesserungen, beide vom Nutzer selbst vorgeschlagen:
+
+1. **Location-Liste wird bei jedem Connect gecacht** (`ConnectionManager._missingLocationsBySlot`,
+   analog zu Tier 1s `LocationsChecked`/`LocationsTotal`-Zähler, nur die volle
+   benannte Liste statt nur der Zahl) - bei Leader-Connect *und* bei jedem
+   Startup-Catch-up-Dip eines Sibling-Slots, beim Leader zusätzlich live über
+   `CheckedLocationsUpdated` gehalten. `GetHintableLocationsAsync` liest
+   daraus, sofern der Slot seit App-Start schon mindestens einmal verbunden
+   war - dann kein Connect mehr nötig, nur zum Browsen. Bewusst nur im
+   Speicher (nicht in `groups.json`), um die Datei bei großen Spielen nicht
+   aufzublähen - siehe `_missingLocationsBySlot`s eigenen Doc-Kommentar für
+   die Begründung.
+2. **Verbindung bleibt offen ("held"), bis der Picker sie wirklich nicht mehr
+   braucht.** `RunAsSlotAsync` bekam einen `keepAlive`-Parameter - ein neu
+   geöffneter Nicht-Leader-Probe wird danach nicht mehr sofort wieder
+   getrennt, sondern bleibt in `_sessions` registriert, bis
+   `IConnectionManager.ReleaseHeldSessionAsync` sie explizit schließt (No-op,
+   falls der Slot inzwischen Leader ist - der wird nie angefasst). Genutzt von
+   allen vier Hint-Picker-Methoden, für beide Modi gleichermaßen (Nutzer-
+   Entscheidung). `HintPickerViewModel._slotWithHeldSession` merkt sich, wessen
+   Verbindung gerade offen sein könnte, und löst sie aus, sobald der Picker
+   weiterzieht - ein anderer Slot wird im Dropdown gewählt
+   (`OnSelectedSlotChanged`) oder das Fenster schließt (`OnClosedAsync`, von
+   `HintPickerWindow.Show` nach `ShowDialog` aufgerufen). Da das Fenster modal
+   ist (blockiert die ganze App), kann währenddessen kein anderer Slot/keine
+   andere Gruppe interagieren - vereinfacht die Nebenläufigkeits-Überlegungen
+   erheblich (z. B. kann `DisconnectGroupAsync` währenddessen gar nicht
+   ausgelöst werden).
+
+Dabei außerdem gefixt: zwei bestehende Tests
+(`GetHintableLocationsAsync_NonLeaderSlot_ProbeConnectsThenDisconnects_LeaderUntouched`,
+`SendHintAsync_NonLeaderSlot_ProbeConnectsThenDisconnects_LeaderUntouched`)
+prüften explizit das alte "sofort wieder trennen"-Verhalten - umbenannt und
+auf das neue "bleibt offen, bis `ReleaseHeldSessionAsync`"-Verhalten
+angepasst. Neue Tests: `GetHintableLocationsAsync_SlotAlreadyCaughtUpAtStartup_AnswersFromCacheWithNoNewSession`
+(die eigentliche Cache-Situation - ein Sibling-Slot, dessen Startup-Catch-up-
+Dip die Verbindung schon längst wieder normal geschlossen hat, nicht der
+Picker), `ReleaseHeldSessionAsync_CurrentLeader_NeverDisconnectsIt`, sowie
+`HintPickerViewModelTests`-Fälle für die Release-Triggerung (Slot-Wechsel
+löst nur den *vorherigen* Slot, `OnClosedAsync` löst den aktuell gewählten).
+192/192 in der Gesamt-Suite.
+
+**Dev-Nachfrage (2026-09-10): warum überhaupt einen Connect für den
+Nicht-Leader-Slot, wenn das DataPackage sowieso für die ganze Multiworld
+gilt?** Berechtigter Einwand, gegen das offizielle Netzwerkprotokoll
+verifiziert: `RoomInfo` (inkl. `datapackage_checksums` für *jedes* Spiel im
+Room) kommt schon direkt beim Rohverbindungsaufbau, vor jedem Login;
+`GetDataPackage`/`DataPackage` "does not require client authentication"
+überhaupt; und das Roster (`Players.AllPlayers`) ist für jede verbundene
+Session vollständig room-weit (genau das, worauf `BuildSlotRoster` für
+Alias-Auflösung schon seit Fortschrittsanzeigen.md beruht). Nichts davon ist
+an den fragenden Slot gebunden - nur das eigentliche **Senden** eines Hints
+ist es (der `!hint`-Chat-Befehl wird serverseitig der sendenden Verbindung
+zugeordnet).
+
+`GetHintableItemsAsync` fragt deshalb jetzt zuerst, ob die Gruppe bereits
+irgendeine offene Session hat (praktisch immer die des Leaders) - falls ja,
+wird darüber geantwortet, ganz ohne den angefragten Slot auch nur kurz zu
+verbinden. Nur wenn die Gruppe komplett getrennt ist, greift weiterhin der
+alte Fallback (kurzer, gehaltener Probe-Connect als dieser Slot). Die
+eigentliche Fetch-Logik liegt jetzt in `FetchHintableItemsViaSessionAsync`,
+die Spiel-Auflösung über Namens-Matching im Roster (wie `BuildSlotRoster`),
+nicht mehr über `ConnectionInfo.Slot` (das nur funktioniert, wenn man selbst
+als dieser Slot eingeloggt ist). `SendItemHintAsync`/`SendHintAsync` bleiben
+unverändert slot-gebunden - dort ist ein echter (gehaltener) Connect als der
+Ziel-Slot weiterhin nötig.
+
+Zwei bestehende Tests mussten angepasst werden, weil sie versehentlich genau
+den jetzt eingesparten Connect erwarteten - umgeschrieben in
+`ItemMode_NonLeaderSlot_LeaderAlreadyConnected_AnswersViaLeaderWithNoNewConnection`
+(0 neue Connects fürs Browsen) und `SendItemHintAsync_NonLeaderSlot_ConnectsOnce_ReusesForASecondSend`
+(1 Connect fürs tatsächliche Senden, wiederverwendet für einen zweiten
+Send). 194/194 in der Gesamt-Suite.
+
 Ergänzt `archipolygo_feature_ideas.md` ("One-click `!hint` — a button that
 sends the hint chat command instead of typing it manually").
 

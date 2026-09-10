@@ -153,6 +153,63 @@ public sealed class PersistenceServiceTests : IDisposable
         Assert.Empty(loaded.SeenHintIds);
     }
 
+    [Fact]
+    public void SaveThenLoadDataPackageCache_RoundTripsChecksumAndItemNames()
+    {
+        var groupId = Guid.NewGuid();
+        var entry = new DataPackageCacheEntry { Checksum = "abc123", ItemNames = { "Fire Rod", "Ice Rod" } };
+
+        _service.SaveDataPackageCache(groupId, "A Link to the Past", entry);
+        var loaded = _service.LoadDataPackageCache(groupId, "A Link to the Past");
+
+        Assert.NotNull(loaded);
+        Assert.Equal("abc123", loaded!.Checksum);
+        Assert.Equal(new[] { "Fire Rod", "Ice Rod" }, loaded.ItemNames);
+    }
+
+    [Fact]
+    public void LoadDataPackageCache_NothingCachedYet_ReturnsNull()
+    {
+        var loaded = _service.LoadDataPackageCache(Guid.NewGuid(), "Some Game");
+
+        Assert.Null(loaded);
+    }
+
+    [Fact]
+    public void SaveDataPackageCache_GameNameWithInvalidFileNameCharacters_StillRoundTrips()
+    {
+        var groupId = Guid.NewGuid();
+        var entry = new DataPackageCacheEntry { Checksum = "xyz", ItemNames = { "Widget" } };
+
+        _service.SaveDataPackageCache(groupId, "Some/Game: Weird*Name?", entry);
+        var loaded = _service.LoadDataPackageCache(groupId, "Some/Game: Weird*Name?");
+
+        Assert.NotNull(loaded);
+        Assert.Equal("xyz", loaded!.Checksum);
+    }
+
+    [Fact]
+    public void DeleteDataPackageCacheForGroup_RemovesEveryGameCachedForThatGroup_LeavesOtherGroupsAlone()
+    {
+        var groupToRemove = Guid.NewGuid();
+        var otherGroup = Guid.NewGuid();
+        _service.SaveDataPackageCache(groupToRemove, "Game A", new DataPackageCacheEntry { Checksum = "1" });
+        _service.SaveDataPackageCache(groupToRemove, "Game B", new DataPackageCacheEntry { Checksum = "2" });
+        _service.SaveDataPackageCache(otherGroup, "Game A", new DataPackageCacheEntry { Checksum = "3" });
+
+        _service.DeleteDataPackageCacheForGroup(groupToRemove);
+
+        Assert.Null(_service.LoadDataPackageCache(groupToRemove, "Game A"));
+        Assert.Null(_service.LoadDataPackageCache(groupToRemove, "Game B"));
+        Assert.NotNull(_service.LoadDataPackageCache(otherGroup, "Game A"));
+    }
+
+    [Fact]
+    public void DeleteDataPackageCacheForGroup_NothingEverCached_DoesNotThrow()
+    {
+        _service.DeleteDataPackageCacheForGroup(Guid.NewGuid());
+    }
+
     private void WriteLegacyProfilesFile(object legacyProfiles)
     {
         Directory.CreateDirectory(_tempDirectory);
