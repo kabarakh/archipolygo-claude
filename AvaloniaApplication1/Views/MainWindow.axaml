@@ -181,6 +181,19 @@
                                 <Button Content="Disconnect" Command="{Binding DisconnectCommand}" Margin="8,0,0,0"
                                         IsVisible="{Binding !CanConnect}"/>
 
+                                <!-- "Hint..." picker (see HintPickerViewModel, and
+                                     Feature-Plaene/Archiv/Hint-Eingabefeld.md for the
+                                     full design history) - a searchable replacement
+                                     for typing "!hint <item>"/"!hint_location <loc>"
+                                     by hand into the message box down by "Chat as",
+                                     which stays untouched (additive, not a
+                                     replacement) for anyone who still wants to type
+                                     other commands manually. A real titled dialog
+                                     (see Views/HintPickerWindow.axaml), same as
+                                     "Add slot"/"Edit server", opened from code-behind
+                                     since it isn't a Flyout. -->
+                                <Button Content="Hint..." Click="OnHintButtonClick" Margin="8,0,0,0"/>
+
                                 <!-- Refresh only makes sense once there's a
                                      tracker to poll - the progress bar itself
                                      (below, outside this horizontal row)

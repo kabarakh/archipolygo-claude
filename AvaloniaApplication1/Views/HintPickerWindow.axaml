@@ -1,0 +1,107 @@
+<!-- A real, titled Window - same as ConnectionEditorWindow (Add slot/Edit
+     server) - rather than a Flyout (dev feedback: match that existing
+     dialog style instead). Resizable with a generous initial width so the
+     row list's WrapPanel below has room to lay items out side by side. -->
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Archipolygo.ViewModels"
+        xmlns:m="using:Archipolygo.Models"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        x:Class="Archipolygo.Views.HintPickerWindow"
+        x:DataType="vm:HintPickerViewModel"
+        Width="460" Height="560"
+        MinWidth="380" MinHeight="360"
+        Title="Request a Hint"
+        CanResize="True">
+
+    <!-- DockPanel, not a plain StackPanel: the Close button must stay pinned
+         to the bottom-right no matter how tall the window gets, not just
+         trail after however much content happens to be above it - everything
+         but the row list/empty-state area docks Top/Bottom, and that last,
+         undocked child fills whatever space remains (DockPanel's
+         LastChildFill). -->
+    <DockPanel Margin="16" LastChildFill="True">
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="12">
+            <RadioButton GroupName="HintMode" Content="Hint for item" IsChecked="{Binding IsItemMode}"/>
+            <RadioButton GroupName="HintMode" Content="Hint for location" IsChecked="{Binding IsLocationMode}"/>
+        </StackPanel>
+
+        <!-- Browse (and, for Location mode, send hints for) any configured
+             slot, not just the leader - IConnectionManager briefly connects
+             as a non-leader slot behind the scenes when needed, without
+             touching the group's actual leader connection. -->
+        <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,*" Margin="0,10,0,0">
+            <TextBlock Grid.Column="0" Text="Slot:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+            <ComboBox Grid.Column="1" ItemsSource="{Binding Slots}" SelectedItem="{Binding SelectedSlot}"
+                      HorizontalAlignment="Stretch">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate DataType="m:SlotProfile">
+                        <TextBlock Text="{Binding DisplayName}" MaxWidth="240" TextTrimming="CharacterEllipsis"/>
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+        </Grid>
+
+        <!-- Item mode only - see HintPickerViewModel.ExcludeAlreadyFoundOrHinted. -->
+        <CheckBox DockPanel.Dock="Top" Content="Exclude already found/hinted"
+                  IsChecked="{Binding ExcludeAlreadyFoundOrHinted}"
+                  IsVisible="{Binding ShowExcludeCheckbox}"
+                  Margin="0,10,0,0"/>
+
+        <TextBox DockPanel.Dock="Top" Text="{Binding SearchText}" PlaceholderText="Search..." Margin="0,10,0,0"/>
+
+        <!-- Pinned to the bottom-right regardless of window height - declared
+             before the fill area below so DockPanel's LastChildFill still
+             applies to that last child. -->
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button Content="Close" Click="OnCloseClick"/>
+        </StackPanel>
+
+        <!-- The fill area: whichever of the row list / two empty states
+             applies. "dialog-list" leaves scrollbar room, same as the other
+             scrollable lists in this app (see DialogStyles.axaml). Rows lay
+             out in a WrapPanel - side by side depending on available width,
+             no line-break inside a single row's own text - rather than one
+             per line. -->
+        <Grid Margin="0,10,0,0">
+            <ScrollViewer Classes="dialog-list" IsVisible="{Binding !HasNoRowsAtAll}">
+                <ItemsControl ItemsSource="{Binding FilteredRows}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel Orientation="Horizontal"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <!-- x:CompileBindings="False": falls back to classic
+                             reflection binding just for this one template, so
+                             "DataContext, RelativeSource AncestorType=Window"
+                             can resolve SendCommand off the Window's own
+                             HintPickerViewModel DataContext without a cast -
+                             same approach as the message-row Flyout version
+                             of this used before moving to a real Window. -->
+                        <DataTemplate x:CompileBindings="False">
+                            <!-- One click sends the hint for this row - the
+                                 window deliberately does NOT close afterward,
+                                 so several hints can be sent in one sitting. -->
+                            <Button Content="{Binding Name}"
+                                    Command="{Binding DataContext.SendCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                    CommandParameter="{Binding}"
+                                    Margin="0,2,6,2"/>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+
+            <TextBlock Text="Loading locations..." Opacity="0.6" IsVisible="{Binding IsLoading}"/>
+            <!-- Two distinct empty states: "nothing left to hint for this
+                 slot/mode at all" reads differently from "your search
+                 matched nothing". -->
+            <TextBlock Text="Nothing available for this slot/mode."
+                       Opacity="0.6" TextWrapping="Wrap" IsVisible="{Binding HasNoRowsAtAll}"/>
+            <TextBlock Text="Nothing matches your search." Opacity="0.6"
+                       IsVisible="{Binding HasNoSearchMatches}"/>
+        </Grid>
+    </DockPanel>
+</Window>

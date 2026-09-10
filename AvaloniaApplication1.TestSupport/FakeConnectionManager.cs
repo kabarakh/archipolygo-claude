@@ -238,4 +238,51 @@ public sealed class FakeConnectionManager : IConnectionManager
 
     public Task<IReadOnlyList<PlayerInfo>> GetRoomPlayersAsync(GroupViewModel group) =>
         Task.FromResult<IReadOnlyList<PlayerInfo>>(Array.Empty<PlayerInfo>());
+
+    // --- Hint picker (Feature-Plaene/Archiv/Hint-Eingabefeld.md) -------
+    //
+    // Same spirit as the rest of this fake: no real session, just enough
+    // settable/recorded state for TestHarness (seed data via
+    // SetHintableLocations) and future Kategorie B/C tests (assert against
+    // SentLocationHints/SentItemHints) to exercise HintPickerViewModel
+    // without a real Archipelago server.
+    private readonly Dictionary<Guid, List<HintableLocation>> _hintableLocationsBySlot = new();
+
+    public List<(Guid SlotId, long LocationId)> SentLocationHints { get; } = new();
+    public List<(Guid SlotId, string ItemName)> SentItemHints { get; } = new();
+
+    public void SetHintableLocations(SlotProfile slot, IReadOnlyList<HintableLocation> locations) =>
+        _hintableLocationsBySlot[slot.Id] = locations.ToList();
+
+    public Task<IReadOnlyList<HintableLocation>> GetHintableLocationsAsync(GroupViewModel group, SlotProfile slot) =>
+        Task.FromResult<IReadOnlyList<HintableLocation>>(
+            _hintableLocationsBySlot.TryGetValue(slot.Id, out var locations) ? locations : Array.Empty<HintableLocation>());
+
+    public Task SendHintAsync(GroupViewModel group, SlotProfile slot, long locationId)
+    {
+        SentLocationHints.Add((slot.Id, locationId));
+
+        // Drop the just-hinted location from the seeded list too, so a
+        // caller that reopens the picker (or re-reads SetHintableLocations'
+        // backing list) sees it disappear, same as the real feature's
+        // GetHintableLocationsAsync would once the location is no longer in
+        // AllMissingLocations... except a hinted-but-unchecked location
+        // never actually leaves AllMissingLocations for real - it's
+        // HintPickerViewModel's own cross-reference against
+        // GroupViewModel.Hints that hides it. This fake has no such hint
+        // list of its own to cross-reference, so it approximates the same
+        // visible effect by removing it here directly.
+        if (_hintableLocationsBySlot.TryGetValue(slot.Id, out var locations))
+        {
+            _hintableLocationsBySlot[slot.Id] = locations.Where(l => l.LocationId != locationId).ToList();
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task SendItemHintAsync(GroupViewModel group, SlotProfile slot, string itemName)
+    {
+        SentItemHints.Add((slot.Id, itemName));
+        return Task.CompletedTask;
+    }
 }

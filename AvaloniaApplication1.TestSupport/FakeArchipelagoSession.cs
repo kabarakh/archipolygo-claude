@@ -196,7 +196,17 @@ public sealed class FakeLocationCheckHelper : ILocationCheckHelper
         throw new NotImplementedException();
 
     public long GetLocationIdFromName(string game, string locationName) => throw new NotImplementedException();
-    public string GetLocationNameFromId(long locationId, string? game = null) => throw new NotImplementedException();
+
+    /// <summary>
+    /// Settable location-id -> name map, for
+    /// <c>ConnectionManager.GetHintableLocationsAsync</c> tests (Feature-Plaene/Archiv/Hint-Eingabefeld.md).
+    /// An id with no entry returns null - exercises the real code's own
+    /// <c>?? $"Location #{id}"</c> fallback rather than throwing.
+    /// </summary>
+    public Dictionary<long, string> LocationNames { get; } = new();
+
+    public string GetLocationNameFromId(long locationId, string? game = null) =>
+        LocationNames.TryGetValue(locationId, out var name) ? name : null!;
 }
 
 /// <summary>Fake <see cref="IPlayerHelper"/> - <see cref="AllPlayers"/> defaults to empty (settable) since <c>ConnectionManager</c>'s roster-building runs unconditionally on every leader connect.</summary>
@@ -210,7 +220,9 @@ public sealed class FakePlayerHelper : IPlayerHelper
     public string GetPlayerName(int slot) => throw new NotImplementedException();
     public string GetPlayerAliasAndName(int slot) => throw new NotImplementedException();
     public PlayerInfo GetPlayerInfo(int team, int slot) => throw new NotImplementedException();
-    public PlayerInfo GetPlayerInfo(int slot) => throw new NotImplementedException();
+
+    /// <summary>Looks up <see cref="AllPlayers"/> by numeric slot id - used by <c>ConnectionManager.GetHintableLocationsAsync</c> to resolve the connected slot's own game (see <see cref="FakeConnectionInfoProvider.Game"/> always being empty).</summary>
+    public PlayerInfo GetPlayerInfo(int slot) => AllPlayers.FirstOrDefault(p => p.Slot == slot)!;
 }
 
 /// <summary>Fake <see cref="IConnectionInfoProvider"/> - only <see cref="Slot"/> (the numeric slot id used to key roster lookups) has real, settable behavior.</summary>
@@ -250,8 +262,11 @@ public sealed class FakeHintsHelper : IHintsHelper
     public void TrackHints(Action<Hint[]> onHintsUpdated, bool retrieveCurrentlyUnlockedHints = true, int? slot = null, int? team = null) =>
         TrackHintsCallCount++;
 
-    public void CreateHints(int player, HintStatus hintStatus = HintStatus.Unspecified, params long[] locationIds) => throw new NotImplementedException();
-    public void CreateHints(HintStatus hintStatus = HintStatus.Unspecified, params long[] locationIds) => throw new NotImplementedException();
+    /// <summary>Every <see cref="CreateHints(HintStatus, long[])"/>/<see cref="CreateHints(int, HintStatus, long[])"/> call's location ids, in order - for <c>ConnectionManager.SendHintAsync</c> tests (Feature-Plaene/Archiv/Hint-Eingabefeld.md).</summary>
+    public List<long[]> CreateHintsCalls { get; } = new();
+
+    public void CreateHints(int player, HintStatus hintStatus = HintStatus.Unspecified, params long[] locationIds) => CreateHintsCalls.Add(locationIds);
+    public void CreateHints(HintStatus hintStatus = HintStatus.Unspecified, params long[] locationIds) => CreateHintsCalls.Add(locationIds);
     public void UpdateHintStatus(int player, long locationId, HintStatus newHintStatus) => throw new NotImplementedException();
     public Hint[] GetHints(int? slot = null, int? team = null) => throw new NotImplementedException();
     public Task<Hint[]> GetHintsAsync(int? slot = null, int? team = null) => throw new NotImplementedException();

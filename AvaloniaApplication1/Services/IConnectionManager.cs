@@ -164,4 +164,50 @@ public interface IConnectionManager
     /// brief connection attempt fails.
     /// </summary>
     Task<IReadOnlyList<PlayerInfo>> GetRoomPlayersAsync(GroupViewModel group);
+
+    /// <summary>
+    /// <paramref name="slot"/>'s own not-yet-found locations, for the "Hint..."
+    /// picker's Location mode (see Feature-Plaene/Archiv/Hint-Eingabefeld.md).
+    /// Reuses an already-open session for exactly this slot (typically the
+    /// leader) if there is one; otherwise briefly connects as this slot
+    /// purely to read <c>ILocationCheckHelper.AllMissingLocations</c>, then
+    /// disconnects again - the group's actual leader (if <paramref name="slot"/>
+    /// isn't it) is never touched, the two sessions simply coexist for the
+    /// few seconds this takes, same as <see cref="CatchUpSyncAsync"/>.
+    /// Serializes against <see cref="SwitchLeaderAsync"/>/
+    /// <see cref="CatchUpSyncAsync"/>/<see cref="DisconnectGroupAsync"/> via
+    /// the same per-group gate those use. Empty list if no connection could
+    /// be established at all. Does not itself exclude already-hinted
+    /// locations - callers cross-reference <see cref="HintableLocation"/>
+    /// against <c>GroupViewModel.Hints</c> for that, since this method has no
+    /// access to the UI-owned hint list.
+    /// </summary>
+    Task<IReadOnlyList<HintableLocation>> GetHintableLocationsAsync(GroupViewModel group, SlotProfile slot);
+
+    /// <summary>
+    /// Hints <paramref name="locationId"/> - one of <paramref name="slot"/>'s
+    /// own locations, from <see cref="GetHintableLocationsAsync"/> - via
+    /// <c>session.Hints.CreateHints(locationId)</c>. Same session-reuse-or-
+    /// brief-probe-connect behavior as <see cref="GetHintableLocationsAsync"/>;
+    /// no-op if no connection could be established at all. The resulting hint
+    /// arrives back through the normal <c>OnHintsUpdated</c>/<c>TrackHints</c>
+    /// pipeline like any other hint - no special-casing needed.
+    /// </summary>
+    Task SendHintAsync(GroupViewModel group, SlotProfile slot, long locationId);
+
+    /// <summary>
+    /// Hints for one of <paramref name="slot"/>'s own items by name, for the
+    /// "Hint..." picker's Item mode. Unlike <see cref="SendHintAsync"/>, this
+    /// cannot go through <c>CreateHints</c> at all - that packet only accepts
+    /// location ids, and there is no client-side way to resolve an item name
+    /// to a location id without already knowing where it is (verified against
+    /// the official Archipelago network protocol; see
+    /// Feature-Plaene/Archiv/Hint-Eingabefeld.md). Instead sends the plain
+    /// chat command <c>!hint &lt;itemName&gt;</c> via <c>session.Say</c> - the
+    /// same thing typing it into the message box does today, just without
+    /// the typo risk. Same session-reuse-or-brief-probe-connect behavior as
+    /// <see cref="GetHintableLocationsAsync"/>; no-op if no connection could
+    /// be established, or if <paramref name="itemName"/> is blank.
+    /// </summary>
+    Task SendItemHintAsync(GroupViewModel group, SlotProfile slot, string itemName);
 }

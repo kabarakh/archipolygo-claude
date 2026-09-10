@@ -658,6 +658,134 @@ public class ConnectionManager : IConnectionManager
         return Task.CompletedTask;
     }
 
+    public async Task<IReadOnlyList<HintableLocation>> GetHintableLocationsAsync(GroupViewModel group, SlotProfile slot)
+    {
+        var groupId = group.Group.Id;
+        var gate = _groupLocks.GetOrAdd(groupId, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync();
+        try
+        {
+            var result = await RunAsSlotAsync(group, slot, session =>
+            {
+                // The login is a generic "Tracker" client with an empty game
+                // (see ConnectSlotSessionAsync's LoginAsync call) - unlike a
+                // real game client, session.ConnectionInfo.Game is never
+                // actually set, so the connected slot's own game has to come
+                // from the room roster instead, same as TrackHints already
+                // does for other players' hints.
+                var ownGame = session.Players.GetPlayerInfo(session.ConnectionInfo.Slot)?.Game;
+
+                IReadOnlyList<HintableLocation> locations = session.Locations.AllMissingLocations
+                    .Select(id => new HintableLocation
+                    {
+                        LocationId = id,
+                        Name = session.Locations.GetLocationNameFromId(id, ownGame) ?? $"Location #{id}"
+                    })
+                    .ToList();
+
+                return Task.FromResult(locations);
+            });
+
+            return result ?? Array.Empty<HintableLocation>();
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    public async Task SendHintAsync(GroupViewModel group, SlotProfile slot, long locationId)
+    {
+        var groupId = group.Group.Id;
+        var gate = _groupLocks.GetOrAdd(groupId, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync();
+        try
+        {
+            await RunAsSlotAsync<object?>(group, slot, session =>
+            {
+                // No player parameter - defaults to the requesting (i.e.
+                // connected) slot, exactly what's wanted here. See
+                // Feature-Plaene/Archiv/Hint-Eingabefeld.md for why a
+                // cross-slot player parameter would NOT do what it might
+                // look like it does.
+                session.Hints.CreateHints(locationIds: new[] { locationId });
+                return Task.FromResult<object?>(null);
+            });
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    public async Task SendItemHintAsync(GroupViewModel group, SlotProfile slot, string itemName)
+    {
+        if (string.IsNullOrWhiteSpace(itemName))
+        {
+            return;
+        }
+
+        var groupId = group.Group.Id;
+        var gate = _groupLocks.GetOrAdd(groupId, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync();
+        try
+        {
+            await RunAsSlotAsync<object?>(group, slot, session =>
+            {
+                session.Say($"!hint {itemName}");
+                return Task.FromResult<object?>(null);
+            });
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Runs <paramref name="action"/> against a session for exactly
+    /// <paramref name="slot"/> - reusing an already-open one (the leader, or
+    /// a catch-up dip already in flight) if one exists, otherwise briefly
+    /// connecting as this slot purely for the duration of the call and
+    /// disconnecting again right after. Never touches the group's leader if
+    /// <paramref name="slot"/> isn't it - same "the two sessions simply
+    /// coexist for a few seconds" pattern as <see cref="CatchUpSyncCoreAsync"/>,
+    /// just running an arbitrary action instead of only waiting out the
+    /// backlog grace period. Callers must already hold this group's
+    /// <see cref="_groupLocks"/> gate - this method doesn't acquire it itself,
+    /// so <see cref="GetHintableLocationsAsync"/>/<see cref="SendHintAsync"/>/
+    /// <see cref="SendItemHintAsync"/> each wrap their own call in it instead
+    /// (mirroring the public/gated vs. private/ungated split <see cref="CatchUpSyncAsync"/>
+    /// and <see cref="CatchUpSyncCoreAsync"/> already use, just without a
+    /// second caller needing the ungated version directly). Returns default
+    /// if no connection could be established at all.
+    /// </summary>
+    private async Task<T?> RunAsSlotAsync<T>(GroupViewModel group, SlotProfile slot, Func<IArchipelagoSession, Task<T>> action)
+    {
+        if (_sessions.TryGetValue(slot.Id, out var existingSession))
+        {
+            return await action(existingSession);
+        }
+
+        var session = await ConnectSlotSessionAsync(group, slot, isLeaderSession: false);
+        if (session is null)
+        {
+            return default;
+        }
+
+        try
+        {
+            return await action(session);
+        }
+        finally
+        {
+            if (_sessions.TryRemove(slot.Id, out var stillTracked) && stillTracked == session)
+            {
+                await TryCloseSocketAsync(group, slot, session);
+            }
+        }
+    }
+
     /// <summary>
     /// Opens and logs in a session for <paramref name="slot"/> and wires up
     /// its event handlers. Used for both leader connections (which stay open

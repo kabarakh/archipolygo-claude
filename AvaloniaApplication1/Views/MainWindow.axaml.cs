@@ -222,6 +222,21 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// Opens the "Hint..." picker as a real dialog (see
+    /// <see cref="HintPickerWindow"/>) - the button's own DataContext (from
+    /// this tab's DataTemplate) is the <see cref="GroupViewModel"/>, same
+    /// situation as <see cref="OnAddSlotClick"/>/<see cref="OnEditServerClick"/>
+    /// elsewhere in this file.
+    /// </summary>
+    private void OnHintButtonClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: GroupViewModel group })
+        {
+            HintPickerWindow.Show(this, group.HintPicker);
+        }
+    }
+
+    /// <summary>
     /// Keeps the events list scrolled to the bottom as new events arrive, so
     /// the most recent message/event is always visible without the user
     /// having to scroll manually - and wires up the floating "Jump to

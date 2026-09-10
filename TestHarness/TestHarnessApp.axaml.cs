@@ -51,6 +51,20 @@ public partial class TestHarnessApp : Application
             // tracked.
             _ = connectionManager.SwitchLeaderAsync(groupViewModel, slot);
 
+            // Seeds the real "Hint..." picker's Location mode (see
+            // HintPickerViewModel, Feature-Plaene/Archiv/Hint-Eingabefeld.md)
+            // with something to click through - Item mode needs no seeding
+            // of its own, it already reads live off whatever ControlPanelWindow's
+            // "Add item"/"Add hint" buttons feed into groupViewModel.ReceivedItems/Hints.
+            connectionManager.SetHintableLocations(slot, new List<Archipolygo.Models.HintableLocation>
+            {
+                new() { LocationId = 1, Name = "Cave Entrance - Chest" },
+                new() { LocationId = 2, Name = "Forest Clearing - Tree Stump" },
+                new() { LocationId = 3, Name = "Mountain Pass - Summit Chest" },
+                new() { LocationId = 4, Name = "Old Library - Basement" },
+                new() { LocationId = 5, Name = "Village Square - Well" },
+            });
+
             // Explicit manual position so the main window can never overlap
             // ControlPanelWindow (which sits at (20,20), 260 wide) - keeps
             // both fully visible side by side for whoever is clicking

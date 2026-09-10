@@ -8,7 +8,7 @@ Archipolygo is a desktop client (Avalonia/.NET) for managing several simultaneou
 
 - **Check progress per slot** — a progress bar ("X of Y checks done"), using the location data the Archipelago session already exposes. ✅ **Done** (2026-09-09) — Plan: [`Feature-Plaene/Archiv/Fortschrittsanzeigen.md`](../Feature-Plaene/Archiv/Fortschrittsanzeigen.md) (covers per-slot *and* multiworld-wide progress; see that file's own "Status" section for how the actual Tier 2 UI ended up differing from the original plan).
 - **DeathLink support** — surface and relay DeathLink events for games that use it. 📝 Plan (not yet built): [`Feature-Plaene/DeathLink.md`](../Feature-Plaene/DeathLink.md)
-- **One-click `!hint`** — a button that sends the hint chat command instead of typing it manually. 📝 Plan (not yet built): [`Feature-Plaene/Hint-Eingabefeld.md`](../Feature-Plaene/Hint-Eingabefeld.md)
+- **One-click `!hint`** — a button that sends the hint chat command instead of typing it manually. ✅ **Done** (2026-09-10) — Plan: [`Feature-Plaene/Archiv/Hint-Eingabefeld.md`](../Feature-Plaene/Archiv/Hint-Eingabefeld.md) (ended up as a real titled dialog, not a Flyout, with the button in the tab's info/status row rather than the message row - see that file's own "Status" section).
 - **Who's online** — show which other players in the room are currently connected.
 - **Better item/trap icons** — game-specific icons for progression/useful/trap items instead of just color and text.
 

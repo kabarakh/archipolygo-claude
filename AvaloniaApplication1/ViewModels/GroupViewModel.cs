@@ -337,11 +337,21 @@ public partial class GroupViewModel : ViewModelBase
     /// </summary>
     public ObservableCollection<SlotProfile?> SlotFilterOptions { get; } = new() { null };
 
+    /// <summary>
+    /// Backs the "Hint..." Flyout in the message row (see MainWindow.axaml) -
+    /// see <see cref="HintPickerViewModel"/>'s own doc comment for the full
+    /// design. One instance per group, created alongside it rather than
+    /// lazily on first open, so its own state (selected slot/mode/search
+    /// text) persists across opens within the same session.
+    /// </summary>
+    public HintPickerViewModel HintPicker { get; }
+
     public GroupViewModel(ServerConnectionGroup group, IConnectionManager connectionManager, IMultiworldTrackerService? multiworldTrackerService = null)
     {
         _group = group;
         _connectionManager = connectionManager;
         _multiworldTrackerService = multiworldTrackerService;
+        HintPicker = new HintPickerViewModel(this, connectionManager);
 
         Events.CollectionChanged += OnEventsCollectionChanged;
         Hints.CollectionChanged += OnHintsCollectionChanged;
