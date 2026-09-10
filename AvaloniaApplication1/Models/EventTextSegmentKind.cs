@@ -32,5 +32,8 @@ public enum EventTextSegmentKind
     ItemUseful,
 
     /// <summary>Any other item (filler).</summary>
-    ItemOther
+    ItemOther,
+
+    /// <summary>An incoming DeathLink (see Feature-Plaene/Archiv/DeathLink.md).</summary>
+    DeathLink
 }

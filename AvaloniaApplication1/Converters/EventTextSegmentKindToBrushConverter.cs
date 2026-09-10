@@ -26,6 +26,11 @@ public class EventTextSegmentKindToBrushConverter : IValueConverter
     private static readonly IBrush ItemUseful = Brushes.SlateBlue;
     private static readonly IBrush ItemOther = Brushes.Cyan;
 
+    // Dark red - deliberately distinct from every item/player color above so
+    // an incoming DeathLink (Feature-Plaene/Archiv/DeathLink.md) stands out at a
+    // glance in the event log, evoking "death" the way other AP trackers do.
+    private static readonly IBrush DeathLink = Brushes.Firebrick;
+
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
         value switch
         {
@@ -36,6 +41,7 @@ public class EventTextSegmentKindToBrushConverter : IValueConverter
             EventTextSegmentKind.ItemProgression => ItemProgression,
             EventTextSegmentKind.ItemUseful => ItemUseful,
             EventTextSegmentKind.ItemOther => ItemOther,
+            EventTextSegmentKind.DeathLink => DeathLink,
             // PlainText: don't touch Foreground at all, so the TextBlock keeps
             // whatever the theme/inherited default would otherwise be.
             _ => BindingOperations.DoNothing

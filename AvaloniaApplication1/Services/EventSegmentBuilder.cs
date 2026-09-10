@@ -100,6 +100,22 @@ public static class EventSegmentBuilder
         };
 
     /// <summary>
+    /// Builds the colored "DeathLink: {text}" log line for an incoming
+    /// DeathLink (see Feature-Plaene/Archiv/DeathLink.md).
+    /// <see cref="Archipelago.MultiClient.Net.BounceFeatures.DeathLink.DeathLink.Cause"/>
+    /// can be null - the library's own doc comment says it's meant to already
+    /// be full display text (e.g. "Alice fell into a pit."), so falling back
+    /// to "{source} died." only for that null case still reads naturally
+    /// either way.
+    /// </summary>
+    public static IReadOnlyList<EventTextSegment> BuildDeathLinkSegments(string sourcePlayerName, string? cause) =>
+        new[]
+        {
+            new EventTextSegment("DeathLink: ", EventTextSegmentKind.PlainText),
+            new EventTextSegment(string.IsNullOrEmpty(cause) ? $"{sourcePlayerName} died." : cause, EventTextSegmentKind.DeathLink)
+        };
+
+    /// <summary>
     /// Classifies a slot id the same way chat player parts are classified:
     /// the local session's own slot, a slot tracked by another tab of this
     /// app on the same server instance, or anyone else.

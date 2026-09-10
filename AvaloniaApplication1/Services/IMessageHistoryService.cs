@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using Archipelago.MultiClient.Net.BounceFeatures.DeathLink;
 using Archipelago.MultiClient.Net.Enums;
 using Archipelago.MultiClient.Net.Models;
 using Archipolygo.Models;
@@ -94,4 +95,14 @@ public interface IMessageHistoryService
     /// time - other slots' entries in the same merged list are untouched).
     /// </summary>
     void ClearReceivedItemsForSlot(GroupViewModel group, Guid slotId);
+
+    /// <summary>
+    /// Appends an <see cref="EventEntry"/> for an incoming DeathLink (see
+    /// Feature-Plaene/Archiv/DeathLink.md), using the new
+    /// <see cref="EventType.DeathLink"/>. Room-wide like plain chat with no
+    /// named configured slot - <see cref="EventEntry.SlotId"/> stays null,
+    /// since a DeathLink concerns the whole room's DeathLink-tagged players,
+    /// not specifically one of this app's own configured slots.
+    /// </summary>
+    void HandleDeathLinkReceived(GroupViewModel group, DeathLink deathLink);
 }

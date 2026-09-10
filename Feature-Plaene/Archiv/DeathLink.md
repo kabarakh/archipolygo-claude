@@ -1,5 +1,28 @@
 # Umsetzungsplan: DeathLink-Support
 
+## Status: ✅ Umgesetzt (2026-09-10)
+
+Umgesetzt und getestet (Kategorie B, `ConnectionManagerDeathLinkTests.cs`),
+mit einer bewussten Abweichung vom Plan; der Rest des Dokuments (die
+`ISessionFactory`/`IDeathLinkService`-Seam-Konstruktion,
+`Archipelago.MultiClient.Net.BounceFeatures.DeathLink`-API gegen 6.7.1
+verifiziert) wurde exakt so umgesetzt und ist weiterhin akkurat.
+
+**Keine `DeathLinkEnabled`-Checkbox, kein `ServerConnectionGroup.DeathLinkEnabled`.**
+Der Plan sah unten (Abschnitt "Datenmodell") ein Pro-Gruppe-Flag samt Checkbox
+im Verbindungs-Dialog vor, das steuert, ob `EnableDeathLink()` aufgerufen
+wird. Bei der Umsetzung selbst nachträglich korrigiert: der "DeathLink"-Tag
+ist ein reines Server-Protokoll-Opt-in dafür, dass der Server diese
+Bounce-Pakete überhaupt an diese Session weiterleitet - kein "Senden" und
+keine Aktion, die diese App im Namen des Nutzers ausführt. Da Archipolygo
+nie einen DeathLink sendet und nie darauf reagiert außer ihn anzuzeigen (kein
+Pausieren, kein simuliertes Sterben), gibt es nichts, wovor ein deaktiviertes
+Flag den Nutzer schützen würde - `ConnectionManager.ConnectSlotSessionAsync`
+ruft `EnableDeathLink()` deshalb jetzt bedingungslos für die Leader-Session
+auf. Ergebnis: eine Konfigurationsfläche und ein Modell-Property weniger, bei
+exakt gleichem beobachtbarem Verhalten für den Nutzer (DeathLinks erscheinen
+im Event-Log jedes Rooms, das sie überhaupt unterstützt).
+
 Ergänzt `archipolygo_feature_ideas.md` ("DeathLink support — surface and relay
 DeathLink events for games that use it").
 

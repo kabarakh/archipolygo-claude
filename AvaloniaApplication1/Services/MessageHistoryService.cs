@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using Archipelago.MultiClient.Net.BounceFeatures.DeathLink;
 using Archipelago.MultiClient.Net.Enums;
 using Archipelago.MultiClient.Net.Models;
 using Avalonia.Threading;
@@ -148,6 +149,14 @@ public class MessageHistoryService : IMessageHistoryService
 
         Dispatcher.UIThread.Post(() => group.ReceivedItems.Add(entry));
     }
+
+    public void HandleDeathLinkReceived(GroupViewModel group, DeathLink deathLink) =>
+        AddEvent(group, new EventEntry
+        {
+            Type = EventType.DeathLink,
+            Text = $"DeathLink: {deathLink.Cause ?? $"{deathLink.Source} died."}",
+            Segments = EventSegmentBuilder.BuildDeathLinkSegments(deathLink.Source, deathLink.Cause)
+        });
 
     public void ClearReceivedItemsForSlot(GroupViewModel group, Guid slotId)
     {

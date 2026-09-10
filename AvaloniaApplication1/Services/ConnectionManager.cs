@@ -991,6 +991,31 @@ public class ConnectionManager : IConnectionManager
                 session.Locations.CheckedLocationsUpdated += _ => UpdateLocationProgress(slot, session);
             }
 
+            // DeathLink (Feature-Plaene/Archiv/DeathLink.md): only the leader has
+            // a live session, same reasoning as the MessageLog subscription
+            // above. No per-group opt-in/checkbox - unlike a real game client,
+            // this app never *acts* on a DeathLink (no pausing, no "you died"),
+            // it only logs one for display, so there's nothing an opted-out
+            // user would actually be protected from; EnableDeathLink() just
+            // adds the "DeathLink" tag so the server bothers relaying these
+            // bounce packets to this session at all (that tag is what makes
+            // this an opt-in *protocol* feature, not an action this app takes
+            // on the user's behalf). No per-slot bookkeeping/dictionary needed
+            // either - unlike _sessions, nothing ever needs to look this back
+            // up again (still never sends one), and the real DeathLinkService
+            // keeps itself alive via its own socket subscription for as long
+            // as this session stays open, dying with it automatically on
+            // leader switch/disconnect.
+            if (isLeaderSession)
+            {
+                var deathLinkService = _sessionFactory.CreateDeathLinkService(session);
+                if (deathLinkService is not null)
+                {
+                    deathLinkService.EnableDeathLink();
+                    deathLinkService.OnDeathLinkReceived += deathLink => _messageHistoryService.HandleDeathLinkReceived(group, deathLink);
+                }
+            }
+
             // Fires immediately with this slot's own currently unlocked hints,
             // then again on every later change to them.
             //

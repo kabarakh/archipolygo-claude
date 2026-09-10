@@ -18,4 +18,15 @@ namespace Archipolygo.Services;
 public interface ISessionFactory
 {
     IArchipelagoSession CreateSession(string host, int port);
+
+    /// <summary>
+    /// Creates a <see cref="IDeathLinkService"/> for an already-connected
+    /// <paramref name="session"/> (see Feature-Plaene/Archiv/DeathLink.md) - or
+    /// null if that's not possible (e.g. <paramref name="session"/> isn't a
+    /// real <see cref="ArchipelagoSession"/>, which should never happen in the
+    /// real app - see <see cref="ArchipelagoSessionFactoryAdapter"/>). Separate
+    /// from <see cref="CreateSession"/> because DeathLink needs an already
+    /// logged-in session, not a fresh one.
+    /// </summary>
+    IDeathLinkService? CreateDeathLinkService(IArchipelagoSession session);
 }

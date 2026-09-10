@@ -10,5 +10,11 @@ public enum EventType
     ItemReceived,
     HintReceived,
     Chat,
-    Error
+    Error,
+
+    /// <summary>
+    /// An incoming DeathLink (see Feature-Plaene/Archiv/DeathLink.md) - display
+    /// only, this app never sends one.
+    /// </summary>
+    DeathLink
 }

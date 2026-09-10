@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using Archipelago.MultiClient.Net.BounceFeatures.DeathLink;
 using Archipelago.MultiClient.Net.Enums;
 using Archipelago.MultiClient.Net.Models;
 using Archipolygo.Models;
@@ -27,4 +28,5 @@ public sealed class NoOpMessageHistoryService : IMessageHistoryService
     public void TrackReceivedItem(GroupViewModel group, SlotProfile slot, ReadOnlyCollection<ItemInfo> allItemsReceived, string senderName, EventTextSegmentKind senderKind) { }
     public void HandleObservedItemForSlot(GroupViewModel group, SlotProfile targetSlot, string itemDisplayName, string locationDisplayName, ItemFlags itemFlags, string senderName, EventTextSegmentKind senderKind) { }
     public void ClearReceivedItemsForSlot(GroupViewModel group, Guid slotId) { }
+    public void HandleDeathLinkReceived(GroupViewModel group, DeathLink deathLink) { }
 }

@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using Archipelago.MultiClient.Net;
 using Archipolygo.Services;
 
+
 namespace Archipolygo.TestSupport;
 
 /// <summary>
@@ -23,6 +24,15 @@ public sealed class FakeSessionFactory : ISessionFactory
     /// <summary>Every session actually handed out so far, in creation order.</summary>
     public List<FakeArchipelagoSession> CreatedSessions { get; } = new();
 
+    /// <summary>
+    /// Every <see cref="FakeDeathLinkService"/> handed out by <see cref="CreateDeathLinkService"/>
+    /// so far, keyed by the session it was created for - lets a test fetch
+    /// "the DeathLink service <see cref="Archipolygo.Services.ConnectionManager"/>
+    /// created for this leader session" to call <see cref="FakeDeathLinkService.RaiseDeathLinkReceived"/>
+    /// on, or check <see cref="FakeDeathLinkService.IsEnabled"/>.
+    /// </summary>
+    public Dictionary<IArchipelagoSession, FakeDeathLinkService> DeathLinkServicesBySession { get; } = new();
+
     public void Enqueue(FakeArchipelagoSession session) => _queuedSessions.Enqueue(session);
 
     public IArchipelagoSession CreateSession(string host, int port)
@@ -30,5 +40,17 @@ public sealed class FakeSessionFactory : ISessionFactory
         var session = _queuedSessions.Count > 0 ? _queuedSessions.Dequeue() : new FakeArchipelagoSession();
         CreatedSessions.Add(session);
         return session;
+    }
+
+    /// <summary>One <see cref="FakeDeathLinkService"/> per session, created lazily on first request - see <see cref="DeathLinkServicesBySession"/>.</summary>
+    public IDeathLinkService CreateDeathLinkService(IArchipelagoSession session)
+    {
+        if (!DeathLinkServicesBySession.TryGetValue(session, out var deathLinkService))
+        {
+            deathLinkService = new FakeDeathLinkService();
+            DeathLinkServicesBySession[session] = deathLinkService;
+        }
+
+        return deathLinkService;
     }
 }
