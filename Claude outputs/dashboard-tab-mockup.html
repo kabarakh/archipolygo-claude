@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Dashboard-Tab &ndash; Mockup</title>
+<style>
+  body { font-family: "Segoe UI", sans-serif; background: #f4f3ef; color: #1a1a18; padding: 24px; }
+  .note { font-size: 13px; color: #5f5e5a; margin-bottom: 16px; max-width: 700px; }
+  .frame { max-width: 700px; }
+  .summary { font-size: 13px; color: #5f5e5a; margin: 0 0 12px; }
+  .panes { display: grid; grid-template-columns: 2fr 8px 1.3fr; border: 1px solid #d3d1c7; border-radius: 8px; overflow: hidden; background: #fff; }
+  .splitter { background: #d3d1c7; }
+  .pane { padding: 10px; }
+  .pane-title { font-size: 12px; color: #5f5e5a; margin: 0 0 8px; font-weight: 600; }
+  .row { padding: 8px 0; border-bottom: 1px solid #eee; }
+  .row:last-child { border-bottom: none; }
+  .row-top { display: flex; align-items: center; gap: 8px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .dot.on { background: #3b6d11; }
+  .dot.off { background: #a32d2d; }
+  .server-name { font-size: 13px; flex: 1; font-weight: 600; }
+  .badge { font-size: 11px; padding: 1px 6px; border-radius: 10px; }
+  .badge.events { background: #e6f1fb; color: #0c447c; }
+  .badge.hints { background: #faeeda; color: #854f0b; }
+  .badge.muted { background: #f1efe8; color: #888780; }
+  .bar-row { display: flex; align-items: center; gap: 6px; margin-top: 6px; padding-left: 16px; }
+  .bar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; flex: 1; background: #f1efe8; }
+  .bar span { display: block; height: 100%; }
+  .pct { font-size: 11px; color: #5f5e5a; width: 30px; text-align: right; }
+  .disc-note { font-size: 11px; color: #888780; margin: 6px 0 0 16px; }
+  .filters-row { display: flex; gap: 6px; margin-bottom: 8px; }
+  .filters-row select { font-size: 12px; flex: 1; min-width: 0; padding: 3px; }
+  .cat-filters { display: flex; gap: 4px; margin-bottom: 10px; flex-wrap: wrap; }
+  .cat-filters button { font-size: 11px; padding: 2px 8px; border: 1px solid #d3d1c7; background: #fff; border-radius: 4px; }
+  .cat-filters button.active { border: 2px solid #378add; color: #185fa5; }
+  .hint-row { font-size: 12px; padding: 6px 0; border-bottom: 1px solid #eee; }
+  .hint-row:last-child { border-bottom: none; }
+  .hint-server { color: #185fa5; }
+  .hint-loc { color: #5f5e5a; font-size: 11px; }
+  .legend { font-size: 11px; color: #888780; margin-top: 10px; }
+  .legend span.sw { display: inline-block; width: 8px; height: 8px; margin-right: 4px; vertical-align: 1px; }
+  .pane-title small { font-weight: 400; color: #888780; }
+</style>
+</head>
+<body>
+
+<p class="note">
+  Mockup zur geplanten Dashboard-Ansicht (siehe <code>Feature-Plaene/Dashboard-Tab.md</code>) &mdash;
+  noch nicht implementiert. Zeigt den Zielzustand: Server-Übersicht links, geteilte
+  Hints-Übersicht (nur offene Hints, mit Server-/Slot-/Kategorie-Filter) rechts,
+  per Splitter getrennt &mdash; analog zur bestehenden Events|Hints/Items-Aufteilung
+  pro Tab.
+</p>
+
+<div class="frame">
+  <p class="summary">3 servers &middot; 12 unread events &middot; 5 open hints</p>
+
+  <div class="panes">
+    <div class="pane">
+      <p class="pane-title">Overview</p>
+
+      <div class="row">
+        <div class="row-top">
+          <span class="dot on"></span>
+          <span class="server-name">Lauralei</span>
+          <span class="badge events">5 events</span>
+          <span class="badge hints">2 hints</span>
+        </div>
+        <div class="bar-row">
+          <div class="bar">
+            <span style="width:32%;background:#0f6e56"></span>
+            <span style="width:8%;background:#9fe1cb"></span>
+            <span style="width:41%;background:#185fa5"></span>
+            <span style="width:19%;background:#b5d4f4"></span>
+          </div>
+          <span class="pct">73%</span>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="row-top">
+          <span class="dot on"></span>
+          <span class="server-name">Weekend Multi</span>
+          <span class="badge events">7 events</span>
+          <span class="badge muted">0 hints</span>
+        </div>
+        <div class="bar-row">
+          <div class="bar">
+            <span style="width:18%;background:#0f6e56"></span>
+            <span style="width:22%;background:#9fe1cb"></span>
+            <span style="width:12%;background:#185fa5"></span>
+            <span style="width:48%;background:#b5d4f4"></span>
+          </div>
+          <span class="pct">30%</span>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="row-top">
+          <span class="dot off"></span>
+          <span class="server-name">Solo run</span>
+          <span class="badge muted">0 events</span>
+          <span class="badge hints">3 hints</span>
+        </div>
+        <p class="disc-note">disconnected &mdash; no progress data yet</p>
+      </div>
+    </div>
+
+    <div class="splitter"></div>
+
+    <div class="pane">
+      <p class="pane-title">Hints <small>&middot; open only, no found/unfound toggle</small></p>
+
+      <div class="filters-row">
+        <select><option>All servers</option></select>
+        <select disabled><option>All slots</option></select>
+      </div>
+
+      <div class="cat-filters">
+        <button class="active">All</button>
+        <button>Progression</button>
+        <button>Useful</button>
+        <button>Normal</button>
+        <button>Trap</button>
+      </div>
+
+      <div class="hint-row">
+        <span class="hint-server">Lauralei</span> &middot; <span style="color:#3b6d11">Progressive Sword</span>
+        <div class="hint-loc">Kitchen &ndash; Chest 3</div>
+      </div>
+      <div class="hint-row">
+        <span class="hint-server">Weekend Multi</span> &middot; <span style="color:#185fa5">Speed Boots</span>
+        <div class="hint-loc">Docks &ndash; Crate</div>
+      </div>
+      <div class="hint-row">
+        <span class="hint-server">Lauralei</span> &middot; <span style="color:#993c1d">Bomb Trap</span>
+        <div class="hint-loc">Cave &ndash; Ledge</div>
+      </div>
+    </div>
+  </div>
+
+  <p class="legend">
+    <span class="sw" style="background:#0f6e56"></span>own done
+    <span class="sw" style="background:#9fe1cb;margin-left:10px"></span>own open
+    <span class="sw" style="background:#185fa5;margin-left:10px"></span>others done
+    <span class="sw" style="background:#b5d4f4;margin-left:10px"></span>others open
+  </p>
+</div>
+
+</body>
+</html>
