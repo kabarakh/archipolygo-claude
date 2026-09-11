@@ -31,6 +31,34 @@ public partial class MainWindowViewModel : ViewModelBase
     private GroupViewModel? _selectedGroup;
 
     /// <summary>
+    /// Whether the toggleable Dashboard view (Feature-Plaene/Archiv/Dashboard-Tab.md)
+    /// is shown instead of the normal <c>TabControl</c> - a view swap, not a
+    /// real <c>TabItem</c> mixed into <see cref="Groups"/> (see that plan's
+    /// "Warum nicht als echtes TabItem" section for why). Defaults to
+    /// <c>true</c> per dev request (2026-09-11) - the app opens on the
+    /// all-servers overview rather than whichever tab happened to be first.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isDashboardVisible = true;
+
+    /// <summary>Backs <see cref="Views.DashboardView"/> - constructed once here, alongside <see cref="Groups"/>, rather than lazily on first toggle, so its own filter state survives repeated toggling.</summary>
+    public DashboardViewModel Dashboard { get; }
+
+    /// <summary>
+    /// Toolbar toggle button label - text flips instead of a separate
+    /// indicator, see Feature-Plaene/Archiv/Dashboard-Tab.md. "Tab View"
+    /// rather than "Back to tabs" (dev decision, 2026-09-12) - "back" reads
+    /// oddly once the Dashboard is the default view rather than something
+    /// you navigate away from and return to.
+    /// </summary>
+    public string DashboardToggleButtonText => IsDashboardVisible ? "Tab View" : "Dashboard";
+
+    partial void OnIsDashboardVisibleChanged(bool value) => OnPropertyChanged(nameof(DashboardToggleButtonText));
+
+    [RelayCommand]
+    private void ToggleDashboard() => IsDashboardVisible = !IsDashboardVisible;
+
+    /// <summary>
     /// Total number of configured slots announced so far by whatever
     /// <see cref="IConnectionManager.SwitchLeaderAsync"/> sync pass(es) are
     /// currently in flight - see <see cref="IConnectionManager.SlotSyncBatchStarting"/>,
@@ -131,6 +159,12 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             Groups.Add(new GroupViewModel(group, _connectionManager, _multiworldTrackerService));
         }
+
+        Dashboard = new DashboardViewModel(Groups, group =>
+        {
+            SelectedGroup = group;
+            IsDashboardVisible = false;
+        });
 
         SelectedGroup = Groups.Count > 0 ? Groups[0] : null;
 
@@ -520,15 +554,20 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private async Task RemoveSelectedGroupAsync()
+    private Task RemoveSelectedGroupAsync() => SelectedGroup is null ? Task.CompletedTask : RemoveGroupAsync(SelectedGroup);
+
+    /// <summary>
+    /// Removes a server entirely - the toolbar's "Remove server" button (via
+    /// <see cref="RemoveSelectedGroupCommand"/>, always <see cref="SelectedGroup"/>)
+    /// and the Dashboard's per-row icon (see <see cref="Views.MainWindow"/>'s
+    /// <c>RemoveServerRequested</c> subscription, whichever row was clicked)
+    /// both funnel through here. Only reassigns <see cref="SelectedGroup"/>
+    /// when the removed group actually was the selected one - removing a
+    /// different server's row from the Dashboard has no reason to change
+    /// which tab is selected underneath it.
+    /// </summary>
+    public async Task RemoveGroupAsync(GroupViewModel groupToRemove)
     {
-        if (SelectedGroup is null)
-        {
-            return;
-        }
-
-        var groupToRemove = SelectedGroup;
-
         if (groupToRemove.LeaderSlotId is not null)
         {
             await _connectionManager.DisconnectGroupAsync(groupToRemove);
@@ -537,7 +576,10 @@ public partial class MainWindowViewModel : ViewModelBase
         var index = Groups.IndexOf(groupToRemove);
         Groups.Remove(groupToRemove);
 
-        SelectedGroup = Groups.Count > 0 ? Groups[Math.Min(index, Groups.Count - 1)] : null;
+        if (SelectedGroup == groupToRemove)
+        {
+            SelectedGroup = Groups.Count > 0 ? Groups[Math.Min(index, Groups.Count - 1)] : null;
+        }
 
         // Feature-Plaene/Archiv/Hint-Eingabefeld.md's per-group DataPackage
         // cache has nothing left to serve once this server is gone - clean it

@@ -8,7 +8,19 @@
     <Application.DataTemplates>
         <local:ViewLocator/>
     </Application.DataTemplates>
-  
+
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- Shared Events-list rendering pieces (per-segment colored
+                     TextBlock + its converter) - see the file's own header
+                     comment for which views reuse this instead of each
+                     re-implementing it. -->
+                <ResourceInclude Source="avares://Archipolygo/Views/SharedTemplates.axaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
+
     <Application.Styles>
         <FluentTheme />
         <!-- Standardized dialog-level tweaks (e.g. scrollbar/button spacing)

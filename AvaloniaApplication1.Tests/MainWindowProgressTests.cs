@@ -22,9 +22,35 @@ namespace AvaloniaApplication1.Tests;
 /// </summary>
 public class MainWindowProgressTests
 {
-    /// <summary>Finds the one combined progress bar Grid (own+other done/open, four Star-weighted columns) for <paramref name="group"/>.</summary>
+    /// <summary>
+    /// Finds the one combined progress bar Grid (own+other done/open, four
+    /// Star-weighted columns) for <paramref name="group"/> - scoped to the
+    /// <see cref="TabControl"/> specifically, not the whole window: since
+    /// Feature-Plaene/Archiv/Dashboard-Tab.md's Overview rows reuse this
+    /// exact same visual (same 4-column shape, same <see cref="GroupViewModel"/>
+    /// DataContext) for their own per-row progress bar, an unscoped search
+    /// would be ambiguous (or silently match the wrong one) whenever both
+    /// the Dashboard and this tab's own content happen to be realized at
+    /// once - which, now that the Dashboard is the default view on
+    /// startup, is the common case rather than a corner case.
+    /// </summary>
     private static Grid FindCombinedBar(MainWindow window, GroupViewModel group) =>
-        window.GetVisualDescendants().OfType<Grid>().Single(g => g.DataContext == group && g.ColumnDefinitions.Count == 4);
+        window.GetVisualDescendants().OfType<TabControl>().Single()
+            .GetVisualDescendants().OfType<Grid>().Single(g => g.DataContext == group && g.ColumnDefinitions.Count == 4);
+
+    /// <summary>
+    /// Every test below exercises the tab's own content, which only
+    /// materializes once the TabControl is actually visible (see
+    /// MainWindow.axaml's lazy ContentTemplate gotcha, documented in
+    /// CLAUDE.md) - the Dashboard being the default view on startup means
+    /// this has to be switched away from explicitly first.
+    /// </summary>
+    private static void ShowOnTabsView(MainWindow window, MainWindowViewModel viewModel)
+    {
+        window.Show();
+        viewModel.IsDashboardVisible = false;
+        Dispatcher.UIThread.RunJobs();
+    }
 
     [AvaloniaFact]
     public void CombinedBar_HiddenUntilAnOwnSlotHasSynced_ThenShowsJustOwnSegments_NoTrackerConfigured()
@@ -35,8 +61,7 @@ public class MainWindowProgressTests
         var group = mainWindowViewModel.Groups[0];
 
         var window = new MainWindow { DataContext = mainWindowViewModel, Width = 900, Height = 550 };
-        window.Show();
-        Dispatcher.UIThread.RunJobs();
+        ShowOnTabsView(window, mainWindowViewModel);
 
         var combinedBar = FindCombinedBar(window, group);
         Assert.False(combinedBar.IsEffectivelyVisible, "no configured slot has synced yet - the bar must stay hidden rather than show a misleading 0/0.");
@@ -62,8 +87,7 @@ public class MainWindowProgressTests
         var group = mainWindowViewModel.Groups[0];
 
         var window = new MainWindow { DataContext = mainWindowViewModel, Width = 900, Height = 550 };
-        window.Show();
-        Dispatcher.UIThread.RunJobs();
+        ShowOnTabsView(window, mainWindowViewModel);
 
         var refreshButton = window.GetVisualDescendants().OfType<Button>()
             .First(b => Equals(b.Content, "Refresh") && b.DataContext == group);
@@ -90,8 +114,7 @@ public class MainWindowProgressTests
         group.Group.TrackerId = "tracker-xyz";
 
         var window = new MainWindow { DataContext = mainWindowViewModel, Width = 900, Height = 550 };
-        window.Show();
-        Dispatcher.UIThread.RunJobs();
+        ShowOnTabsView(window, mainWindowViewModel);
 
         // Setting TrackerId above already triggers one lazy auto-refresh (see
         // GroupViewModel.OnGroupPropertyChanged) since the tab is selected by
@@ -125,8 +148,7 @@ public class MainWindowProgressTests
         group.Group.TrackerId = "tracker-xyz"; // tracker configured, but no data fetched/synced yet
 
         var window = new MainWindow { DataContext = mainWindowViewModel, Width = 900, Height = 550 };
-        window.Show();
-        Dispatcher.UIThread.RunJobs();
+        ShowOnTabsView(window, mainWindowViewModel);
 
         Assert.False(FindCombinedBar(window, group).IsEffectivelyVisible);
     }
@@ -153,8 +175,7 @@ public class MainWindowProgressTests
         group.MultiworldProgress.Add(new PlayerProgress { Team = 0, Player = 2, ChecksDone = 50, ChecksTotal = 200 });
 
         var window = new MainWindow { DataContext = mainWindowViewModel, Width = 900, Height = 550 };
-        window.Show();
-        Dispatcher.UIThread.RunJobs();
+        ShowOnTabsView(window, mainWindowViewModel);
 
         // FindCombinedBar itself asserts there's exactly one such Grid (Single) -
         // not one element per tracked player, even though there are two
@@ -183,8 +204,7 @@ public class MainWindowProgressTests
         group.MultiworldProgress.Add(new PlayerProgress { Team = 0, Player = 2, ChecksDone = 50, ChecksTotal = 200 });
 
         var window = new MainWindow { DataContext = mainWindowViewModel, Width = 900, Height = 550 };
-        window.Show();
-        Dispatcher.UIThread.RunJobs();
+        ShowOnTabsView(window, mainWindowViewModel);
 
         var combinedBar = FindCombinedBar(window, group);
 
@@ -220,8 +240,7 @@ public class MainWindowProgressTests
         // No TrackerId set at all - the fallback case.
 
         var window = new MainWindow { DataContext = mainWindowViewModel, Width = 900, Height = 550 };
-        window.Show();
-        Dispatcher.UIThread.RunJobs();
+        ShowOnTabsView(window, mainWindowViewModel);
 
         var combinedBar = FindCombinedBar(window, group);
         var tooltipContent = Assert.IsAssignableFrom<Control>(ToolTip.GetTip(combinedBar));

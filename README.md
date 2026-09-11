@@ -20,10 +20,22 @@ The other configured slots on that server aren't just sitting idle, though:
 
 - **Add server...** creates a new tab for a new Archipelago room, with its first slot, and connects it right away.
 - **Add slot...** adds one or more further slots to the currently selected server in one go: pick players from the room's actual roster (each can optionally get its own password override, for rooms that use per-slot passwords), queue up as many as you like, then confirm once to add them all together.
-- **Edit server...** changes a server's name/host/port/password/auto-connect, and manages its already-configured slots in one place - pick which slot should be the default leader, or remove a slot entirely (both listed alphabetically, with the default leader always shown first).
+- **Edit server...** changes a server's name/host/port/password/auto-connect, and manages its already-configured slots in one place - pick which slot should be the default leader, or remove a slot entirely (both listed alphabetically, with the default leader always shown first). This is also where you set an optional **multiworld tracker** (a room id or tracker URL) for the combined progress bar below.
 - **Chat as** (the account dropdown on each server's message bar) switches which configured slot is currently live - see "How connections work" above.
+- **Hint...** opens a dedicated picker window for that server's leader: browse the full item list for the game (not just items already seen) and send a `!hint`/`!hint_location` request without typing it by hand, with a checkbox to exclude items you've already received/hinted.
+- **Progress bar** in each tab's status row splits into up to four colored segments - your own done/remaining checks, and (once a multiworld tracker is configured) everyone else's done/remaining checks in the room. Hover it for the exact numbers; no tracker configured just shows your own two segments and a hint on how to add one.
+- **DeathLink** events from other players in the room (for games that support it) show up in the event log as "DeathLink: ...". Archipolygo only ever displays these - it never sends one on your behalf and never reacts to one (no pausing, no simulated death), so there's nothing to turn on or off.
 - The **Events**, **Hints**, and **Items** panels each have their own filters (by relevance/category, and by which configured slot something concerns) and their own slot-scoped view. Events and Hints both support selecting several lines at once and copying them all with Ctrl+C/Cmd+C.
 - **Disconnect** drops a server's current leader connection (and stops it auto-reconnecting until you reconnect manually); **Disconnect all** does that for every server at once.
+- **Settings...** has app-wide preferences and, on Windows/Linux, a "Check for updates" button (the app also checks quietly on startup and shows a small dot on this button when one's available). macOS is manual-download-only for now.
+
+## Dashboard
+
+The **Dashboard** button in the toolbar (the app opens on it by default) switches the whole window from the per-server tabs to an all-servers-at-a-glance view; the same button then reads "Tab View" to switch back. It's a view swap, not another tab - your existing tabs and their live connections are untouched underneath it.
+
+- **Overview** (left, default) lists every configured server with its connection status, unread-events/open-hints badges, and the same combined progress bar as its tab - each row also has small Connect/Disconnect, Add slot, Edit server, and Remove server icons, so common per-server actions don't need a trip to that server's own tab. Clicking a row (outside those icons) jumps straight to that server's tab.
+- **Events** (left, toggle next to Overview) is a shared, server-spanning event log - every server's activity mixed together by default, with a Server/Slot filter pair to narrow it down. Below the log, a separate "Send as" Server/Slot picker (deliberately independent from the filter above) lets you pick a server and slot to send a chat message through, without leaving the Dashboard.
+- **Hints** (right, always visible regardless of which left panel is active) is the same idea for hints across every server: only ever shows open (unfound) hints, with its own Server/Slot/item-category filters, independent of each tab's own Hints panel filters.
 
 ## A note on how this was built
 
@@ -35,6 +47,18 @@ This entire codebase is fully AI-generated — no line of code was manually writ
 2. ChatGPT was then used to turn that idea into a concrete implementation plan.
 3. The implementation plan was refined with Claude and broken down into phases.
 4. Claude implemented the phases step by step, with each phase tested and any resulting bugs fixed before moving on.
+
+## What's next
+
+See [`Claude outputs/archipolygo_feature_ideas.md`](<Claude outputs/archipolygo_feature_ideas.md>) for the full shortlist (with status markers for what's shipped vs. still just an idea) and the reasoning behind each. Highlights of what's still just an idea, not built:
+
+- **Who's online** - show which other players in the room are currently connected.
+- **Better item/trap icons** - game-specific icons instead of just color and text.
+- **Desktop notifications / tray icon / log export** - visibility options for running the app in the background, deliberately dropped early on and worth revisiting.
+- **Free-text search** across events/hints (today there's only category/slot filtering).
+- **Manual tab reordering** (drag & drop) - a plan exists ([`Feature-Plaene/Tab-Reihenfolge.md`](<Feature-Plaene/Tab-Reihenfolge.md>)) but isn't built yet.
+- **Config export/import** and **encrypted password storage** - `groups.json` today holds plain-text passwords with no backup/restore flow.
+- **Keyboard shortcuts** and **popping a tab into its own window** for multi-monitor setups.
 
 ## Tech stack
 

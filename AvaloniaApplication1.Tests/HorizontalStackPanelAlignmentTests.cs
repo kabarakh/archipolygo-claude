@@ -34,6 +34,12 @@ public class HorizontalStackPanelAlignmentTests
 
         var window = new MainWindow { DataContext = mainWindowViewModel, Width = 900, Height = 550 };
         window.Show();
+
+        // This tests the tab's own content, which only materializes once
+        // the TabControl is actually visible (see MainWindow.axaml's lazy
+        // ContentTemplate gotcha, documented in CLAUDE.md) - the Dashboard
+        // is the default view on startup, so switch away from it first.
+        mainWindowViewModel.IsDashboardVisible = false;
         Dispatcher.UIThread.RunJobs();
 
         var hostPortText = window.GetVisualDescendants().OfType<TextBlock>()

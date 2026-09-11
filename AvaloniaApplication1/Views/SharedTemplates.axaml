@@ -1,0 +1,21 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:m="using:Archipolygo.Models"
+                    xmlns:conv="using:Archipolygo.Converters">
+
+    <!--
+        Shared between MainWindow.axaml's own per-tab Events list and
+        DashboardView.axaml's server-spanning one - both used to carry an
+        identical inline copy of "one colored TextBlock per EventTextSegment"
+        (dev feedback: reuse instead of re-implementing near-identical
+        components). Merge this dictionary in wherever an Events-style list
+        renders EventEntry.EffectiveSegments.
+    -->
+    <conv:EventTextSegmentKindToBrushConverter x:Key="SegmentKindToBrushConverter"/>
+
+    <DataTemplate x:Key="EventTextSegmentTemplate" DataType="m:EventTextSegment">
+        <TextBlock Text="{Binding Text}" TextWrapping="Wrap"
+                   Foreground="{Binding Kind, Converter={StaticResource SegmentKindToBrushConverter}}"/>
+    </DataTemplate>
+
+</ResourceDictionary>

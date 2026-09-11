@@ -19,6 +19,17 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+
+        // Feature-Plaene/Archiv/Dashboard-Tab.md's per-row icons: DashboardView
+        // itself has no Window to anchor a dialog on and no reference to
+        // MainWindowViewModel (its own DataContext is the narrower
+        // DashboardViewModel) - it just raises which group was clicked, and
+        // this class runs the exact same dialog flow as the toolbar buttons
+        // below, just parameterized by that group instead of always
+        // ViewModel.SelectedGroup.
+        DashboardViewControl.AddSlotRequested += (_, group) => _ = AddSlotToGroupAsync(group);
+        DashboardViewControl.EditServerRequested += (_, group) => _ = EditServerAsync(group);
+        DashboardViewControl.RemoveServerRequested += (_, group) => _ = ViewModel.RemoveGroupAsync(group);
     }
 
     private MainWindowViewModel ViewModel => (MainWindowViewModel)DataContext!;
@@ -37,39 +48,47 @@ public partial class MainWindow : Window
     private async void OnAddSlotClick(object? sender, RoutedEventArgs e)
     {
         var selectedGroup = ViewModel.SelectedGroup;
-        if (selectedGroup is null)
+        if (selectedGroup is not null)
         {
-            return;
+            await AddSlotToGroupAsync(selectedGroup);
         }
+    }
 
+    /// <summary>Shared by the toolbar's "Add slot..." (always <see cref="MainWindowViewModel.SelectedGroup"/>) and the Dashboard's per-row icon (whichever group's row was clicked).</summary>
+    private async Task AddSlotToGroupAsync(GroupViewModel group)
+    {
         // May briefly connect/disconnect under the hood if this server has
         // no live session right now - see MainWindowViewModel.GetAvailableSlotsToAddAsync.
-        var availablePlayers = await ViewModel.GetAvailableSlotsToAddAsync(selectedGroup);
+        var availablePlayers = await ViewModel.GetAvailableSlotsToAddAsync(group);
 
-        var editorViewModel = ConnectionEditorViewModel.ForAddSlot(selectedGroup.Group, availablePlayers);
+        var editorViewModel = ConnectionEditorViewModel.ForAddSlot(group.Group, availablePlayers);
         var result = await ConnectionEditorWindow.ShowDialogAsync(this, editorViewModel);
         if (result is not null)
         {
-            ViewModel.AddSlotsToGroup(selectedGroup, result.SlotsToAdd);
+            ViewModel.AddSlotsToGroup(group, result.SlotsToAdd);
         }
     }
 
     private async void OnEditServerClick(object? sender, RoutedEventArgs e)
     {
         var selectedGroup = ViewModel.SelectedGroup;
-        if (selectedGroup is null)
+        if (selectedGroup is not null)
         {
-            return;
+            await EditServerAsync(selectedGroup);
         }
+    }
 
+    /// <summary>Shared by the toolbar's "Edit server..." and the Dashboard's per-row icon - see <see cref="AddSlotToGroupAsync"/>'s doc comment.</summary>
+    private async Task EditServerAsync(GroupViewModel group)
+    {
         var editorViewModel = ConnectionEditorViewModel.ForEditGroup(
-            selectedGroup.Group,
+            group.Group,
             ViewModel.GetAllGroups(),
             ViewModel.ResolveTrackerIdAsync);
         var result = await ConnectionEditorWindow.ShowDialogAsync(this, editorViewModel);
         if (result is not null)
         {
-            await ViewModel.UpdateGroup(selectedGroup, result.Name, result.Host, result.Port, result.Password, result.AutoConnect, result.PreferredLeaderSlotId, result.SlotsToRemove, result.TrackerReferenceInput, result.TrackerId);
+            await ViewModel.UpdateGroup(group, result.Name, result.Host, result.Port, result.Password, result.AutoConnect, result.PreferredLeaderSlotId, result.SlotsToRemove, result.TrackerReferenceInput, result.TrackerId);
         }
     }
 
@@ -106,13 +125,15 @@ public partial class MainWindow : Window
     /// </summary>
     private async void OnEventsListKeyDown(object? sender, KeyEventArgs e)
     {
-        if (!IsCopyShortcut(e) || sender is not ListBox listBox || !HasSelection(listBox))
+        if (!ClipboardCopyHelper.IsCopyShortcut(e) || sender is not ListBox listBox)
         {
             return;
         }
 
-        await CopySelectedLinesAsync<EventEntry>(listBox, entry => entry.Text);
-        e.Handled = true;
+        if (await ClipboardCopyHelper.CopySelectedLinesAsync<EventEntry>(this, listBox, entry => entry.Text))
+        {
+            e.Handled = true;
+        }
     }
 
     /// <summary>
@@ -123,43 +144,16 @@ public partial class MainWindow : Window
     /// </summary>
     private async void OnHintsListKeyDown(object? sender, KeyEventArgs e)
     {
-        if (!IsCopyShortcut(e) || sender is not ListBox listBox || !HasSelection(listBox))
+        if (!ClipboardCopyHelper.IsCopyShortcut(e) || sender is not ListBox listBox)
         {
             return;
         }
 
-        await CopySelectedLinesAsync<HintEntry>(listBox,
+        var copied = await ClipboardCopyHelper.CopySelectedLinesAsync<HintEntry>(this, listBox,
             hint => $"{hint.ItemName}: {hint.FindingPlayerName} -> {hint.ReceivingPlayerName} : {hint.LocationName}");
-        e.Handled = true;
-    }
-
-    private static bool IsCopyShortcut(KeyEventArgs e) =>
-        e.Key == Key.C && (e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta));
-
-    private static bool HasSelection(ListBox listBox) => listBox.SelectedItems is { Count: > 0 };
-
-    /// <summary>
-    /// Builds one line of text per selected item (via <paramref name="toText"/>)
-    /// and copies them all, newline-separated, to the clipboard - in the
-    /// order the items appear in the list, not selection order, so a
-    /// ctrl-clicked-out-of-order selection still copies chronologically.
-    /// </summary>
-    private async Task CopySelectedLinesAsync<T>(ListBox listBox, Func<T, string> toText) where T : class
-    {
-        var selected = new HashSet<object>(listBox.SelectedItems!.Cast<object>());
-        var displayOrder = (listBox.ItemsSource as IEnumerable)?.Cast<object>() ?? Enumerable.Empty<object>();
-        var text = string.Join(Environment.NewLine,
-            displayOrder.OfType<T>().Where(item => selected.Contains(item)).Select(toText));
-
-        if (text.Length == 0)
+        if (copied)
         {
-            return;
-        }
-
-        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
-        if (clipboard is not null)
-        {
-            await clipboard.SetTextAsync(text);
+            e.Handled = true;
         }
     }
 

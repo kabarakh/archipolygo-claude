@@ -418,7 +418,7 @@ public partial class GroupViewModel : ViewModelBase
 
     public string RoomProgressText => HasRoomProgress ? $"{RoomChecksCompleted}/{RoomChecksTotal}" : string.Empty;
 
-    /// <summary>0-100. Exposed under this exact name for Feature-Plaene/Dashboard-Tab.md, which plans to show this as an app-wide aggregate once that dashboard exists - see that plan's "Sobald der Fortschrittsanzeigen-Plan umgesetzt ist" note.</summary>
+    /// <summary>0-100. Exposed under this exact name for Feature-Plaene/Archiv/Dashboard-Tab.md, which plans to show this as an app-wide aggregate once that dashboard exists - see that plan's "Sobald der Fortschrittsanzeigen-Plan umgesetzt ist" note.</summary>
     public double RoomProgressPercent => RoomChecksTotal > 0 ? (double)RoomChecksCompleted / RoomChecksTotal * 100.0 : 0;
 
     private void RaiseRoomProgressChanged()

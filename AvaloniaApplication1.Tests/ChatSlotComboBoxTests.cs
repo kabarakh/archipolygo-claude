@@ -57,6 +57,13 @@ public class ChatSlotComboBoxTests
 
         var window = new MainWindow { DataContext = mainWindowViewModel };
         window.Show();
+
+        // Tab content only materializes once the TabControl is actually
+        // visible (the very lazy-materialization gotcha this test is about,
+        // documented in CLAUDE.md) - the Dashboard is the default view on
+        // startup, so switch away from it first, same as materializing any
+        // other tab's content for the first time.
+        mainWindowViewModel.IsDashboardVisible = false;
         Dispatcher.UIThread.RunJobs();
 
         // Sanity check: group2's ComboBox genuinely doesn't exist yet - if this
