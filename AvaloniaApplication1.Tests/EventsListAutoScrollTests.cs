@@ -16,16 +16,19 @@ namespace AvaloniaApplication1.Tests;
 
 /// <summary>
 /// Kategorie C (Test-Umsetzungsplan.md): the Events list's auto-scroll
-/// behavior (<see cref="MainWindow.OnEventsListLoaded"/>/
-/// <c>OnEventsScrollViewerScrollChanged</c>) - covers <c>39d8a80</c>.
+/// behavior, now owned by <see cref="JumpToNewestButton"/> (originally
+/// hand-built directly in <c>MainWindow.axaml.cs</c>, later factored out so
+/// <c>DashboardView</c>'s own Events list could reuse the exact same
+/// control instead of a second hand-copied implementation) - covers
+/// <c>39d8a80</c>.
 ///
 /// Named "UnlessUserHasSelection" in the plan, but the actual gate in the
-/// code is a real mouse-wheel scroll over the list (<c>stickToBottom</c>),
-/// not merely having a row selected - the doc comment on
-/// <c>OnEventsListLoaded</c> is explicit that only a wheel gesture is
-/// "the one unambiguous signal that the user...wants to look at something
-/// else"; a selection alone is actually cleared and overridden by the next
-/// auto-scroll while <c>stickToBottom</c> is still true. This test follows
+/// code is a real mouse-wheel scroll over the list (<c>_stickToBottom</c>),
+/// not merely having a row selected - <see cref="JumpToNewestButton"/>'s own
+/// doc comment is explicit that only a wheel gesture is "the one
+/// unambiguous signal that the user...wants to look at something else"; a
+/// selection alone is actually cleared and overridden by the next
+/// auto-scroll while <c>_stickToBottom</c> is still true. This test follows
 /// the actual code, not the plan's shorthand name.
 /// </summary>
 public class EventsListAutoScrollTests
@@ -98,9 +101,9 @@ public class EventsListAutoScrollTests
 
         // This is actually the primary regression signal, not a mere setup
         // assumption - verified by temporarily removing the
-        // PointerWheelChangedEvent handler that sets stickToBottom = false:
-        // with it gone, OnEventsScrollViewerScrollChanged's own ScrollChanged
-        // handler (still running with stickToBottom stuck true) re-clears the
+        // PointerWheelChangedEvent handler that sets _stickToBottom = false:
+        // with it gone, JumpToNewestButton's own ScrollChanged handler
+        // (still running with _stickToBottom stuck true) re-clears the
         // wheel's own scroll on the very next ScrollChanged, so the list
         // never visibly moves and this assertion is what actually fails.
         var distanceAfterWheelScroll = DistanceFromBottom(scrollViewer);
@@ -121,5 +124,46 @@ public class EventsListAutoScrollTests
         Assert.True(System.Math.Abs(scrollViewer.Offset.Y - offsetYAfterWheelScroll) < 1.0,
             $"expected the scroll offset to stay where the user left it; " +
             $"offset.Y before new event={offsetYAfterWheelScroll}, after={scrollViewer.Offset.Y}");
+    }
+
+    /// <summary>
+    /// Clicking the button itself, not just scrolling away from/back to the
+    /// bottom by hand - covers <see cref="JumpToNewestButton.StyleKeyOverride"/>:
+    /// without it, the control silently fell back to <see cref="Button"/>'s
+    /// bare pre-theme default template (no background/border chrome at all),
+    /// which - since that template paints nothing over most of the button's
+    /// own bounds - made it fail real hit-testing entirely; a click at its
+    /// own center never reached it, so it never visibly reappeared/hid
+    /// itself despite every property still updating correctly underneath.
+    /// </summary>
+    [AvaloniaFact]
+    public void JumpToNewestButton_AppearsWhenScrolledAway_AndJumpsBackOnClick()
+    {
+        var (window, _, listBox, scrollViewer) = SetUp();
+
+        // Scoped to the ListBox's own sibling, not window.GetVisualDescendants()
+        // at large - MainWindow also hosts DashboardView's own (hidden, but
+        // still materialized) JumpToNewestButton for its shared Events list,
+        // which would otherwise make this ambiguous.
+        var jumpButton = ((Panel)listBox.Parent!).Children.OfType<JumpToNewestButton>().Single();
+
+        Assert.False(jumpButton.IsEffectivelyVisible, "hidden while still following the newest event.");
+
+        var localCenter = new Point(listBox.Bounds.Width / 2, listBox.Bounds.Height / 2);
+        var pointOverList = listBox.TranslatePoint(localCenter, window) ?? localCenter;
+        window.MouseWheel(pointOverList, new Vector(0, 3), RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(jumpButton.IsEffectivelyVisible, "expected the button to appear once scrolled away from the bottom.");
+
+        var localCenterOfButton = new Point(jumpButton.Bounds.Width / 2, jumpButton.Bounds.Height / 2);
+        var pointOverButton = jumpButton.TranslatePoint(localCenterOfButton, window) ?? localCenterOfButton;
+        window.MouseDown(pointOverButton, MouseButton.Left);
+        window.MouseUp(pointOverButton, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(jumpButton.IsEffectivelyVisible, "expected the button to hide itself again after jumping back to the bottom.");
+        Assert.True(DistanceFromBottom(scrollViewer) < 1.0,
+            $"expected the list back at the bottom; distance from bottom={DistanceFromBottom(scrollViewer)}");
     }
 }

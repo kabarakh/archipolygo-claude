@@ -425,6 +425,49 @@ public class DashboardTabTests
     }
 
     /// <summary>
+    /// Same auto-scroll/"Jump to newest" behavior as a server tab's own
+    /// Events list (see <see cref="EventsListAutoScrollTests"/>) - both now
+    /// point at the same <see cref="JumpToNewestButton"/> control (dev
+    /// follow-up, 2026-09-11: the shared Dashboard Events list was missing
+    /// this button entirely), so this exercises it end-to-end against the
+    /// real DashboardView instead of re-testing the control's own logic a
+    /// second time.
+    /// </summary>
+    [AvaloniaFact]
+    public void EventsPanel_JumpToNewestButton_AppearsWhenScrolledAway_AndJumpsBackOnClick()
+    {
+        var (window, dashboardView, _, group) = SetUpSingleGroupDashboard();
+        ClickButton(window, dashboardView.GetVisualDescendants().OfType<Button>().Single(b => Equals(b.Content, "Events")));
+
+        for (var i = 0; i < 150; i++)
+        {
+            group.Events.Add(new EventEntry { Text = $"Event {i}", Type = EventType.Chat });
+        }
+        Dispatcher.UIThread.RunJobs();
+
+        var eventsList = dashboardView.GetVisualDescendants().OfType<ListBox>().Single(l => l.Name == "DashboardEventsListBox");
+        var scrollViewer = eventsList.GetVisualDescendants().OfType<ScrollViewer>().First();
+        var jumpButton = dashboardView.GetVisualDescendants().OfType<JumpToNewestButton>().Single();
+
+        Assert.False(jumpButton.IsEffectivelyVisible, "hidden while still following the newest event.");
+
+        // Real wheel gesture over the list, same as EventsListAutoScrollTests -
+        // the one thing that actually disengages auto-follow.
+        var localCenter = new Point(eventsList.Bounds.Width / 2, eventsList.Bounds.Height / 2);
+        var pointOverList = eventsList.TranslatePoint(localCenter, window) ?? localCenter;
+        window.MouseWheel(pointOverList, new Vector(0, 3), RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(jumpButton.IsEffectivelyVisible, "expected the button to appear once scrolled away from the bottom.");
+
+        ClickButton(window, jumpButton);
+
+        Assert.False(jumpButton.IsEffectivelyVisible, "expected the button to hide itself again after jumping back to the bottom.");
+        var distanceFromBottom = scrollViewer.Extent.Height - scrollViewer.Viewport.Height - scrollViewer.Offset.Y;
+        Assert.True(distanceFromBottom < 1.0, $"expected the list back at the bottom; distance from bottom={distanceFromBottom}");
+    }
+
+    /// <summary>
     /// The Events panel's Slot dropdown is not a display filter (unlike the
     /// Hints one) - picking a slot there is the exact same real leader
     /// switch as the tab's own "Chat as" dropdown, since it binds to the

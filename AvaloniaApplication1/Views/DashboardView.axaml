@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Archipolygo.ViewModels"
              xmlns:m="using:Archipolygo.Models"
+             xmlns:views="using:Archipolygo.Views"
              xmlns:conv="using:Archipolygo.Converters"
              xmlns:avconv="using:Avalonia.Data.Converters"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -309,36 +310,45 @@
                         </ComboBox>
                     </StackPanel>
 
-                    <!-- SelectionMode="Multiple" + KeyDown copy shortcut -
-                         same behavior as a server tab's own Events list
-                         (see MainWindow.axaml's EventsListBox/OnEventsListKeyDown),
-                         not the "whole row navigates" idiom Overview/Hints
-                         use (dev feedback: this list should match the
-                         per-server Events display, not the click-to-navigate
-                         rows). -->
-                    <ListBox Name="DashboardEventsListBox" Grid.Row="1" ItemsSource="{Binding VisibleEvents}"
-                             SelectionMode="Multiple" KeyDown="OnDashboardEventsListKeyDown">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate DataType="m:DashboardEventRow">
-                                <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,2">
-                                    <TextBlock Text="{Binding Group.HeaderText}" Foreground="#185fa5" FontWeight="SemiBold" FontSize="11" VerticalAlignment="Center"/>
-                                    <TextBlock Text="{Binding Event.Timestamp, StringFormat='HH:mm:ss'}" Opacity="0.6" FontSize="11" VerticalAlignment="Center"/>
-                                    <!-- ItemTemplate: shared EventTextSegmentTemplate (see
-                                         App.axaml/Views/SharedTemplates.axaml) - the exact same
-                                         per-segment colored TextBlock the tab's own Events list
-                                         (MainWindow.axaml) uses, not a re-implemented copy. -->
-                                    <ItemsControl ItemsSource="{Binding Event.EffectiveSegments}"
-                                                  ItemTemplate="{StaticResource EventTextSegmentTemplate}">
-                                        <ItemsControl.ItemsPanel>
-                                            <ItemsPanelTemplate>
-                                                <WrapPanel/>
-                                            </ItemsPanelTemplate>
-                                        </ItemsControl.ItemsPanel>
-                                    </ItemsControl>
-                                </StackPanel>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
+                    <!-- Grid rather than the ListBox alone, so the "jump to
+                         newest" button (below) can float over the bottom-right
+                         corner of the list instead of taking its own row -
+                         same overlay pattern as a server tab's own Events
+                         list (see MainWindow.axaml and JumpToNewestButton). -->
+                    <Grid Grid.Row="1">
+                        <!-- SelectionMode="Multiple" + KeyDown copy shortcut -
+                             same behavior as a server tab's own Events list
+                             (see MainWindow.axaml's EventsListBox/OnEventsListKeyDown),
+                             not the "whole row navigates" idiom Overview/Hints
+                             use (dev feedback: this list should match the
+                             per-server Events display, not the click-to-navigate
+                             rows). -->
+                        <ListBox Name="DashboardEventsListBox" ItemsSource="{Binding VisibleEvents}"
+                                 SelectionMode="Multiple" KeyDown="OnDashboardEventsListKeyDown">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate DataType="m:DashboardEventRow">
+                                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,2">
+                                        <TextBlock Text="{Binding Group.HeaderText}" Foreground="#185fa5" FontWeight="SemiBold" FontSize="11" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding Event.Timestamp, StringFormat='HH:mm:ss'}" Opacity="0.6" FontSize="11" VerticalAlignment="Center"/>
+                                        <!-- ItemTemplate: shared EventTextSegmentTemplate (see
+                                             App.axaml/Views/SharedTemplates.axaml) - the exact same
+                                             per-segment colored TextBlock the tab's own Events list
+                                             (MainWindow.axaml) uses, not a re-implemented copy. -->
+                                        <ItemsControl ItemsSource="{Binding Event.EffectiveSegments}"
+                                                      ItemTemplate="{StaticResource EventTextSegmentTemplate}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <WrapPanel/>
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+
+                        <views:JumpToNewestButton TargetListBox="{Binding #DashboardEventsListBox}"/>
+                    </Grid>
 
                     <!-- "Who's chatting" - a Server+Slot pair, deliberately
                          separate from the filter row above (dev's explicit

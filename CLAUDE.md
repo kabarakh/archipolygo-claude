@@ -165,7 +165,7 @@ way first - each was a real bug with a specific root cause.
   `ComboBox` can still resolve its initial `SelectedItem` against
   `ItemsSource` incorrectly. Fixed with `Loaded` handlers that re-assign
   `SelectedItem` from the view model once the control actually loads (see
-  `MainWindow.axaml.cs`: `OnChatSlotComboBoxLoaded`, `OnEventsListLoaded`).
+  `MainWindow.axaml.cs`'s `OnChatSlotComboBoxLoaded`).
 - **A horizontal `StackPanel`'s children default to `VerticalAlignment="Stretch"`.**
   A plain `TextBlock` next to a taller `Button` looks top-aligned unless it
   gets an explicit `VerticalAlignment="Center"` of its own.
