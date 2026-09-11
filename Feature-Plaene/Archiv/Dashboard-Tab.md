@@ -1,5 +1,173 @@
 # Umsetzungsplan: Summary/Dashboard-Tab
 
+## Status: ✅ Umgesetzt (2026-09-11)
+
+Umgesetzt in drei Schritten (Aggregate → geteilte Hints-Übersicht → UI),
+jeweils mit eigenen Tests (Kategorie A für `DashboardViewModel`, Kategorie C
+gegen das echte `DashboardView.axaml`) - siehe `DashboardViewModelTests.cs`
+und `DashboardTabTests.cs`. Ein Punkt wich bewusst vom unten stehenden
+Plantext ab, nach Rückfrage beim Entwickler:
+
+- **Fortschrittsbalken pro Server-Zeile in der Overview**: der Plantext
+  weiter unten sagt explizit, die Tier-2-4-Segment-Bar sei "bewusst nicht
+  Teil davon" und nur `RoomProgressPercent` solle erscheinen - das
+  Mockup-Bild zeigt aber pro Zeile den vollen 4-Segment-Balken (own/other
+  done/open) inklusive Legende, identisch zum bestehenden Tab-eigenen
+  kombinierten Balken. Entscheidung: **das Mockup-Bild gewinnt** - jede
+  Overview-Zeile zeigt denselben 4-Segment-Balken samt Tooltip-Legende wie
+  der Tab selbst (siehe `DashboardView.axaml`), plus zusätzlich
+  `RoomProgressPercent` als Prozentzahl daneben. Der Rest des Plans
+  (Struktur, geteilte Hints-Übersicht, Filter-Kaskade, Navigation) wurde wie
+  unten beschrieben umgesetzt.
+
+Neue Dateien: `ViewModels/DashboardViewModel.cs`, `Views/DashboardView.axaml(.cs)`,
+`Models/DashboardHintRow.cs`, `Converters/DashboardServerFilterDisplayConverter.cs`.
+Geänderte Dateien: `ViewModels/MainWindowViewModel.cs` (`IsDashboardVisible`,
+`Dashboard`, `ToggleDashboardCommand`), `Views/MainWindow.axaml` (Toolbar-
+Toggle-Button, `TabControl`/`DashboardView` im selben Grid-Bereich).
+
+### Nachbesserungen (2026-09-11, nach erstem Review durch den Entwickler)
+
+- **Overview-Zeilen nutzen jetzt die volle Spaltenbreite**: `ListBox`-Items
+  maßen sich ursprünglich nur an ihrem eigenen Inhalt (Name+Badges), der
+  4-Segment-Balken blieb dadurch auf feste 120px begrenzt, obwohl die
+  2\*-Spalte oft deutlich breiter ist. Fix: `HorizontalContentAlignment=
+  Stretch` auf `ListBoxItem` (per Style, da `ListBox` selbst diese Property
+  in der verwendeten Avalonia-Version nicht direkt exponiert) plus
+  `Grid ColumnDefinitions="*,Auto"` statt `StackPanel` für die Balken-Zeile,
+  damit der Balken den frei gewordenen Platz tatsächlich beansprucht.
+- **Toolbar**: Dashboard/Back-to-tabs-Button steht jetzt zuerst, per
+  `Border`-Trennlinie vom Rest abgesetzt (Moduswechsel fürs ganze Fenster,
+  nicht eine weitere Pro-Server-Aktion). "Add slot..."/"Edit server..."/
+  "Remove server" (alle drei wirken auf `SelectedGroup`) sind ausgeblendet,
+  solange das Dashboard sichtbar ist - dort ist nicht erkennbar, welcher
+  Server gemeint wäre. "Add server..."/"Disconnect all" hängen nicht von
+  `SelectedGroup` ab und bleiben sichtbar.
+- **Pro-Zeile-Icons im Dashboard**: Connect/Disconnect, Add slot, Edit
+  server, Remove server jetzt zusätzlich als kompakte Icon-Buttons direkt in
+  jeder Overview-Zeile (rechts neben Name/Badges), mit Tooltip. Technische
+  Entscheidung nach Rückfrage: **inline Avalonia `Path`/`Geometry`**, keine
+  echten `.svg`-Dateien (kein `Avalonia.Svg.Skia`-Paket nötig) und keine
+  generierten PNGs (auf dieser Maschine stand keine SVG→PNG-Toolchain zur
+  Verfügung). Connect/Disconnect binden direkt an
+  `GroupViewModel.ConnectCommand`/`DisconnectCommand` (identisch zum
+  Tab-eigenen Button-Paar); Add slot/Edit server/Remove server lösen
+  stattdessen ein `DashboardView`-Event aus (`AddSlotRequested`/
+  `EditServerRequested`/`RemoveServerRequested`), da das Öffnen ihrer Dialoge
+  ein `Window` und `MainWindowViewModel` braucht, worauf `DashboardView`
+  selbst keinen Zugriff hat - `MainWindow.axaml.cs` abonniert diese Events
+  und ruft dieselbe (jetzt parametrisierte statt fest auf `SelectedGroup`
+  bezogene) Dialog-Logik wie die Toolbar-Buttons.
+  `MainWindowViewModel.RemoveSelectedGroupAsync` wurde dafür in eine
+  öffentliche `RemoveGroupAsync(GroupViewModel)` (ändert `SelectedGroup` nur,
+  wenn die entfernte Gruppe tatsächlich die ausgewählte war) plus einen
+  dünnen, weiterhin `SelectedGroup`-basierten Command aufgeteilt. "Add slot"
+  ist dabei nur **ausgegraut**, nicht versteckt, solange der Server getrennt
+  ist (`IsLeaderConnected`) - das Konzept ergibt auch ohne Live-Verbindung
+  Sinn, es kann nur ohne eine nicht ausgeführt werden. Ein Icon-Klick
+  navigiert nicht zusätzlich vom Dashboard weg (verifiziert, nicht
+  angenommen - siehe `DashboardTabTests.RowIconClick_DoesNotAlsoNavigateAwayFromTheDashboard`).
+- **Hints-Spalte**: Hinweistext von "open only, no found/unfound toggle" zu
+  "unfound only" gekürzt und leicht vergrößert (11px → 12px).
+- **Icon-Hover**: war ein halbtransparentes Schwarz (`#22000000`, ~13%) -
+  dunkelte ab statt aufzuhellen, wirkte "sehr dezent". Jetzt ein
+  halbtransparentes DodgerBlue (`#4D1E90FF`, ~30%, dieselbe Akzentfarbe wie
+  die aktiven Filter-Buttons im Rest der App) plus `CornerRadius="4"`.
+- **`IsDashboardVisible` startet jetzt auf `true`** statt `false` (Dev-Wunsch
+  2026-09-11): die App öffnet direkt im Dashboard statt im ersten Server-Tab.
+  Das legte eine latente Testschwäche offen - mehrere Kategorie-C-Tests
+  gingen implizit davon aus, dass `TabControl`'s Content beim Fenster-Start
+  bereits materialisiert ist (siehe CLAUDE.mds "TabControl.ContentTemplate
+  materialisiert lazy"-Hinweis: das gilt jetzt nicht mehr nur pro Tab,
+  sondern für die ganze `TabControl`, solange das Dashboard aktiv ist). Alle
+  betroffenen Tests (`HorizontalStackPanelAlignmentTests`,
+  `EventsListAutoScrollTests`, `ChatSlotComboBoxTests`,
+  `MainWindowProgressTests`, `SlotDropdownWidthTests`) schalten jetzt vor
+  dem eigentlichen Test explizit auf die Tab-Ansicht um. Zusätzlich musste
+  `MainWindowProgressTests.FindCombinedBar` auf die `TabControl` eingegrenzt
+  werden - der 4-Segment-Balken existiert jetzt strukturell identisch auch
+  pro Dashboard-Zeile (gleicher `GroupViewModel`-DataContext, gleiche
+  4-Spalten-Form), eine ungezielte Suche über das ganze Fenster fand sonst
+  je nach Sichtbarkeitszustand mal den falschen, mal ambigen Treffer.
+
+### Follow-up: geteilte Event-Ansicht (2026-09-11)
+
+Nach Diskussion (Freund-Idee: gemeinsame Eventanzeige mit Textfeld, um an
+einen wählbaren Server/Slot zu senden, ohne zur Tab-Ansicht wechseln zu
+müssen) umgesetzt als **zweites Panel in der linken Spalte**, per
+Button+`IsVisible`-Toggle zwischen "Overview" und "Events" - **keine echte
+verschachtelte `TabControl`**, aus demselben Grund wie oben (lazy
+`ContentTemplate`-Materialisierung). Die Hints-Spalte rechts bleibt davon
+komplett unberührt, immer sichtbar, wie gewünscht.
+
+Wichtige Entscheidungen aus der Diskussion:
+- **Priorität: Lesen vor Senden.** Kein Ein-Zeiler-Quick-Send aus der
+  Overview-Zeile - der geteilte Event-Log ist der Zweck, das Senden hängt
+  nur unten dran.
+- **Alle Event-Typen**, nicht nur Chat (`GroupViewModel.Events` roh, wie bei
+  `VisibleHints`) - "eher als geteilte Event-Ansicht zu sehen als als Chat".
+- **Zwei Dropdowns oben (Filter) + zwei Dropdowns unten (Senden), komplett
+  getrennt** (Revision 2026-09-12, Entwickler-Feedback: "die Dropdowns oben
+  als Filter sind eine gute Idee, aber die Dropdowns für die Auswahl des
+  Chatters sollten unten bei der Texteingabe sein und losgelöst von der
+  Filterung"). Ursprünglich war der obere Slot-Dropdown mit dem Senden
+  überladen (Filter *und* Leader-Wechsel in einem Control) - jetzt sauber
+  getrennt:
+  - **Oben** (`SelectedEventsServerFilter`/`EventsServerFilterOptions` +
+    NEU `SelectedEventsSlotFilter`/`EventsSlotFilterOptions`): reiner
+    Anzeige-Filter, exakt dieselbe Zwei-Stufen-Kaskade wie bei Hints
+    (Copy-not-share der `SlotFilterOptions`, kein Leader-Wechsel, ein
+    room-weiter Event ohne `SlotId` passiert den Slot-Filter immer).
+  - **Unten** (NEU `SelectedSendServerGroup`, keine "All servers"-Option,
+    `ItemsSource` direkt an `Groups`): "Send as"-Zeile bei der
+    Texteingabe. Der zugehörige Slot-Dropdown bindet weiterhin per nested
+    Binding direkt an `SelectedSendServerGroup.Slots`/`.SelectedChatSlot` -
+    dieselbe Live-Instanz wie das Tab-eigene "Chat as"-Dropdown, echter
+    Leader-Wechsel beim Auswählen.
+  - Beide Auswahl-Paare sind komplett unabhängig - Filter ändern lässt den
+    Sende-Server unberührt und umgekehrt.
+- **Dropdown-Layout**: `Grid ColumnDefinitions="*,*"` ließ die zwei
+  Dropdowns (sowohl bei Hints als auch bei Events) sehr weit auseinander
+  wirken, da jede Box auf 50% der Spalte gestreckt wurde (Entwickler-
+  Feedback: "sehr weit auseinander"). Fix: `StackPanel Orientation=
+  "Horizontal" Spacing="8"` mit fester `Width="130"` pro ComboBox, exakt wie
+  die Slot-Filter-Dropdowns in den Server-Tabs selbst - für beide
+  Filterzeilen (Hints und Events).
+- **Priorität: Lesen vor Senden.** Kein Ein-Zeiler-Quick-Send aus der
+  Overview-Zeile - der geteilte Event-Log ist der Zweck, das Senden hängt
+  nur unten dran.
+- **Alle Event-Typen**, nicht nur Chat (`GroupViewModel.Events` roh, wie bei
+  `VisibleHints`) - "eher als geteilte Event-Ansicht zu sehen als als Chat".
+- Overview startet weiterhin als Default-Panel.
+
+Neue Dateien: `Models/DashboardEventRow.cs`, `Models/DashboardLeftPanel.cs`.
+`DashboardViewModel` neu: `SelectedLeftPanel`/`ShowOverviewPanelCommand`/
+`ShowEventsPanelCommand`, `EventsServerFilterOptions`/`SelectedEventsServerFilter`,
+`EventsSlotFilterOptions`/`SelectedEventsSlotFilter`, `SelectedSendServerGroup`,
+`VisibleEvents`, `CanSendMessage`.
+
+**Stolperstein**: `IsEnabled="{Binding SelectedSendServerGroup.IsLeaderConnected}"`
+(nested Binding durch ein nullable `GroupViewModel?`) fällt bei null-Zwischenwert
+NICHT zuverlässig auf `false` zurück - der Send-Button blieb aktiv, obwohl kein
+Server gewählt war (aufgedeckt durch
+`DashboardTabTests.SendRow_SlotAndSendControls_DisabledUntilASendServerIsPicked`,
+damals noch unter altem Namen). Gefixt mit einer echten, eigens
+benachrichtigten `CanSendMessage`-Property auf `DashboardViewModel` statt der
+verschachtelten Bindung - Lehre für zukünftige nested Bindings durch
+nullable Objekt-Properties auf einen bool.
+
+Tests: `DashboardViewModelTests.cs` (Kategorie A, 14 neue Tests: `VisibleEvents`-
+Aggregation/Server-/Slot-Filter-Kombination/Reaktivität,
+`EventsServerFilterOptions`/`EventsSlotFilterOptions`-Rebuild/Reset,
+`CanSendMessage`, Beleg dass der Filter-Slot-Dropdown nie den Leader
+anfasst), `DashboardTabTests.cs` (Kategorie C, 9 neue Tests: Panel-Toggle
+inkl. "Hints bleibt immer sichtbar", Filter-Slot-Dropdown filtert ohne
+Leader-Wechsel, Send-Slot-Dropdown wechselt echt den Leader, Filter und
+Sende-Server sind unabhängig voneinander, Send/Slot-Controls deaktiviert
+ohne gewählten Sende-Server, Send erreicht die richtige Gruppe,
+Event-Anzeige zeigt die richtigen Einträge).
+
+
 Ergänzt `archipolygo_feature_ideas.md` ("A summary/dashboard tab — all
 servers at a glance: total open hints, total unread events"). Nutzer-
 Entscheidung: **umschaltbare Ansicht statt echtem TabItem** - kein Eingriff
@@ -314,3 +482,46 @@ nur offene Hints) - gleiches Ab-/Anmelde-Muster wie
   `IsVisible`-Umschalter); Klick auf eine Zeile in der rechten
   Hints-Spalte navigiert zum richtigen Server-Tab, auch wenn "All servers"
   gewählt war (Zeile trägt ihre eigene `Group` mit).
+
+### Refactoring: Wiederverwendung statt Neubau (2026-09-12)
+
+Nach expliziter Nachfrage des Entwicklers durchgesehen, wo neue statt
+wiederverwendeter Komponenten entstanden waren, und behoben:
+
+- **`ViewModels/DashboardServerSlotFilter.cs`** (neu): die Server→Slot-
+  Filterkaskade (`RebuildServerOptions`/`OnSelectedServerChanged`/
+  `OnSelectedServerSlotFilterOptionsChanged`/`RebuildSlotOptions`) war für
+  Hints und Events zweimal fast identisch implementiert, nur mit anderen
+  Property-Namen. Jetzt eine `ObservableObject`-Klasse, zweimal instanziiert
+  (`DashboardViewModel.HintFilter`/`EventsFilter`). XAML-Bindungen entsprechend
+  auf `HintFilter.ServerOptions`/`.SelectedServer`/`.SlotOptions`/`.SelectedSlot`
+  bzw. `EventsFilter.*` umgestellt (vorher `HintServerFilterOptions`/
+  `SelectedHintServerFilter`/... als flache Properties direkt auf
+  `DashboardViewModel`).
+- **`Views/ClipboardCopyHelper.cs`** (neu): die Ctrl/Cmd+C-"Kopiere
+  ausgewählte Zeilen"-Logik (Selektion → Zeilentext → Zwischenablage) war in
+  `MainWindow.axaml.cs` (Events/Hints) und `DashboardView.axaml.cs` (Events)
+  dreimal fast identisch. Jetzt eine statische Hilfsklasse; nur "was ist der
+  Kopier-Shortcut" (trivial) und "welcher Text pro Zeile" (pro Liste
+  unterschiedlich, bleibt es auch) sind noch Aufrufer-eigen.
+- **`Views/SharedTemplates.axaml`** (neu, in `App.axaml` global gemerged):
+  das Rendering eines einzelnen `EventTextSegment` (farbiger `TextBlock` je
+  nach `Kind`) existierte identisch in `MainWindow.axaml`s Tab-eigener
+  Events-Liste und `DashboardView.axaml`s geteilter Events-Liste - jetzt ein
+  gemeinsames `DataTemplate x:Key="EventTextSegmentTemplate"` samt dem
+  zugehörigen `SegmentKindToBrushConverter`, per `ItemTemplate="{StaticResource
+  EventTextSegmentTemplate}"` in beiden referenziert statt inline dupliziert.
+
+**Bewusst nicht vereinheitlicht**: `DashboardHintRow`/`DashboardEventRow`
+bleiben zwei separate Ein-Zeilen-Records (`Group` + eine Entry), kein
+gemeinsamer generischer `DashboardRow<T>`-Wrapper. Ein generischer Typ als
+`x:DataType` in einem Avalonia-`DataTemplate` ist fragil/unüblich (kein
+sauberes XAML-Markup für geschlossene generische Typen) - das Risiko stand
+in keinem Verhältnis zum Nutzen bei zwei Ein-Zeilen-Records. Ebenso blieb
+die Events-Zeilen-Darstellung selbst (Dashboard zeigt zusätzlich den
+Servernamen, der Tab zeigt zusätzlich "NEW"-Badge/Event-Typ) je eigenes
+Layout - nur der gemeinsame Kern (die Segment-Liste) wurde geteilt.
+
+Kein Verhaltensunterschied durch dieses Refactoring - alle 240 Tests liefen
+vorher wie nachher unverändert durch (Test-Dateien wurden nur mechanisch auf
+die neuen Property-Pfade umgestellt, keine neue Testlogik).

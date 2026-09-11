@@ -2,6 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:Archipolygo.ViewModels"
         xmlns:m="using:Archipolygo.Models"
+        xmlns:views="using:Archipolygo.Views"
         xmlns:conv="using:Archipolygo.Converters"
         xmlns:avconv="using:Avalonia.Data.Converters"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -13,7 +14,9 @@
         Title="Archipolygo">
 
     <Window.Resources>
-        <conv:EventTextSegmentKindToBrushConverter x:Key="SegmentKindToBrushConverter"/>
+        <!-- SegmentKindToBrushConverter/EventTextSegmentTemplate come from
+             App.axaml's merged Views/SharedTemplates.axaml (shared with
+             DashboardView.axaml) - not redeclared here. -->
         <conv:EnumEqualsConverter x:Key="EnumEqualsConverter"/>
         <conv:ConnectionStateToBrushConverter x:Key="ConnectionStateToBrushConverter"/>
         <conv:SlotFilterDisplayConverter x:Key="SlotFilterDisplayConverter"/>
@@ -70,10 +73,25 @@
     <DockPanel>
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="8" Spacing="8" VerticalAlignment="Center">
             <Image Source="/Assets/project-logo.png" Width="28" Height="28" VerticalAlignment="Center"/>
+            <!-- Feature-Plaene/Archiv/Dashboard-Tab.md: toggles the whole main area
+                 between the normal TabControl and DashboardView (see the
+                 Grid further down) - a view swap, not a real TabItem, so
+                 Groups never needs a mixed-type collection. Text flips
+                 instead of a separate state indicator. First in the toolbar
+                 and set off with its own divider, since it's a mode switch
+                 for the whole window rather than one more per-server action. -->
+            <Button Content="{Binding DashboardToggleButtonText}" Command="{Binding ToggleDashboardCommand}"/>
+            <Border Width="1" Background="Gray" Opacity="0.5" VerticalAlignment="Stretch" Margin="0,2"/>
+            <!-- These four act on SelectedGroup (the active tab) - hidden
+                 while the Dashboard is shown instead of the TabControl,
+                 since there's no single "current" server to visibly apply
+                 them to there (see Feature-Plaene/Archiv/Dashboard-Tab.md's
+                 Status note). "Add server..." and "Disconnect all" don't
+                 depend on SelectedGroup, so they stay. -->
             <Button Content="Add server..." Click="OnAddServerClick"/>
-            <Button Content="Add slot..." Click="OnAddSlotClick"/>
-            <Button Content="Edit server..." Click="OnEditServerClick"/>
-            <Button Content="Remove server" Command="{Binding RemoveSelectedGroupCommand}"/>
+            <Button Content="Add slot..." Click="OnAddSlotClick" IsVisible="{Binding !IsDashboardVisible}"/>
+            <Button Content="Edit server..." Click="OnEditServerClick" IsVisible="{Binding !IsDashboardVisible}"/>
+            <Button Content="Remove server" Command="{Binding RemoveSelectedGroupCommand}" IsVisible="{Binding !IsDashboardVisible}"/>
             <Button Content="Disconnect all" Command="{Binding DisconnectAllGroupsCommand}"/>
             <Button Content="Settings..." Click="OnSettingsClick"/>
             <!-- Feature-Plaene/Archiv/Auto-Update.md's update-available signal -
@@ -113,7 +131,13 @@
             </StackPanel>
         </Border>
 
-        <TabControl ItemsSource="{Binding Groups}" SelectedItem="{Binding SelectedGroup}">
+        <!-- Feature-Plaene/Archiv/Dashboard-Tab.md: TabControl and DashboardView
+             share this same fill area, only one visible at a time - not a
+             real TabItem mixed into Groups (see that plan's "Warum nicht
+             als echtes TabItem" section for why), so the TabControl itself
+             is completely untouched below. -->
+        <Grid>
+        <TabControl IsVisible="{Binding !IsDashboardVisible}" ItemsSource="{Binding Groups}" SelectedItem="{Binding SelectedGroup}">
             <TabControl.ItemTemplate>
                 <DataTemplate DataType="vm:GroupViewModel">
                     <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
@@ -386,18 +410,17 @@
                                                     <TextBlock Text="NEW" FontWeight="Bold" Foreground="OrangeRed"
                                                                IsVisible="{Binding IsNewSinceLastSession}"/>
                                                     <TextBlock Text="{Binding Type}" Opacity="0.6"/>
-                                                    <ItemsControl ItemsSource="{Binding EffectiveSegments}">
+                                                    <!-- ItemTemplate: shared EventTextSegmentTemplate (see
+                                                         App.axaml/Views/SharedTemplates.axaml) - the exact same
+                                                         per-segment colored TextBlock DashboardView.axaml's own
+                                                         Events list uses, not a re-implemented copy. -->
+                                                    <ItemsControl ItemsSource="{Binding EffectiveSegments}"
+                                                                  ItemTemplate="{StaticResource EventTextSegmentTemplate}">
                                                         <ItemsControl.ItemsPanel>
                                                             <ItemsPanelTemplate>
                                                                 <WrapPanel/>
                                                             </ItemsPanelTemplate>
                                                         </ItemsControl.ItemsPanel>
-                                                        <ItemsControl.ItemTemplate>
-                                                            <DataTemplate DataType="m:EventTextSegment">
-                                                                <TextBlock Text="{Binding Text}" TextWrapping="Wrap"
-                                                                           Foreground="{Binding Kind, Converter={StaticResource SegmentKindToBrushConverter}}"/>
-                                                            </DataTemplate>
-                                                        </ItemsControl.ItemTemplate>
                                                     </ItemsControl>
                                                 </StackPanel>
                                             </DataTemplate>
@@ -642,6 +665,16 @@
                 </DataTemplate>
             </TabControl.ContentTemplate>
         </TabControl>
+
+        <!-- IsVisible lives on this wrapper, not on DashboardView itself:
+             DashboardView's own DataContext is overridden to Dashboard
+             (a DashboardViewModel, which has no IsDashboardVisible of its
+             own) - putting IsVisible on the same element would resolve
+             against that DataContext instead of MainWindowViewModel's. -->
+        <Border IsVisible="{Binding IsDashboardVisible}">
+            <views:DashboardView x:Name="DashboardViewControl" DataContext="{Binding Dashboard}"/>
+        </Border>
+        </Grid>
     </DockPanel>
 
 </Window>

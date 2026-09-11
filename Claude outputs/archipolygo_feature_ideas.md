@@ -22,7 +22,7 @@ These three were planned early on and deliberately dropped — worth a fresh loo
 
 ## Overview across many tabs
 
-- **A summary/dashboard tab** — all servers at a glance: total open hints, total unread events. 📝 Plan (not yet built): [`Feature-Plaene/Dashboard-Tab.md`](../Feature-Plaene/Dashboard-Tab.md)
+- **A summary/dashboard tab** — all servers at a glance: total open hints, total unread events. ✅ **Done** (2026-09-11) — Plan: [`Feature-Plaene/Archiv/Dashboard-Tab.md`](../Feature-Plaene/Archiv/Dashboard-Tab.md) (see that file's own "Status" section for the one point where the mockup image, not the plan text, won).
 - **Free-text search** across events/hints (today there's only category/slot filtering).
 - **Manual tab reordering** (drag & drop) instead of only automatic host/port grouping. 📝 Plan (not yet built): [`Feature-Plaene/Tab-Reihenfolge.md`](../Feature-Plaene/Tab-Reihenfolge.md)
 

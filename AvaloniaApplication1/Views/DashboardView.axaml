@@ -1,0 +1,479 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Archipolygo.ViewModels"
+             xmlns:m="using:Archipolygo.Models"
+             xmlns:conv="using:Archipolygo.Converters"
+             xmlns:avconv="using:Avalonia.Data.Converters"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="700" d:DesignHeight="500"
+             x:Class="Archipolygo.Views.DashboardView"
+             x:DataType="vm:DashboardViewModel">
+
+    <!--
+        "All servers at a glance" (Feature-Plaene/Archiv/Dashboard-Tab.md) - shown
+        instead of MainWindow's TabControl, toggled via
+        MainWindowViewModel.IsDashboardVisible. Overview (left) and the
+        shared, server-spanning Hints list (right) sit side by side, always
+        both visible, separated by a draggable GridSplitter - exactly the
+        same layout pattern as the Events|Hints/Items split inside a single
+        server's own tab (see MainWindow.axaml), just one level up (servers
+        instead of slots). See ../../Claude outputs/dashboard-tab-mockup.html
+        for the visual target this follows.
+
+        Own local converter instances rather than relying on the host
+        Window's Window.Resources: this view can then be shown standalone
+        (e.g. a future test/preview) without depending on being hosted
+        inside MainWindow specifically.
+    -->
+    <UserControl.Resources>
+        <conv:ConnectionStateToBrushConverter x:Key="ConnectionStateToBrushConverter"/>
+        <conv:EnumEqualsConverter x:Key="EnumEqualsConverter"/>
+        <conv:SlotFilterDisplayConverter x:Key="SlotFilterDisplayConverter"/>
+        <conv:DashboardServerFilterDisplayConverter x:Key="DashboardServerFilterDisplayConverter"/>
+        <conv:CountToStarWidthConverter x:Key="CountToStarWidthConverter"/>
+        <!-- SegmentKindToBrushConverter/EventTextSegmentTemplate come from
+             App.axaml's merged Views/SharedTemplates.axaml (shared with
+             MainWindow.axaml's own Events list) - not redeclared here. -->
+    </UserControl.Resources>
+
+    <UserControl.Styles>
+        <!-- Row-hover affordance for the two lists whose whole row is a
+             click-to-navigate action (Overview, Hints) - a ListBoxItem isn't
+             a Button, so there's no built-in "this is clickable" cue
+             otherwise. Deliberately scoped to just these two (not a bare
+             "ListBoxItem:pointerover" matching every list in this view): the
+             Events list (dev feedback) isn't click-to-navigate at all - it's
+             a plain multi-select log, same as a server tab's own Events
+             list, which has no such hover override either. Applying it
+             there anyway made hover visually fight the real selection
+             highlight and read as "komisch". -->
+        <Style Selector="ListBox#OverviewListBox ListBoxItem:pointerover /template/ ContentPresenter,
+                         ListBox#DashboardHintsListBox ListBoxItem:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#14000000"/>
+        </Style>
+
+        <!-- Overview rows: without this, each ListBoxItem only ever measures
+             as wide as its own content (name + badges), leaving the rest of
+             the (2*-wide) Overview column empty instead of letting the
+             progress bar below actually use that space (see the
+             Grid.ColumnDefinitions="*,Auto" progress-bar row, which relies
+             on this to stretch). A plain HorizontalContentAlignment
+             property doesn't exist directly on ListBox itself in this
+             Avalonia version - only via its item container's own style. -->
+        <Style Selector="ListBox#OverviewListBox ListBoxItem">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        </Style>
+
+        <!-- Per-row action icons (Connect/Disconnect, Add slot, Edit server,
+             Remove server - see Feature-Plaene/Archiv/Dashboard-Tab.md's
+             Status note). Flat, borderless, just a hover highlight - a
+             Button's own PointerPressed handling marks the event handled
+             before it can bubble up to the ListBoxItem's row-selection
+             logic, so clicking one of these does not also navigate away
+             (see DashboardTabTests.RowIconClick_DoesNotAlsoNavigateTheRow). -->
+        <Style Selector="Button.icon-button">
+            <Setter Property="Width" Value="22"/>
+            <Setter Property="Height" Value="22"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+        <!-- A bright accent wash, not a dark tint - a semi-transparent
+             black highlight here read as barely-there against the app's
+             light background (dev feedback: "sehr dezent"). Same DodgerBlue
+             accent already used for an active filter-toggle button
+             elsewhere in this app (see Window.Styles' Button.filter-toggle.active
+             in MainWindow.axaml), just translucent instead of solid. -->
+        <Style Selector="Button.icon-button:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#4D1E90FF"/>
+        </Style>
+        <Style Selector="Button.icon-button:disabled">
+            <Setter Property="Opacity" Value="0.35"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Grid Margin="16" RowDefinitions="Auto,*">
+        <TextBlock Grid.Row="0" Text="{Binding SummaryText}" Opacity="0.7" Margin="0,0,0,10"/>
+
+        <!-- Column widths/ratio mirror MainWindow.axaml's own Events|Hints
+             split exactly (2*/8/1*, MinWidth on both outer columns) - see
+             the plan's "Struktur" section. Not persisted, resets on restart,
+             same as that other splitter. -->
+        <Grid Grid.Row="1" ColumnDefinitions="2*,8,1*">
+
+            <!-- ── Overview / Events (left) ──
+                 Button+IsVisible toggle, not a real TabControl - same
+                 reasoning as the Hints/Items switch inside a single
+                 server's own tab (see MainWindow.axaml's RightPanelView):
+                 a real nested TabControl here would reintroduce the lazy-
+                 ContentTemplate-materialization gotcha documented in
+                 CLAUDE.md for whichever panel isn't the default. Hints
+                 (right column) is untouched by this - it stays visible
+                 regardless of which of these two is selected. -->
+            <Grid Grid.Column="0" MinWidth="220" RowDefinitions="Auto,Auto,*">
+                <TextBlock Grid.Row="0" Text="Overview" FontWeight="Bold" Margin="0,0,0,4"
+                           IsVisible="{Binding SelectedLeftPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Overview}"/>
+                <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="4" Margin="0,0,0,4"
+                            IsVisible="{Binding SelectedLeftPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Events}">
+                    <TextBlock Text="Events" FontWeight="Bold" VerticalAlignment="Center"/>
+                    <TextBlock Text="· all servers, all activity" Opacity="0.6" FontSize="12" VerticalAlignment="Center"/>
+                </StackPanel>
+
+                <WrapPanel Grid.Row="1" Margin="0,0,0,4">
+                    <Button Content="Overview" Classes="filter-toggle" Command="{Binding ShowOverviewPanelCommand}"
+                            Classes.active="{Binding SelectedLeftPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Overview}"/>
+                    <Button Content="Events" Classes="filter-toggle" Command="{Binding ShowEventsPanelCommand}"
+                            Classes.active="{Binding SelectedLeftPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Events}"/>
+                </WrapPanel>
+
+                <!-- SelectionChanged (not a Command per row) - same "click a
+                     row to navigate" idiom as everywhere else the app reacts
+                     to a list click (see MainWindow.axaml.cs's other list
+                     handlers); OnOverviewRowSelected also clears the
+                     selection right back out so the same row can be clicked
+                     again after returning to the dashboard. -->
+                <ListBox Name="OverviewListBox" Grid.Row="2" ItemsSource="{Binding Groups}"
+                         IsVisible="{Binding SelectedLeftPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Overview}"
+                         SelectionChanged="OnOverviewRowSelected">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate DataType="vm:GroupViewModel">
+                            <StackPanel Spacing="4" Margin="2">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
+                                        <Ellipse Width="8" Height="8" VerticalAlignment="Center"
+                                                 Fill="{Binding ConnectionState, Converter={StaticResource ConnectionStateToBrushConverter}}"/>
+                                        <TextBlock Text="{Binding HeaderText}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                        <Border Background="#e6f1fb" CornerRadius="10" Padding="6,1" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding UnreadEventCount, StringFormat='{}{0} events'}" FontSize="11" Foreground="#0c447c"/>
+                                        </Border>
+                                        <Border Background="#faeeda" CornerRadius="10" Padding="6,1" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding UnfoundHintCount, StringFormat='{}{0} hints'}" FontSize="11" Foreground="#854f0b"/>
+                                        </Border>
+                                    </StackPanel>
+
+                                    <!-- Per-row actions - Connect/Disconnect
+                                         bind straight to this GroupViewModel's
+                                         own commands (identical to the tab's
+                                         own Connect/Disconnect buttons); Add
+                                         slot/Edit server/Remove server raise a
+                                         DashboardView event instead, since
+                                         opening their dialogs needs a Window
+                                         and MainWindowViewModel, neither of
+                                         which this row's DataContext has (see
+                                         DashboardView.axaml.cs). "Add slot" is
+                                         only ever grayed out while
+                                         disconnected, not hidden - unlike
+                                         Connect/Disconnect it doesn't need a
+                                         live connection to make sense as a
+                                         concept, it just can't run without one
+                                         (see GetAvailableSlotsToAddAsync). -->
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2">
+                                        <!-- Tag: a stable, template-safe way to pick out one
+                                             specific icon button per row in tests (a repeated
+                                             x:Name inside an ItemTemplate collides once more than
+                                             one row is realized at once, unlike Tag). -->
+                                        <Button Classes="icon-button" Tag="Connect" IsVisible="{Binding CanConnect}" Command="{Binding ConnectCommand}">
+                                            <ToolTip.Tip><TextBlock Text="Connect"/></ToolTip.Tip>
+                                            <Path Data="M4,3 L13,8 L4,13 Z" Fill="#3b6d11" Width="12" Height="12" Stretch="Uniform"/>
+                                        </Button>
+                                        <Button Classes="icon-button" Tag="Disconnect" IsVisible="{Binding !CanConnect}" Command="{Binding DisconnectCommand}">
+                                            <ToolTip.Tip><TextBlock Text="Disconnect"/></ToolTip.Tip>
+                                            <Path Data="M4,4 L12,4 L12,12 L4,12 Z" Fill="#5f5e5a" Width="12" Height="12" Stretch="Uniform"/>
+                                        </Button>
+                                        <Button Classes="icon-button" Tag="AddSlot" IsEnabled="{Binding IsLeaderConnected}" Click="OnAddSlotIconClick">
+                                            <ToolTip.Tip><TextBlock Text="Add slot"/></ToolTip.Tip>
+                                            <Path Data="M8,3 L8,13 M3,8 L13,8" Stroke="#5f5e5a" StrokeThickness="2" StrokeLineCap="Round" Width="12" Height="12" Stretch="Uniform"/>
+                                        </Button>
+                                        <Button Classes="icon-button" Tag="EditServer" Click="OnEditServerIconClick">
+                                            <ToolTip.Tip><TextBlock Text="Edit server"/></ToolTip.Tip>
+                                            <Path Data="M2,14 L2,11 L9,4 L12,7 L5,14 Z M10,3 L13,6 L14,5 L11,2 Z" Fill="#5f5e5a" Width="12" Height="12" Stretch="Uniform"/>
+                                        </Button>
+                                        <Button Classes="icon-button" Tag="RemoveServer" Click="OnRemoveServerIconClick">
+                                            <ToolTip.Tip><TextBlock Text="Remove server"/></ToolTip.Tip>
+                                            <Path Data="M4,4 L12,12 M12,4 L4,12" Stroke="#a32d2d" StrokeThickness="2" StrokeLineCap="Round" Width="12" Height="12" Stretch="Uniform"/>
+                                        </Button>
+                                    </StackPanel>
+                                </Grid>
+
+                                <!-- Combined Tier1+2 progress bar - identical
+                                     block (columns/colors/tooltip legend) to
+                                     the one on this same GroupViewModel's own
+                                     tab in MainWindow.axaml, just smaller;
+                                     kept here rather than factored into a
+                                     shared control so each stays a simple,
+                                     self-contained copy - see
+                                     Feature-Plaene/Archiv/Dashboard-Tab.md's
+                                     decision to reuse this exact visual. -->
+                                <!-- Grid, not a StackPanel: a StackPanel only ever gives
+                                     the bar its own desired size (which, with Star-weighted
+                                     columns, collapses to nothing) - "*,Auto" is what lets
+                                     the bar actually claim the row's now-available width
+                                     (see HorizontalContentAlignment="Stretch" above) instead
+                                     of sitting capped at some fixed pixel width. -->
+                                <Grid ColumnDefinitions="*,Auto" Margin="16,0,0,0"
+                                      IsVisible="{Binding HasAnyProgress}">
+                                    <Grid Grid.Column="0" Height="8" ClipToBounds="True">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="{Binding OwnChecksDone, Converter={StaticResource CountToStarWidthConverter}}"/>
+                                            <ColumnDefinition Width="{Binding OwnChecksOpen, Converter={StaticResource CountToStarWidthConverter}}"/>
+                                            <ColumnDefinition Width="{Binding OtherChecksDone, Converter={StaticResource CountToStarWidthConverter}}"/>
+                                            <ColumnDefinition Width="{Binding OtherChecksOpen, Converter={StaticResource CountToStarWidthConverter}}"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Border Grid.Column="0" Background="#2F9E44"/>
+                                        <Border Grid.Column="1" Background="#4B5A4B"/>
+                                        <Border Grid.Column="2" Background="#1971C2"/>
+                                        <Border Grid.Column="3" Background="#3D4A5C"/>
+
+                                        <ToolTip.Tip>
+                                            <StackPanel Spacing="4" MaxWidth="240">
+                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                    <Border Width="10" Height="10" Background="#2F9E44" VerticalAlignment="Center"/>
+                                                    <TextBlock Text="{Binding OwnChecksDoneLegendText}"/>
+                                                </StackPanel>
+                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                    <Border Width="10" Height="10" Background="#4B5A4B" VerticalAlignment="Center"/>
+                                                    <TextBlock Text="{Binding OwnChecksOpenLegendText}"/>
+                                                </StackPanel>
+                                                <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasMultiworldTracker}">
+                                                    <Border Width="10" Height="10" Background="#1971C2" VerticalAlignment="Center"/>
+                                                    <TextBlock Text="{Binding OtherChecksDoneLegendText}"/>
+                                                </StackPanel>
+                                                <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasMultiworldTracker}">
+                                                    <Border Width="10" Height="10" Background="#3D4A5C" VerticalAlignment="Center"/>
+                                                    <TextBlock Text="{Binding OtherChecksOpenLegendText}"/>
+                                                </StackPanel>
+                                                <TextBlock Text="Add a multiworld tracker in Edit Server to also see everyone else's progress in this room."
+                                                           TextWrapping="Wrap" Opacity="0.7" FontStyle="Italic"
+                                                           IsVisible="{Binding !HasMultiworldTracker}"/>
+                                            </StackPanel>
+                                        </ToolTip.Tip>
+                                    </Grid>
+                                    <TextBlock Grid.Column="1" Text="{Binding RoomProgressPercent, StringFormat='{}{0:0}%'}"
+                                               FontSize="11" Opacity="0.7" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                </Grid>
+
+                                <!-- No own slot has ever synced yet (e.g. never
+                                     connected, or disconnected before its
+                                     first sync) - nothing to show a bar for. -->
+                                <TextBlock Text="{Binding ConnectionState, StringFormat='{}{0} - no progress data yet'}"
+                                           Opacity="0.6" FontStyle="Italic" FontSize="11" Margin="16,0,0,0"
+                                           IsVisible="{Binding !HasAnyProgress}"/>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <!-- Events panel - shared, server-spanning event log, a pure
+                     Server+Slot display filter up top (identical two-stage
+                     cascade to the Hints column), and a completely separate
+                     "who's chatting" Server+Slot pair down by the message
+                     box (dev's explicit call to decouple the two - see
+                     DashboardViewModel's doc comments on
+                     SelectedEventsServerFilter/SelectedSendServerGroup). -->
+                <Grid Grid.Row="2" RowDefinitions="Auto,*,Auto,Auto"
+                      IsVisible="{Binding SelectedLeftPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Events}">
+                    <!-- Filter row: fixed-width ComboBoxes in a StackPanel,
+                         not a Grid of equal Star columns - "*,*" stretched
+                         each box to half the column's width, leaving them
+                         looking far apart with dead space in between (dev
+                         feedback). Same fix applied to the Hints filter row
+                         below. -->
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" Margin="0,0,0,4">
+                        <ComboBox Name="DashboardEventsServerComboBox" Width="130"
+                                  ItemsSource="{Binding EventsFilter.ServerOptions}" SelectedItem="{Binding EventsFilter.SelectedServer}">
+                            <ComboBox.ItemTemplate>
+                                <!-- Deliberately untyped - see the identical Hints server dropdown's comment. -->
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Converter={StaticResource DashboardServerFilterDisplayConverter}}"
+                                               MaxWidth="110" TextTrimming="CharacterEllipsis"/>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                        <!-- A pure display filter now, same as the Hints
+                             slot dropdown - no longer bound to
+                             SelectedChatSlot/Slots (that live, real-leader-
+                             switch control moved down to the send row). -->
+                        <ComboBox Name="DashboardEventsSlotComboBox" Width="130"
+                                  ItemsSource="{Binding EventsFilter.SlotOptions}" SelectedItem="{Binding EventsFilter.SelectedSlot}"
+                                  IsEnabled="{Binding EventsFilter.SelectedServer, Converter={x:Static avconv:ObjectConverters.IsNotNull}}">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Converter={StaticResource SlotFilterDisplayConverter}}"
+                                               MaxWidth="110" TextTrimming="CharacterEllipsis"/>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                    </StackPanel>
+
+                    <!-- SelectionMode="Multiple" + KeyDown copy shortcut -
+                         same behavior as a server tab's own Events list
+                         (see MainWindow.axaml's EventsListBox/OnEventsListKeyDown),
+                         not the "whole row navigates" idiom Overview/Hints
+                         use (dev feedback: this list should match the
+                         per-server Events display, not the click-to-navigate
+                         rows). -->
+                    <ListBox Name="DashboardEventsListBox" Grid.Row="1" ItemsSource="{Binding VisibleEvents}"
+                             SelectionMode="Multiple" KeyDown="OnDashboardEventsListKeyDown">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate DataType="m:DashboardEventRow">
+                                <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,2">
+                                    <TextBlock Text="{Binding Group.HeaderText}" Foreground="#185fa5" FontWeight="SemiBold" FontSize="11" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{Binding Event.Timestamp, StringFormat='HH:mm:ss'}" Opacity="0.6" FontSize="11" VerticalAlignment="Center"/>
+                                    <!-- ItemTemplate: shared EventTextSegmentTemplate (see
+                                         App.axaml/Views/SharedTemplates.axaml) - the exact same
+                                         per-segment colored TextBlock the tab's own Events list
+                                         (MainWindow.axaml) uses, not a re-implemented copy. -->
+                                    <ItemsControl ItemsSource="{Binding Event.EffectiveSegments}"
+                                                  ItemTemplate="{StaticResource EventTextSegmentTemplate}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <WrapPanel/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+
+                    <!-- "Who's chatting" - a Server+Slot pair, deliberately
+                         separate from the filter row above (dev's explicit
+                         call). Picking the Slot here IS the real leader
+                         switch (same as the tab's own "Chat as" dropdown),
+                         since it binds straight to
+                         SelectedSendServerGroup.Slots/.SelectedChatSlot -
+                         the group's own live state, not a Dashboard copy. -->
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
+                        <TextBlock Text="Send as:" Opacity="0.7" VerticalAlignment="Center"/>
+                        <ComboBox Name="DashboardSendServerComboBox" Width="130"
+                                  ItemsSource="{Binding Groups}" SelectedItem="{Binding SelectedSendServerGroup}">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate DataType="vm:GroupViewModel">
+                                    <TextBlock Text="{Binding HeaderText}" MaxWidth="110" TextTrimming="CharacterEllipsis"/>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                        <ComboBox Name="DashboardSendSlotComboBox" Width="130"
+                                  ItemsSource="{Binding SelectedSendServerGroup.Slots}"
+                                  SelectedItem="{Binding SelectedSendServerGroup.SelectedChatSlot}"
+                                  IsEnabled="{Binding SelectedSendServerGroup, Converter={x:Static avconv:ObjectConverters.IsNotNull}}">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate DataType="m:SlotProfile">
+                                    <TextBlock Text="{Binding DisplayName}" MaxWidth="110" TextTrimming="CharacterEllipsis"/>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                    </StackPanel>
+
+                    <!-- Send row - grayed out (not hidden), same "Add slot"
+                         philosophy, while no server is picked or that
+                         server's leader isn't connected. IsEnabled binds to
+                         CanSendMessage, NOT a nested
+                         SelectedSendServerGroup.IsLeaderConnected path - see
+                         that property's own doc comment for why the nested
+                         version doesn't reliably gray out with nothing
+                         selected. -->
+                    <Grid Grid.Row="3" ColumnDefinitions="*,Auto" Margin="0,4,0,0">
+                        <TextBox Grid.Column="0" Text="{Binding SelectedSendServerGroup.MessageToSend}" PlaceholderText="Message..."
+                                 IsEnabled="{Binding CanSendMessage}">
+                            <TextBox.KeyBindings>
+                                <KeyBinding Gesture="Enter" Command="{Binding SelectedSendServerGroup.SendMessageCommand}"/>
+                            </TextBox.KeyBindings>
+                        </TextBox>
+                        <Button Grid.Column="1" Content="Send" Command="{Binding SelectedSendServerGroup.SendMessageCommand}"
+                                IsEnabled="{Binding CanSendMessage}" Margin="8,0,0,0"/>
+                    </Grid>
+                </Grid>
+            </Grid>
+
+            <GridSplitter Grid.Column="1" Width="8" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                          Background="Gray" Opacity="0.3" ResizeDirection="Columns"/>
+
+            <!-- ── Hints (right): shared, server-spanning, open-only ── -->
+            <Grid Grid.Column="2" MinWidth="150" RowDefinitions="Auto,Auto,Auto,*">
+                <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="4" Margin="0,0,0,4">
+                    <TextBlock Text="Hints" FontWeight="Bold" VerticalAlignment="Center"/>
+                    <TextBlock Text="· unfound only" Opacity="0.6" FontSize="12" VerticalAlignment="Center"/>
+                </StackPanel>
+
+                <!-- Fixed-width ComboBoxes in a StackPanel, not a Grid of
+                     equal Star columns - "*,*" stretched each box to half
+                     the column's width, leaving them looking far apart with
+                     dead space in between (dev feedback). -->
+                <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="0,0,0,4">
+                    <ComboBox Width="130"
+                              ItemsSource="{Binding HintFilter.ServerOptions}" SelectedItem="{Binding HintFilter.SelectedServer}">
+                        <ComboBox.ItemTemplate>
+                            <!-- Deliberately untyped (no x:DataType): the leading entry is a
+                                 null placeholder for "All servers" (see HintServerFilterOptions),
+                                 and a compiled binding typed to GroupViewModel wouldn't match it. -->
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Converter={StaticResource DashboardServerFilterDisplayConverter}}"
+                                           MaxWidth="110" TextTrimming="CharacterEllipsis"/>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <!-- Disabled (not just visually inert) while "All servers"
+                         is selected, so it's clear the slot filter only
+                         applies once a concrete server is picked - see the
+                         plan's UI section. -->
+                    <ComboBox Width="130"
+                              ItemsSource="{Binding HintFilter.SlotOptions}" SelectedItem="{Binding HintFilter.SelectedSlot}"
+                              IsEnabled="{Binding HintFilter.SelectedServer, Converter={x:Static avconv:ObjectConverters.IsNotNull}}">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Converter={StaticResource SlotFilterDisplayConverter}}"
+                                           MaxWidth="110" TextTrimming="CharacterEllipsis"/>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                </StackPanel>
+
+                <!-- Same single-select filter-toggle-button pattern/classes as
+                     every other item-category filter row in this app (see
+                     MainWindow.axaml) - Button.filter-toggle/active are
+                     Window-level styles that cascade down to this view since
+                     it's hosted inside MainWindow's visual tree. -->
+                <WrapPanel Grid.Row="2" Margin="0,0,0,4">
+                    <Button Content="All" Classes="filter-toggle" Command="{Binding ShowAllHintItemCategoriesCommand}"
+                            Classes.active="{Binding SelectedHintItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=All}"/>
+                    <Button Content="Progression" Classes="filter-toggle" Command="{Binding ShowProgressHintItemsCommand}"
+                            Classes.active="{Binding SelectedHintItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Progress}"/>
+                    <Button Content="Useful" Classes="filter-toggle" Command="{Binding ShowUsefulHintItemsCommand}"
+                            Classes.active="{Binding SelectedHintItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Useful}"/>
+                    <Button Content="Normal" Classes="filter-toggle" Command="{Binding ShowNormalHintItemsCommand}"
+                            Classes.active="{Binding SelectedHintItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Normal}"/>
+                    <Button Content="Trap" Classes="filter-toggle" Command="{Binding ShowTrapHintItemsCommand}"
+                            Classes.active="{Binding SelectedHintItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Trap}"/>
+                </WrapPanel>
+
+                <ListBox Name="DashboardHintsListBox" Grid.Row="3" ItemsSource="{Binding VisibleHints}"
+                         SelectionChanged="OnHintRowSelected">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate DataType="m:DashboardHintRow">
+                            <StackPanel Spacing="2" Margin="0,2">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <TextBlock Text="{Binding Group.HeaderText}" Foreground="#185fa5" FontWeight="SemiBold"/>
+                                    <TextBlock Text="·" Opacity="0.5"/>
+                                    <TextBlock Text="{Binding Hint.ItemName}" FontWeight="Bold" TextWrapping="Wrap"
+                                               Foreground="{Binding Hint.ItemKind, Converter={StaticResource SegmentKindToBrushConverter}}"/>
+                                    <TextBlock Text="-" Opacity="0.5"/>
+                                    <TextBlock Text="{Binding Hint.ReceivingPlayerName}" Opacity="0.85" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <TextBlock Text="{Binding Hint.FindingPlayerName}" Opacity="0.85" TextWrapping="Wrap"/>
+                                    <TextBlock Text=":" Opacity="0.7"/>
+                                    <TextBlock Text="{Binding Hint.LocationName}" Opacity="0.7" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+        </Grid>
+    </Grid>
+</UserControl>
