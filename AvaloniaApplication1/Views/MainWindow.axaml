@@ -75,34 +75,25 @@
             <Button Content="Edit server..." Click="OnEditServerClick"/>
             <Button Content="Remove server" Command="{Binding RemoveSelectedGroupCommand}"/>
             <Button Content="Disconnect all" Command="{Binding DisconnectAllGroupsCommand}"/>
-            <!-- Feature-Plaene/Archiv/Auto-Update.md: a small dot overlaying the
-                 corner of "Settings...", same badge idiom as the tab
-                 header's unread-events count (see TabControl.ItemTemplate
-                 above) - deliberately undecorated (no label of its own) so
-                 it stays a quiet "something changed" signal rather than a
-                 whole extra banner row. Its own Click opens the update
-                 Flyout; "Settings..." itself is untouched and still always
-                 opens the Settings dialog regardless of whether an update
-                 is pending. -->
-            <Grid VerticalAlignment="Center">
-                <Button Content="Settings..." Click="OnSettingsClick"/>
-                <Border Name="UpdateAvailableBadge" Background="OrangeRed" CornerRadius="8" Width="8" Height="8"
-                        HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-3,-3,0"
-                        IsVisible="{Binding IsUpdateAvailable}" PointerPressed="OnUpdateBadgeClick">
-                    <ToolTip.Tip>
-                        <TextBlock Text="Update available - click for details"/>
-                    </ToolTip.Tip>
-                    <FlyoutBase.AttachedFlyout>
-                        <Flyout Placement="BottomEdgeAlignedRight">
-                            <StackPanel Spacing="8" Width="220">
-                                <TextBlock Text="{Binding NewUpdateVersion, StringFormat='Version {0} is available.'}"
-                                           TextWrapping="Wrap"/>
-                                <Button Content="Update now" Command="{Binding UpdateNowCommand}" HorizontalAlignment="Right"/>
-                            </StackPanel>
-                        </Flyout>
-                    </FlyoutBase.AttachedFlyout>
-                </Border>
-            </Grid>
+            <Button Content="Settings..." Click="OnSettingsClick"/>
+            <!-- Feature-Plaene/Archiv/Auto-Update.md's update-available signal -
+                 originally a tiny 8x8 dot overlaying "Settings...", which was
+                 too easy to miss entirely. Now a real, labeled button of its
+                 own so it reads as an actual call to action instead of
+                 something you had to notice first. Click opens the same
+                 update Flyout as before with the version + "Update now". -->
+            <Button Name="UpdateAvailableButton" Content="Update available" Background="OrangeRed" Foreground="White"
+                    IsVisible="{Binding IsUpdateAvailable}" Click="OnUpdateBadgeClick">
+                <FlyoutBase.AttachedFlyout>
+                    <Flyout Placement="BottomEdgeAlignedRight">
+                        <StackPanel Spacing="8" Width="220">
+                            <TextBlock Text="{Binding NewUpdateVersion, StringFormat='Version {0} is available.'}"
+                                       TextWrapping="Wrap"/>
+                            <Button Content="Update now" Command="{Binding UpdateNowCommand}" HorizontalAlignment="Right"/>
+                        </StackPanel>
+                    </Flyout>
+                </FlyoutBase.AttachedFlyout>
+            </Button>
         </StackPanel>
 
         <!-- Startup-only progress indicator - visible while

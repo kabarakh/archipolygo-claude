@@ -74,12 +74,12 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Feature-Plaene/Archiv/Auto-Update.md's update-available dot - a plain
-    /// <c>Border</c>, not a <c>Button</c> (no <c>Click</c> event of its own),
-    /// so this opens its attached Flyout directly off the lower-level
-    /// pointer event instead.
+    /// Feature-Plaene/Archiv/Auto-Update.md's update-available button (a
+    /// small barely-visible dot originally - now a real labeled Button, see
+    /// MainWindow.axaml) - opens its attached Flyout with the version and
+    /// the actual "Update now" button.
     /// </summary>
-    private void OnUpdateBadgeClick(object? sender, PointerPressedEventArgs e)
+    private void OnUpdateBadgeClick(object? sender, RoutedEventArgs e)
     {
         if (sender is Control control)
         {

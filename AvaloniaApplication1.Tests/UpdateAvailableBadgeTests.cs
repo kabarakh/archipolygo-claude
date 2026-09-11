@@ -13,8 +13,9 @@ namespace AvaloniaApplication1.Tests;
 
 /// <summary>
 /// Kategorie C (Test-Umsetzungsplan.md): Feature-Plaene/Archiv/Auto-Update.md's
-/// small dot next to "Settings..." in <see cref="MainWindow"/>, against the
-/// real <c>.axaml</c> and a real layout pass.
+/// update-available signal next to "Settings..." in <see cref="MainWindow"/>
+/// - a labeled <c>Button</c> (originally a barely-visible 8x8 dot, replaced
+/// for discoverability), against the real <c>.axaml</c> and a real layout pass.
 /// </summary>
 public class UpdateAvailableBadgeTests
 {
@@ -29,7 +30,7 @@ public class UpdateAvailableBadgeTests
         window.Show();
         Dispatcher.UIThread.RunJobs();
 
-        var badge = window.GetVisualDescendants().OfType<Border>().Single(b => b.Name == "UpdateAvailableBadge");
+        var badge = window.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "UpdateAvailableButton");
         Assert.False(badge.IsEffectivelyVisible);
 
         mainWindowViewModel.IsUpdateAvailable = true;
@@ -50,7 +51,7 @@ public class UpdateAvailableBadgeTests
         window.Show();
         Dispatcher.UIThread.RunJobs();
 
-        var badge = window.GetVisualDescendants().OfType<Border>().Single(b => b.Name == "UpdateAvailableBadge");
+        var badge = window.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "UpdateAvailableButton");
         Assert.True(badge.IsEffectivelyVisible);
 
         // Same "force the DataContext" trick as the combined progress bar's
