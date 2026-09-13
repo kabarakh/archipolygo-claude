@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Passwort-Dialog &ndash; Mockup</title>
+<style>
+  body { font-family: "Segoe UI", sans-serif; background: #f4f3ef; color: #1a1a18; padding: 24px; }
+  .note { font-size: 13px; color: #5f5e5a; margin-bottom: 16px; max-width: 460px; }
+  .dialog { max-width: 420px; background: #fff; border: 1px solid #d3d1c7; border-radius: 8px; padding: 20px 24px; }
+  .dialog h1 { font-size: 15px; font-weight: 600; margin: 0 0 4px; }
+  .dialog p.sub { font-size: 12px; color: #5f5e5a; margin: 0 0 18px; }
+  .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; }
+  .field label { font-size: 12px; color: #5f5e5a; }
+  .field label .hint { color: #888780; }
+  .field input { font-size: 13px; padding: 6px 8px; border: 1px solid #d3d1c7; border-radius: 4px; background: #f4f3ef; }
+  .divider { border: none; border-top: 1px solid #eee; margin: 14px 0; }
+  .server-name { font-size: 13px; font-weight: 600; margin: 0 0 8px; }
+  .slot-fields { display: flex; flex-direction: column; gap: 12px; padding-left: 12px; border-left: 2px solid #eee; }
+  .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+  .actions button { font-size: 12px; padding: 6px 14px; border: 1px solid #d3d1c7; border-radius: 4px; background: #fff; }
+  .actions button.primary { background: #185fa5; color: #fff; border-color: #185fa5; }
+</style>
+</head>
+<body>
+
+<p class="note">
+  Mockup zum geplanten Start-Passwort-Dialog (siehe Feature-Idee
+  "Don't store passwords at all" in
+  <code>Feature-Plaene/Passwort-Speicherung.md</code>) &mdash; noch nicht
+  implementiert, noch kein ausgereifter Umsetzungsplan. Zeigt
+  ein Feld pro Gruppe (Server ABC, Server C) plus, eingerückt darunter,
+  eigene Felder für jeden Slot mit Passwort-Override (Server B / Slot A /
+  Slot 12) &mdash; der Server selbst muss dann kein eigenes Passwort haben,
+  wenn jeder seiner Slots eins bekommt.
+</p>
+
+<div class="dialog">
+  <h1>Passwords needed to reconnect</h1>
+  <p class="sub">These servers need a password before they can auto-connect. Leave a server blank to keep it disconnected.</p>
+
+  <div class="field">
+    <label>Server ABC password</label>
+    <input type="password" placeholder="Password">
+  </div>
+
+  <hr class="divider">
+
+  <p class="server-name">Server B</p>
+  <div class="slot-fields">
+    <div class="field">
+      <label>Server password <span class="hint">(only needed if a slot below has none)</span></label>
+      <input type="password" placeholder="Password">
+    </div>
+    <div class="field">
+      <label>Slot A password</label>
+      <input type="password" placeholder="Password">
+    </div>
+    <div class="field">
+      <label>Slot 12 password</label>
+      <input type="password" placeholder="Password">
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <div class="field">
+    <label>Server C password</label>
+    <input type="password" placeholder="Password">
+  </div>
+
+  <div class="actions">
+    <button>Skip blanks</button>
+    <button class="primary">Connect</button>
+  </div>
+</div>
+
+</body>
+</html>

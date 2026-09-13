@@ -47,6 +47,21 @@ Nutzeranfrage "progress-bars pro slot und multiworld"). Nutzer-Entscheidung:
 machbar mit vorhandenen Client-Daten) *und* das ganze Multiworld/alle
 Spieler im Room (Tier 2, braucht eine externe Datenquelle).
 
+**Nachtrag (2026-09-12): Host/Port ebenfalls aus der Raumverlinkung ableitbar.**
+Auf Nutzerwunsch nutzt der "Server (host:port)"-Eintrag im
+`ConnectionEditorViewModel` (NewGroup/EditGroup) jetzt dieselbe
+`room_status`-Infrastruktur wie das Tracker-Feld oben: akzeptiert
+alternativ einen Raum-Link/eine Raum-ID, löst daraus per
+`IMultiworldTrackerService.ResolveRoomConnectionInfoAsync` `last_port` auf
+(die Doku von `docs/webhost api.md` kennt keinen eigenen Hostnamen-Wert im
+`room_status`-Response - der Host ist implizit der Webhost selbst, also
+`HttpClient.BaseAddress.Host` des Dienstes) und befüllt bei Erfolg auch
+gleich das Tracker-Feld mit, falls dieses noch leer ist (ein Lookup, zwei
+Felder). Funktioniert nur für über einen Webhost gehostete Räume - ein
+selbst gehosteter `MultiServer.py` ohne Webhost braucht weiterhin
+host:port direkt getippt (Hinweistext im Dialog macht das explizit). Siehe
+`ConnectionEditorViewModel.TryResolveHostPortAsync`.
+
 ## Tier 1: eigene konfigurierte Slots (Client-Daten, kein externer Dienst)
 
 ### Kernbefund

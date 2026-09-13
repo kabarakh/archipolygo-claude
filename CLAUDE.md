@@ -142,16 +142,31 @@ doc comment explaining what it's for and why it's shaped that way.
   `FakeSessionFactory` for exercising `ConnectionManager` itself) - never
   duplicate one of these into either consuming project instead of adding to
   it here.
-- `Feature-Plaene/` - one Umsetzungsplan-style `.md` per not-yet-built
-  feature idea from `Claude outputs/archipolygo_feature_ideas.md` (that file
-  is the index - check it first for which ideas have a plan at all, and
-  whether it's done). Once a plan is actually implemented, its file moves to
-  `Feature-Plaene/Archiv/` and gains a "Status: ✅ Umgesetzt" section at the
-  top documenting how the real implementation ended up differing from the
+- `Feature-Plaene/` - **the canonical location for feature plans, their
+  archive, and mockups; this is the one place that should name the actual
+  directory names, so that a future rename only means updating this
+  bullet.** Elsewhere (README, the plan files themselves, doc comments),
+  refer to these by description - "the feature-plan directory", "the
+  feature-plan archive", "the mockup file `xyz.html`" - and by filename
+  only, never by repeating the full path, so moving/renaming a
+  folder doesn't require chasing down every reference to it.
+  `Feature-Plaene/` holds one `.md` per not-yet-built feature idea and is
+  now the master list (as of 2026-09-14 - it used to be indexed from a
+  single file, which is now archived purely as a historical record inside
+  `Claude outputs/Archiv/` - don't treat it as current). Each file carries
+  its own status at the top: 🗨️ **Discuss** = a rough first outline, not yet
+  ready for real implementation, still needs a design discussion (e.g.
+  `Item-Trap-Icons.md`, `Tastenkuerzel.md`); 📝 an actual Umsetzungsplan-style
+  doc, ready to implement (e.g. `Tab-Reihenfolge.md`). Once a plan is
+  actually implemented, its file moves into `Feature-Plaene/`'s `Archiv/`
+  subdirectory and gains a "Status: ✅ Umgesetzt" section at the top
+  documenting how the real implementation ended up differing from the
   original plan (Tier 2's UI in `Fortschrittsanzeigen.md`, macOS's exclusion
   in `Auto-Update.md`, ...) - read that section before touching related code
   instead of trusting the rest of the plan doc to still match reality
-  exactly.
+  exactly. Mockup images/HTML referenced from a plan file (e.g.
+  `dashboard-tab-mockup.html`, `passwort-dialog-mockup.html`) live in
+  `Claude outputs/`, alongside that same historical archive.
 
 ## Non-obvious gotchas already worked around here
 
@@ -260,9 +275,9 @@ way first - each was a real bug with a specific root cause.
 - **Blanket rule for every NuGet package this project references** - not
   just the three most-touched ones (`Archipelago.MultiClient.Net`,
   `CommunityToolkit.Mvvm`, Avalonia itself), but any of them, including newer
-  additions like `Velopack` (see `Services/UpdateService.cs` and
-  `Feature-Plaene/Archiv/Auto-Update.md`) or ones a `Feature-Plaene/*.md`
-  doc still only proposes adding: when you need to understand a package's
+  additions like `Velopack` (see `Services/UpdateService.cs` and the
+  feature-plan archive's `Auto-Update.md`) or ones a feature-plan doc still
+  only proposes adding: when you need to understand a package's
   behavior, never decompile the locally
   installed package DLL to figure it out. Instead check that package's
   official documentation for the exact version this project references (see

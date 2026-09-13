@@ -1,8 +1,9 @@
 # Umsetzungsplan: manuelles Tab-Reordering (Drag & Drop)
 
-Ergänzt `archipolygo_feature_ideas.md` ("Manual tab reordering (drag & drop)
-instead of only automatic host/port grouping"). Nutzer-Entscheidung: echtes
-Drag & Drop, keine Verschieben-Buttons.
+Ergänzt die ursprünglich in `archipolygo_feature_ideas.md` gelistete Idee
+"Manual tab reordering (drag & drop) instead of only automatic host/port
+grouping" (dieser Index ist inzwischen archiviert). Nutzer-Entscheidung:
+echtes Drag & Drop, keine Verschieben-Buttons.
 
 ## Wichtiger Vorbehalt zur Avalonia-Version
 
@@ -25,6 +26,25 @@ Avalonia-Doku zur exakt gepinnten Version 12.0.4 (nicht die `main`-Branch-
 Doku, die hier oben nur als grobe Orientierung diente) bzw., falls die Doku
 nicht ausreicht, den Quellcode am passenden 12.0.4-Tag im Avalonia-Repository
 konsultieren.
+
+## Vorbereitung für ein späteres Follow-up: Tab in eigenes Fenster lösen
+
+[`Tab-Eigenes-Fenster.md`](Tab-Eigenes-Fenster.md) beschreibt separat die
+Idee "Tab in eigenes Fenster lösen" (Multi-Monitor). Die naheliegende UX dafür ist dieselbe
+Drag-Geste wie hier: innerhalb der Tableiste losgelassen = Reorder, außerhalb
+der `TabControl`-Bounds losgelassen = neues Fenster. Das wird hier bewusst
+**nicht** mitgebaut - Multi-Window ist ein deutlich größeres Feature (die App
+ist aktuell komplett Single-Window; es bräuchte eine Aufteilung von
+`MainWindowViewModel.Groups` auf mehrere Fenster, `groups.json`-Persistenz
+für Fenster-Zuordnung/-Position/-Monitor, und Start-Sequenzierung für mehr
+als ein Fenster). Damit dieses spätere Follow-up die Drag-Infrastruktur von
+hier wiederverwenden kann, statt sie neu zu bauen: die Pointer-Threshold-
+Erkennung (`PointerPressed`/`PointerMoved` ab Bewegungs-Schwellenwert) und
+der `DoDragDrop`-Payload (Quell-`GroupViewModel` über das
+`"ArchipolygoGroupTab"`-Format) so schreiben, dass sie nicht an "Ziel ist
+eine andere Tab-Position in derselben `TabControl`" gebunden sind, sondern
+generisch genug bleiben, um später um einen zusätzlichen
+"außerhalb jeder `TabControl` losgelassen"-Fall erweitert zu werden.
 
 ## Ansatz
 

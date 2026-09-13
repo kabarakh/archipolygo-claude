@@ -50,15 +50,18 @@ This entire codebase is fully AI-generated — no line of code was manually writ
 
 ## What's next
 
-See [`Claude outputs/archipolygo_feature_ideas.md`](<Claude outputs/archipolygo_feature_ideas.md>) for the full shortlist (with status markers for what's shipped vs. still just an idea) and the reasoning behind each. Highlights of what's still just an idea, not built:
+`Feature-Plaene/` holds one file per not-yet-built feature idea (each
+tagged 🗨️ **Discuss** for a rough outline still needing a design
+discussion, or 📝 for an actual ready-to-implement plan); once a plan is
+implemented, its file moves to `Feature-Plaene/Archiv/` with a "Status"
+section on how the build differed from the plan. Highlights of what's
+still just an idea, not built:
 
-- **Who's online** - show which other players in the room are currently connected.
-- **Better item/trap icons** - game-specific icons instead of just color and text.
-- **Desktop notifications / tray icon / log export** - visibility options for running the app in the background, deliberately dropped early on and worth revisiting.
-- **Free-text search** across events/hints (today there's only category/slot filtering).
-- **Manual tab reordering** (drag & drop) - a plan exists ([`Feature-Plaene/Tab-Reihenfolge.md`](<Feature-Plaene/Tab-Reihenfolge.md>)) but isn't built yet.
-- **Config export/import** and **encrypted password storage** - `groups.json` today holds plain-text passwords with no backup/restore flow.
-- **Keyboard shortcuts** and **popping a tab into its own window** for multi-monitor setups.
+- **Better item/trap icons** - game-specific icons instead of just color and text (see `Item-Trap-Icons.md` in that directory).
+- **Taskbar-button / title-bar flash / tray icon / log export** - visibility options for running the app in the background, deliberately dropped early on and worth revisiting (see `Fenster-Blinken.md`, `Tray-Icon.md`, `Log-Export.md`).
+- **Manual tab reordering** (drag & drop) - a plan exists (see `Tab-Reihenfolge.md`) but isn't built yet.
+- **Config export/import** and **not storing passwords at all** - `groups.json` today holds plain-text passwords with no backup/restore flow (see `Config-Export-Import.md`, `Passwort-Speicherung.md`).
+- **Keyboard shortcuts** and **popping a tab into its own window** for multi-monitor setups (see `Tastenkuerzel.md`, `Tab-Eigenes-Fenster.md`).
 
 ## Tech stack
 

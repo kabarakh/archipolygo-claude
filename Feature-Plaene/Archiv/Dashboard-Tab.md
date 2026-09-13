@@ -175,7 +175,7 @@ in die bestehende `TabControl`-Struktur.
 
 ## Mockup
 
-[`Claude outputs/dashboard-tab-mockup.html`](../Claude%20outputs/dashboard-tab-mockup.html)
+Die Datei `dashboard-tab-mockup.html` im Mockup-Verzeichnis
 zeigt den optischen Zielzustand dieses Plans (Overview links, geteilte
 Hints-Übersicht rechts, Splitter dazwischen, Kategorie-Filter statt
 Found/Unfound-Toggle) - **die echte `DashboardView.axaml` soll optisch
@@ -267,7 +267,7 @@ Neue View, grob:
   `IsDashboardVisible = false` (zurück zur `TabControl`, direkt auf dem
   gewählten Tab).
 - Der Fortschrittsanzeigen-Plan ist inzwischen umgesetzt (siehe
-  `Feature-Plaene/Archiv/Fortschrittsanzeigen.md`) - `GroupViewModel.RoomProgressPercent`
+  `Fortschrittsanzeigen.md` im Feature-Plan-Archiv) - `GroupViewModel.RoomProgressPercent`
   existiert bereits und ist genau für diesen Zweck stehen geblieben (siehe
   dessen Doc-Kommentar). In der Overview-Liste zusätzlich pro Zeile anzeigen -
   das Dashboard ist der naheliegende Ort für den dort bereits erwähnten
