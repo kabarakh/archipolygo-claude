@@ -31,7 +31,7 @@ public partial class MainWindow : Window
     private async void OnAddServerClick(object? sender, RoutedEventArgs e)
     {
         var defaultAutoConnect = ViewModel.LoadSettings().DefaultAutoConnect;
-        var editorViewModel = ConnectionEditorViewModel.ForNewGroup(defaultAutoConnect, ViewModel.GetAllGroups(), ViewModel.ResolveTrackerIdAsync);
+        var editorViewModel = ConnectionEditorViewModel.ForNewGroup(defaultAutoConnect, ViewModel.GetAllGroups(), ViewModel.ResolveTrackerIdAsync, ViewModel.ResolveRoomConnectionInfoAsync);
         var result = await ConnectionEditorWindow.ShowDialogAsync(this, editorViewModel);
         if (result is not null)
         {
@@ -78,7 +78,8 @@ public partial class MainWindow : Window
         var editorViewModel = ConnectionEditorViewModel.ForEditGroup(
             group.Group,
             ViewModel.GetAllGroups(),
-            ViewModel.ResolveTrackerIdAsync);
+            ViewModel.ResolveTrackerIdAsync,
+            ViewModel.ResolveRoomConnectionInfoAsync);
         var result = await ConnectionEditorWindow.ShowDialogAsync(this, editorViewModel);
         if (result is not null)
         {

@@ -73,6 +73,43 @@ public class MultiworldTrackerService : IMultiworldTrackerService
         }
     }
 
+    public async Task<RoomConnectionInfo?> ResolveRoomConnectionInfoAsync(string roomId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var response = await _httpClient.GetFromJsonAsync<RoomStatusResponse>(
+                $"api/room_status/{Uri.EscapeDataString(roomId)}", JsonOptions, cancellationToken);
+
+            if (response is null || response.LastPort is null or <= 0)
+            {
+                return null;
+            }
+
+            // The webhost's own domain doubles as the room's host - see this
+            // method's doc comment on IMultiworldTrackerService for why
+            // room_status itself carries no hostname field to read instead.
+            var host = _httpClient.BaseAddress?.Host;
+            if (string.IsNullOrEmpty(host))
+            {
+                return null;
+            }
+
+            return new RoomConnectionInfo
+            {
+                Host = host,
+                Port = response.LastPort.Value,
+                TrackerId = string.IsNullOrEmpty(response.Tracker) ? null : response.Tracker
+            };
+        }
+        catch (Exception)
+        {
+            // Same "never throws" convention as ResolveTrackerIdAsync - room
+            // not found, no webhost at all, network error, unexpected JSON
+            // shape all just mean "can't resolve this", not an exception.
+            return null;
+        }
+    }
+
     public async Task<RoomProgressSnapshot?> GetProgressAsync(string trackerId, CancellationToken cancellationToken = default)
     {
         var tracker = await GetTrackerAsync(trackerId, cancellationToken);
@@ -170,6 +207,9 @@ public class MultiworldTrackerService : IMultiworldTrackerService
     private sealed class RoomStatusResponse
     {
         public string? Tracker { get; set; }
+
+        /// <summary>"Last known hosted port" - the room's actual port, see <see cref="ResolveRoomConnectionInfoAsync"/>.</summary>
+        public int? LastPort { get; set; }
     }
 
     private sealed class TrackerResponse

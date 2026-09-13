@@ -16,13 +16,21 @@ public partial class ConnectionEditorWindow : Window
     private ConnectionEditorViewModel ViewModel => (ConnectionEditorViewModel)DataContext!;
 
     /// <summary>
-    /// Resolves the Tier 2 tracker reference (Feature-Plaene/Archiv/Fortschrittsanzeigen.md -
-    /// a room URL needs an actual network round-trip, see
-    /// <see cref="ConnectionEditorViewModel.TryResolveTrackerReferenceAsync"/>)
-    /// before running the rest of the usual synchronous validation.
+    /// Resolves the two fields that can each need an actual network
+    /// round-trip before the rest of the usual synchronous validation runs:
+    /// <see cref="ConnectionEditorViewModel.HostPortInput"/> first (it may
+    /// fill in <see cref="ConnectionEditorViewModel.TrackerReferenceInput"/>
+    /// along the way, see <see cref="ConnectionEditorViewModel.TryResolveHostPortAsync"/>),
+    /// then the Tier 2 tracker reference itself (Feature-Plaene/Archiv/Fortschrittsanzeigen.md,
+    /// see <see cref="ConnectionEditorViewModel.TryResolveTrackerReferenceAsync"/>).
     /// </summary>
     private async void OnSaveClick(object? sender, RoutedEventArgs e)
     {
+        if (!await ViewModel.TryResolveHostPortAsync())
+        {
+            return; // ValidationError already set.
+        }
+
         if (!await ViewModel.TryResolveTrackerReferenceAsync())
         {
             return; // ValidationError already set.

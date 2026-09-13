@@ -37,4 +37,28 @@ public interface IMultiworldTrackerService
     /// that needs to interrupt anything.
     /// </summary>
     Task<RoomProgressSnapshot?> GetProgressAsync(string trackerId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Resolves a room id into that room's actual connection details
+    /// (Host/Port), plus its tracker id if it has one - lets
+    /// <see cref="ViewModels.ConnectionEditorViewModel"/> accept a room
+    /// link/id in place of a typed "host:port". A single
+    /// <c>/room_status/&lt;room_id&gt;</c> call covers both: <c>last_port</c>
+    /// (the room's actual port) and <c>tracker</c> (see
+    /// <see cref="ResolveTrackerIdAsync"/>, which only reads the latter) come
+    /// from the same response. Host is always this service's own webhost
+    /// domain (its <c>HttpClient.BaseAddress</c> - archipelago.gg by default,
+    /// or a self-hosted webhost instance's own domain if constructed with
+    /// one), since a room hosted through a webhost always runs on that same
+    /// domain, just on a different port per room - <c>room_status</c> itself
+    /// has no hostname field at all (verified against <c>docs/webhost
+    /// api.md</c>). Null on any failure (room not found, no webhost, network
+    /// error, or a response with no usable <c>last_port</c>) - never throws,
+    /// same convention as <see cref="ResolveTrackerIdAsync"/>; a room with no
+    /// webhost at all (a bare <c>MultiServer.py</c>) always resolves to null
+    /// this way, since it has no <c>room_status</c> endpoint to query in the
+    /// first place - the caller still needs to fall back to typing host:port
+    /// directly in that case.
+    /// </summary>
+    Task<RoomConnectionInfo?> ResolveRoomConnectionInfoAsync(string roomId, CancellationToken cancellationToken = default);
 }

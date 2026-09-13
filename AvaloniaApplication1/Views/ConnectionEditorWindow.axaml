@@ -25,10 +25,18 @@
 
         <!-- Host and port combined into one field (host:port) so the whole
              address can be copy/pasted in one piece; TryBuildResult splits
-             it back apart on the last colon. -->
-        <TextBlock Text="Server (host:port)" IsVisible="{Binding !IsServerReadOnly}"/>
+             it back apart on the last colon. Also accepts a room link/id
+             instead - resolved into an actual host:port (and, in passing,
+             the Tracker field below) when Save is clicked, see
+             ConnectionEditorViewModel.TryResolveHostPortAsync and
+             ConnectionEditorWindow.axaml.cs. -->
+        <TextBlock Text="Server (host:port, or room link/id)" IsVisible="{Binding !IsServerReadOnly}"/>
         <TextBox Text="{Binding HostPortInput}" IsVisible="{Binding !IsServerReadOnly}"
-                 Watermark="archipelago.gg:38281"/>
+                 Watermark="archipelago.gg:38281, or a room link"
+                 IsEnabled="{Binding !IsResolvingHostPort}"/>
+        <TextBlock Text="Resolving room..." Opacity="0.6" IsVisible="{Binding IsResolvingHostPort}"/>
+        <TextBlock Text="A room link/id only works if the room is hosted via a webhost - a self-hosted server with no webhost still needs host:port typed directly."
+                   Opacity="0.6" TextWrapping="Wrap" IsVisible="{Binding !IsServerReadOnly}"/>
 
         <!-- When adding a slot to an existing server, the server is shown
              read-only above (for context) rather than hidden entirely, so

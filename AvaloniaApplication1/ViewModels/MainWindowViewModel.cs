@@ -458,6 +458,15 @@ public partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     public Task<string?> ResolveTrackerIdAsync(string roomId) => _multiworldTrackerService.ResolveTrackerIdAsync(roomId);
 
+    /// <summary>
+    /// Resolves a room id into that room's actual Host/Port (plus its
+    /// tracker id, if any) - forwarded the same way as
+    /// <see cref="ResolveTrackerIdAsync"/>, so
+    /// <see cref="ConnectionEditorViewModel"/> can offer "paste a room
+    /// link/id" as an alternative to typing host:port directly.
+    /// </summary>
+    public Task<RoomConnectionInfo?> ResolveRoomConnectionInfoAsync(string roomId) => _multiworldTrackerService.ResolveRoomConnectionInfoAsync(roomId);
+
     public void RenameSlot(SlotProfile slot, string newName)
     {
         slot.SlotName = newName;

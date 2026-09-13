@@ -19,13 +19,17 @@ public sealed class FakeMultiworldTrackerService : IMultiworldTrackerService
 {
     private readonly Dictionary<string, string?> _trackerIdsByRoomId = new();
     private readonly Dictionary<string, RoomProgressSnapshot?> _progressByTrackerId = new();
+    private readonly Dictionary<string, RoomConnectionInfo?> _connectionInfoByRoomId = new();
 
     public List<string> ResolveTrackerIdCalls { get; } = new();
     public List<string> GetProgressCalls { get; } = new();
+    public List<string> ResolveRoomConnectionInfoCalls { get; } = new();
 
     public void SetTrackerIdForRoom(string roomId, string? trackerId) => _trackerIdsByRoomId[roomId] = trackerId;
 
     public void SetProgress(string trackerId, RoomProgressSnapshot? snapshot) => _progressByTrackerId[trackerId] = snapshot;
+
+    public void SetConnectionInfoForRoom(string roomId, RoomConnectionInfo? info) => _connectionInfoByRoomId[roomId] = info;
 
     public Task<string?> ResolveTrackerIdAsync(string roomId, CancellationToken cancellationToken = default)
     {
@@ -37,5 +41,11 @@ public sealed class FakeMultiworldTrackerService : IMultiworldTrackerService
     {
         GetProgressCalls.Add(trackerId);
         return Task.FromResult(_progressByTrackerId.GetValueOrDefault(trackerId));
+    }
+
+    public Task<RoomConnectionInfo?> ResolveRoomConnectionInfoAsync(string roomId, CancellationToken cancellationToken = default)
+    {
+        ResolveRoomConnectionInfoCalls.Add(roomId);
+        return Task.FromResult(_connectionInfoByRoomId.GetValueOrDefault(roomId));
     }
 }

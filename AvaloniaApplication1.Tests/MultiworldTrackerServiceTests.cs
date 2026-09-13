@@ -122,6 +122,69 @@ public class MultiworldTrackerServiceTests
     }
 
     [Fact]
+    public async Task ResolveRoomConnectionInfoAsync_ParsesLastPortAndTrackerFromRoomStatus()
+    {
+        var service = MakeService(new() { ["room_status"] = RoomStatusJson }, out _);
+
+        var info = await service.ResolveRoomConnectionInfoAsync("kK5fmxd8TfisU5Yp_eg");
+
+        Assert.NotNull(info);
+        Assert.Equal("archipelago.gg", info!.Host); // the service's own HttpClient.BaseAddress, not part of the response
+        Assert.Equal(52122, info.Port);
+        Assert.Equal("2gVkMQgISGScA8wsvDZg5A", info.TrackerId);
+    }
+
+    [Fact]
+    public async Task ResolveRoomConnectionInfoAsync_NoTrackerInResponse_StillResolvesHostPort()
+    {
+        const string json = """
+            {
+                "players": [["Slot_Name_1", "Ocarina of Time"]],
+                "last_port": 12345,
+                "last_activity": "Fri, 18 Apr 2025 20:35:45 GMT",
+                "timeout": 7200,
+                "downloads": []
+            }
+            """;
+        var service = MakeService(new() { ["room_status"] = json }, out _);
+
+        var info = await service.ResolveRoomConnectionInfoAsync("kK5fmxd8TfisU5Yp_eg");
+
+        Assert.NotNull(info);
+        Assert.Equal(12345, info!.Port);
+        Assert.Null(info.TrackerId);
+    }
+
+    [Fact]
+    public async Task ResolveRoomConnectionInfoAsync_NotFound_ReturnsNullRatherThanThrowing()
+    {
+        var service = MakeService(new(), out _); // no route matches -> 404
+
+        var info = await service.ResolveRoomConnectionInfoAsync("does-not-exist");
+
+        Assert.Null(info);
+    }
+
+    [Fact]
+    public async Task ResolveRoomConnectionInfoAsync_MissingLastPort_ReturnsNull()
+    {
+        const string json = """
+            {
+                "tracker": "2gVkMQgISGScA8wsvDZg5A",
+                "players": [],
+                "last_activity": "Fri, 18 Apr 2025 20:35:45 GMT",
+                "timeout": 7200,
+                "downloads": []
+            }
+            """;
+        var service = MakeService(new() { ["room_status"] = json }, out _);
+
+        var info = await service.ResolveRoomConnectionInfoAsync("kK5fmxd8TfisU5Yp_eg");
+
+        Assert.Null(info);
+    }
+
+    [Fact]
     public async Task GetProgressAsync_CombinesTrackerAndStaticTracker_IntoPerPlayerChecksDoneOverTotal()
     {
         var service = MakeService(

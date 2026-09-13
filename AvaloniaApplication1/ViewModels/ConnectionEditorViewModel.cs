@@ -103,10 +103,19 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     /// Host and port combined into one "host:port" field, so the whole
     /// address can be copy/pasted in one piece instead of being split across
     /// a text box and a numeric field. Parsed back into Host/Port by
-    /// <see cref="TryBuildResult"/>.
+    /// <see cref="TryBuildResult"/>. Also accepts a room link/id in place of
+    /// "host:port" - see <see cref="TryResolveHostPortAsync"/>, which
+    /// resolves that into an actual "host:port" and overwrites this field
+    /// with it before <see cref="TryBuildResult"/> ever runs, so
+    /// <see cref="TryBuildResult"/> itself never needs to know the
+    /// difference.
     /// </summary>
     [ObservableProperty]
     private string _hostPortInput = "archipelago.gg:38281";
+
+    /// <summary>Whether a room-link lookup (a <c>/room_status/...</c> call, via <see cref="_resolveRoomConnectionInfo"/>) is currently in flight - lets the view show a brief loading state instead of looking stuck, same idea as <see cref="IsResolvingTracker"/>.</summary>
+    [ObservableProperty]
+    private bool _isResolvingHostPort;
 
     /// <summary>Free-text slot name - only used for <see cref="ConnectionEditorMode.NewGroup"/>, where no room roster is available yet to pick from.</summary>
     [ObservableProperty]
@@ -155,6 +164,15 @@ public partial class ConnectionEditorViewModel : ViewModelBase
 
     /// <summary>Set once <see cref="TryResolveTrackerReferenceAsync"/> has run successfully - what actually flows into <see cref="ConnectionEditorResult.TrackerId"/>.</summary>
     private string? _resolvedTrackerId;
+
+    /// <summary>
+    /// Resolves a room id into that room's actual Host/Port (a
+    /// <c>/room_status/&lt;id&gt;</c> call) - delegated the same way as
+    /// <see cref="_resolveTrackerId"/>, for the same reason. Null in every
+    /// call site that doesn't wire one up, in which case a room link/id
+    /// simply can't be resolved here (see <see cref="TryResolveHostPortAsync"/>).
+    /// </summary>
+    private Func<string, Task<RoomConnectionInfo?>>? _resolveRoomConnectionInfo;
 
     [ObservableProperty]
     private string? _validationError;
@@ -270,12 +288,14 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     public static ConnectionEditorViewModel ForNewGroup(
         bool defaultAutoConnect = false,
         IReadOnlyList<ServerConnectionGroup>? existingGroups = null,
-        Func<string, Task<string?>>? resolveTrackerId = null) => new()
+        Func<string, Task<string?>>? resolveTrackerId = null,
+        Func<string, Task<RoomConnectionInfo?>>? resolveRoomConnectionInfo = null) => new()
     {
         Mode = ConnectionEditorMode.NewGroup,
         AutoConnect = defaultAutoConnect,
         _existingGroups = existingGroups ?? Array.Empty<ServerConnectionGroup>(),
-        _resolveTrackerId = resolveTrackerId
+        _resolveTrackerId = resolveTrackerId,
+        _resolveRoomConnectionInfo = resolveRoomConnectionInfo
     };
 
     /// <summary>
@@ -317,7 +337,8 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     public static ConnectionEditorViewModel ForEditGroup(
         ServerConnectionGroup group,
         IReadOnlyList<ServerConnectionGroup>? existingGroups = null,
-        Func<string, Task<string?>>? resolveTrackerId = null)
+        Func<string, Task<string?>>? resolveTrackerId = null,
+        Func<string, Task<RoomConnectionInfo?>>? resolveRoomConnectionInfo = null)
     {
         var viewModel = new ConnectionEditorViewModel
         {
@@ -331,6 +352,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             _targetGroup = group,
             _existingGroups = existingGroups ?? Array.Empty<ServerConnectionGroup>(),
             _resolveTrackerId = resolveTrackerId,
+            _resolveRoomConnectionInfo = resolveRoomConnectionInfo,
             _resolvedTrackerId = group.TrackerId
         };
 
@@ -466,6 +488,130 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         {
             PreferredLeaderSlotId = null;
         }
+    }
+
+    /// <summary>
+    /// Resolves <see cref="HostPortInput"/> for <see cref="ConnectionEditorMode.NewGroup"/>/
+    /// <see cref="ConnectionEditorMode.EditGroup"/> - if it's already a plain
+    /// "host:port", nothing to do (the common case, no network call at all);
+    /// otherwise it's tried as a room link/id (a <c>/room_status/...</c> call
+    /// via <see cref="_resolveRoomConnectionInfo"/>, mirroring how a room URL
+    /// is resolved for <see cref="TrackerReferenceInput"/>) and, on success,
+    /// <see cref="HostPortInput"/> is overwritten with the actual resolved
+    /// "host:port" - so <see cref="TryBuildResult"/> never needs to know the
+    /// difference and can keep parsing it the same way it always has. If the
+    /// room also has a tracker and <see cref="TrackerReferenceInput"/> is
+    /// still empty, that gets filled in too (one lookup, two fields) - see
+    /// <see cref="Models.RoomConnectionInfo.TrackerId"/>. Must be awaited by
+    /// the view's Save handler *before* <see cref="TryResolveTrackerReferenceAsync"/>
+    /// and <see cref="TryBuildResult"/>, same reasoning as that method. A
+    /// no-op for <see cref="ConnectionEditorMode.AddSlot"/> (host/port aren't
+    /// editable there). Sets <see cref="ValidationError"/> and returns false
+    /// on any failure, same convention as <see cref="TryBuildResult"/>.
+    /// </summary>
+    public async Task<bool> TryResolveHostPortAsync()
+    {
+        if (Mode == ConnectionEditorMode.AddSlot)
+        {
+            return true;
+        }
+
+        if (TryParseHostPort(HostPortInput, out _, out _))
+        {
+            return true;
+        }
+
+        if (!TryExtractRoomIdForHostPortLookup(HostPortInput, out var roomId, out var isTrackerLink))
+        {
+            ValidationError = isTrackerLink
+                ? "That looks like a tracker link, not a room link - paste the room URL instead, or enter host:port directly."
+                : "Server must be either host:port (e.g. archipelago.gg:38281) or a room link/id.";
+            return false;
+        }
+
+        if (_resolveRoomConnectionInfo is null)
+        {
+            ValidationError = "Cannot resolve a room link right now - enter host:port directly instead.";
+            return false;
+        }
+
+        IsResolvingHostPort = true;
+        try
+        {
+            var info = await _resolveRoomConnectionInfo(roomId);
+            if (info is null)
+            {
+                ValidationError = "Could not find that room - check the link, or enter host:port directly if this server has no webhost (e.g. self-hosted).";
+                return false;
+            }
+
+            ValidationError = null;
+            HostPortInput = $"{info.Host}:{info.Port}";
+
+            if (string.IsNullOrWhiteSpace(TrackerReferenceInput) && !string.IsNullOrEmpty(info.TrackerId))
+            {
+                TrackerReferenceInput = info.TrackerId;
+            }
+
+            return true;
+        }
+        finally
+        {
+            IsResolvingHostPort = false;
+        }
+    }
+
+    /// <summary>
+    /// Recognizes <paramref name="input"/> as a candidate room reference for
+    /// <see cref="TryResolveHostPortAsync"/>, reusing <see cref="TrackerReferenceParser"/>'s
+    /// URL parsing but with a different default for a bare id: a room URL
+    /// ("/room/&lt;id&gt;") is unambiguous, but a bare id with no slashes at
+    /// all is assumed to be a room id here (rather than
+    /// <see cref="TrackerReferenceParser"/>'s own bare-string default of
+    /// "tracker id", which only matters for the separate Tracker field) -
+    /// a room_status lookup is the only thing that can turn it into
+    /// host/port, so that's the only useful guess to make. An explicit
+    /// tracker link ("/tracker/&lt;id&gt;") is rejected outright via
+    /// <paramref name="isTrackerLink"/>, since a tracker id alone carries no
+    /// host/port information at all.
+    /// </summary>
+    private static bool TryExtractRoomIdForHostPortLookup(string input, out string roomId, out bool isTrackerLink)
+    {
+        roomId = string.Empty;
+        isTrackerLink = false;
+
+        if (!TrackerReferenceParser.TryParseTrackerReference(input, out var kind, out var value))
+        {
+            return false;
+        }
+
+        if (kind == TrackerReferenceKind.RoomId)
+        {
+            roomId = value;
+            return true;
+        }
+
+        // kind == TrackerId - either an explicit "/tracker/<id>" URL, or a
+        // bare id (no slash at all after trimming), which the parser also
+        // reports as TrackerId. Tell those two apart ourselves: only the
+        // bare case is worth trying as a room id.
+        var trimmed = (input ?? string.Empty).Trim();
+        var suffixIndex = trimmed.IndexOfAny(new[] { '?', '#' });
+        if (suffixIndex >= 0)
+        {
+            trimmed = trimmed[..suffixIndex];
+        }
+
+        trimmed = trimmed.Trim('/');
+
+        if (trimmed.Contains('/'))
+        {
+            isTrackerLink = true;
+            return false;
+        }
+
+        roomId = value;
+        return true;
     }
 
     /// <summary>
