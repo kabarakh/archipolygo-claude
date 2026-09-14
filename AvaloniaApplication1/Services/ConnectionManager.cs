@@ -16,6 +16,7 @@ using Archipelago.MultiClient.Net.Packets;
 using Archipolygo.Models;
 using Archipolygo.ViewModels;
 using Avalonia.Threading;
+using Newtonsoft.Json;
 
 namespace Archipolygo.Services;
 
@@ -1126,6 +1127,26 @@ public class ConnectionManager : IConnectionManager
                     return;
                 }
 
+                if (IsMalformedBounceDataError(ex))
+                {
+                    // Some other client/game in the room sent a Bounce whose
+                    // "data" field is a JSON array instead of an object -
+                    // itself a protocol violation, observed when a slot
+                    // completed its goal, not anything this app did. Only
+                    // reachable at all because the leader session always
+                    // requests the DeathLink tag (see EnableDeathLink() below)
+                    // so the server relays Bounced packets to it in the first
+                    // place - a plain game client without DeathLink enabled
+                    // never receives it, and one that parses "data" loosely
+                    // instead of as the strictly-typed Dictionary<string,
+                    // JToken> BouncePacket declares never trips over its
+                    // shape either way. Harmless - the connection and every
+                    // other packet are unaffected - so it's swallowed here
+                    // instead of surfacing a raw Newtonsoft.Json exception a
+                    // player has no way to make sense of.
+                    return;
+                }
+
                 _messageHistoryService.HandleError(group, $"[{slot.DisplayName}] {message}");
             };
 
@@ -1551,6 +1572,23 @@ public class ConnectionManager : IConnectionManager
     private static bool IsExpectedSendQueueCompletionError(Exception ex) =>
         ex is InvalidOperationException &&
         ex.Message.Contains("marked as complete with regards to additions", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// True for the specific <see cref="JsonSerializationException"/> a
+    /// malformed incoming <c>Bounced</c> packet causes: its "data" field
+    /// (declared by Archipelago.MultiClient.Net's <c>BouncePacket</c>, still
+    /// current as of 6.7.1, as <c>Dictionary&lt;string, JToken&gt;</c>)
+    /// arrived as a JSON array instead of an object. That's a protocol
+    /// violation by whatever sent the Bounce, not something to fix here -
+    /// matched on the exact wording Newtonsoft.Json uses for this failure so
+    /// an unrelated JsonSerializationException from elsewhere still gets
+    /// reported normally.
+    /// </summary>
+    private static bool IsMalformedBounceDataError(Exception ex) =>
+        ex is JsonSerializationException &&
+        ex.Message.Contains("Path 'data'", StringComparison.OrdinalIgnoreCase) &&
+        ex.Message.Contains("Dictionary", StringComparison.OrdinalIgnoreCase) &&
+        ex.Message.Contains("JToken", StringComparison.OrdinalIgnoreCase);
 
     private void OnSocketClosed(GroupViewModel group, SlotProfile slot, string reason)
     {
