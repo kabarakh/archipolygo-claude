@@ -54,16 +54,26 @@
             <Setter Property="Background" Value="#14000000"/>
         </Style>
 
-        <!-- Overview rows: without this, each ListBoxItem only ever measures
-             as wide as its own content (name + badges), leaving the rest of
-             the (2*-wide) Overview column empty instead of letting the
-             progress bar below actually use that space (see the
-             Grid.ColumnDefinitions="*,Auto" progress-bar row, which relies
-             on this to stretch). A plain HorizontalContentAlignment
+        <!-- Overview rows: without HorizontalContentAlignment="Stretch", each
+             ListBoxItem only ever measures as wide as its own content (name +
+             badges), leaving the rest of the (2*-wide) Overview column empty
+             instead of letting the progress bar below actually use that space
+             (see the Grid.ColumnDefinitions="*,Auto" progress-bar row, which
+             relies on this to stretch). A plain HorizontalContentAlignment
              property doesn't exist directly on ListBox itself in this
-             Avalonia version - only via its item container's own style. -->
+             Avalonia version - only via its item container's own style.
+             Padding="0" zeroes out Fluent's own default ListBoxItem Padding
+             (themed as {DynamicResource ListBoxItemPadding}, "12,9,12,12" as
+             of this Avalonia version) - manual tab-reordering's insertion-line
+             indicator (Feature-Plaene/Tab-Reihenfolge.md) sits at the edge of
+             the row's own custom Border further down, and that Border's own
+             Margin-not-Padding content inset (see that Border's own comment)
+             is now the *only* spacing around a row's content. Without this,
+             the indicator would sit inset from the true boundary between two
+             rows by the theme's own padding on top of that. -->
         <Style Selector="ListBox#OverviewListBox ListBoxItem">
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Padding" Value="0"/>
         </Style>
 
         <!-- Per-row action icons (Connect/Disconnect, Add slot, Edit server,
@@ -94,6 +104,27 @@
         </Style>
         <Style Selector="Button.icon-button:disabled">
             <Setter Property="Opacity" Value="0.35"/>
+        </Style>
+
+        <!-- Overview row drag handle (Feature-Plaene/Tab-Reihenfolge.md) -
+             same sizing/hover convention as Button.icon-button above, just
+             for a plain Border instead of a Button (see that element's own
+             comment for why it isn't a real Button). Every visual property
+             here - including Background - stays in this style, never as a
+             local attribute on the element itself: a local value always
+             beats a Style Setter for the same property in Avalonia
+             (including a pseudo-class-scoped one like :pointerover below),
+             which would silently make that Setter dead code - see
+             CLAUDE.md's gotcha on that, learned from this exact feature's
+             first (border-highlight) version of its drop-target indicator. -->
+        <Style Selector="Border.drag-handle">
+            <Setter Property="Width" Value="22"/>
+            <Setter Property="Height" Value="22"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <Style Selector="Border.drag-handle:pointerover">
+            <Setter Property="Background" Value="#4D1E90FF"/>
         </Style>
     </UserControl.Styles>
 
@@ -136,15 +167,92 @@
                      to a list click (see MainWindow.axaml.cs's other list
                      handlers); OnOverviewRowSelected also clears the
                      selection right back out so the same row can be clicked
-                     again after returning to the dashboard. -->
+                     again after returning to the dashboard. Safe to use
+                     again despite Tab-Reihenfolge.md's manual drag-reorder
+                     support: dragging now only ever starts from each row's
+                     own dedicated grip handle (see Border.drag-handle
+                     below), not from anywhere on the row, so there's no more
+                     press-vs-drag ambiguity for the row itself to resolve -
+                     a plain click anywhere else just selects/navigates,
+                     exactly like before this feature existed. -->
                 <ListBox Name="OverviewListBox" Grid.Row="2" ItemsSource="{Binding Groups}"
                          IsVisible="{Binding SelectedLeftPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Overview}"
                          SelectionChanged="OnOverviewRowSelected">
                     <ListBox.ItemTemplate>
                         <DataTemplate DataType="vm:GroupViewModel">
-                            <StackPanel Spacing="4" Margin="2">
-                                <Grid ColumnDefinitions="*,Auto">
-                                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
+                            <!-- Background="Transparent" (not just left unset) - a Border
+                                 with no Background at all isn't hit-test visible across its
+                                 own empty area in Avalonia, only its BorderBrush stroke and
+                                 its children are; without this, DragOver/Drop landing in any
+                                 gap between this row's children (or below the progress bar,
+                                 in the row's own padding) would fall straight through instead
+                                 of reaching the drop-target handlers below - a drag needs to be
+                                 acceptable anywhere on the row, not just over its visible content.
+                                 Tag: same stable-per-row-lookup convention the icon buttons
+                                 already use (see FindRowIcon in DashboardTabTests.cs), so a
+                                 test can find "this group's row" without depending on Border
+                                 being the only element bound to that GroupViewModel (the
+                                 event/hint-count badges and progress-bar segments below are
+                                 Borders too). -->
+                            <Border Background="Transparent"
+                                    Tag="OverviewRow"
+                                    DragDrop.AllowDrop="True"
+                                    DragDrop.DragOver="OnOverviewRowDragOver"
+                                    DragDrop.DragLeave="OnOverviewRowDragLeave"
+                                    DragDrop.Drop="OnOverviewRowDrop">
+                            <!-- Grid, not the StackPanel directly as the Border's child -
+                                 lets the two insertion-line Rectangles further below sit
+                                 layered on top of the row content instead of pushed beside
+                                 it (see MainWindow.axaml's tab headers for the same pattern). -->
+                            <Grid>
+                            <!-- The content's breathing room lives here, as a Margin on the
+                                 content itself, not as Padding on the Border above: a
+                                 Border's Padding insets its whole Child (this StackPanel via
+                                 the Grid), which would inset the Rectangles below by the same
+                                 amount and defeat their whole point - ListBoxItem's own
+                                 Padding is zeroed out above, so this Border's bounds are
+                                 exactly the row's bounds, and the Rectangles (anchored to the
+                                 Grid's own edge, i.e. this Border's true outer edge) land
+                                 exactly on the boundary between two adjacent rows instead of
+                                 inset from it. Vertically "8,11,8,14" (asymmetric, not "8,10"
+                                 all around) - measured (a throwaway headless test reading the
+                                 real rendered ListBoxItem.Bounds.Height, not just worked out on
+                                 paper) against the original pre-this-feature template to land on
+                                 the exact same 63px total row height: the removed
+                                 ListBoxItemPadding was itself asymmetric ("12,9,12,12" -
+                                 left,top,right,bottom), 9px top + 12px bottom, plus this
+                                 StackPanel's own original Margin="2" (2px each side) - a flat
+                                 "8,6" first attempt at reproducing this shortchanged rows by
+                                 5px of real, measured height (63px -> 58px, confirmed dev
+                                 feedback: "die Zeilen sind kleiner als vor dem drag n drop" -
+                                 they were right, "restores the padding" needed verifying, not
+                                 just asserting). -->
+                            <StackPanel Spacing="4" Margin="8,11,8,14">
+                                <Grid ColumnDefinitions="Auto,*,Auto">
+                                    <!-- Drag handle (Feature-Plaene/Tab-Reihenfolge.md) - the
+                                         only part of this row that starts a reorder drag; see
+                                         this template's own ListBox.SelectionChanged comment
+                                         above for why the rest of the row no longer needs to
+                                         resolve a press-vs-drag ambiguity at all. Deliberately a
+                                         plain Border, not an actual Button - a real Button's own
+                                         internal PointerPressed click-tracking would fight the
+                                         press/move drag-threshold detection in
+                                         OnOverviewGripPointerPressed/Moved below (same reasoning
+                                         CLAUDE.md documents for why DoDragDropAsync needs the
+                                         exact original PointerPressedEventArgs). Cursor="Hand"
+                                         while hovering it hints "drag me" the way a real handle
+                                         would. -->
+                                    <Border Grid.Column="0" Classes="drag-handle" Cursor="Hand" Margin="0,0,8,0"
+                                            PointerPressed="OnOverviewGripPointerPressed"
+                                            PointerMoved="OnOverviewGripPointerMoved"
+                                            PointerReleased="OnOverviewGripPointerReleased">
+                                        <ToolTip.Tip><TextBlock Text="Drag to reorder"/></ToolTip.Tip>
+                                        <Path Data="M3,3 L3,3 M9,3 L9,3 M3,8 L3,8 M9,8 L9,8 M3,13 L3,13 M9,13 L9,13"
+                                              Stroke="#5f5e5a" StrokeThickness="2.5" StrokeLineCap="Round"
+                                              Width="12" Height="16" Stretch="Uniform"
+                                              HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
                                         <Ellipse Width="8" Height="8" VerticalAlignment="Center"
                                                  Fill="{Binding ConnectionState, Converter={StaticResource ConnectionStateToBrushConverter}}"/>
                                         <TextBlock Text="{Binding HeaderText}" FontWeight="SemiBold" VerticalAlignment="Center"/>
@@ -172,7 +280,7 @@
                                          live connection to make sense as a
                                          concept, it just can't run without one
                                          (see GetAvailableSlotsToAddAsync). -->
-                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2">
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2">
                                         <!-- Tag: a stable, template-safe way to pick out one
                                              specific icon button per row in tests (a repeated
                                              x:Name inside an ItemTemplate collides once more than
@@ -264,6 +372,23 @@
                                            Opacity="0.6" FontStyle="Italic" FontSize="11" Margin="16,0,0,0"
                                            IsVisible="{Binding !HasAnyProgress}"/>
                             </StackPanel>
+
+                            <!-- Manual tab-reordering insertion-line indicators
+                                 (Feature-Plaene/Tab-Reihenfolge.md) - a thin bar at
+                                 this row's top (Before) or bottom (After) edge while a
+                                 reorder drag hovers here on that side (see
+                                 GroupViewModel.DropIndicator, set by
+                                 OnOverviewRowDragOver/Leave in this view's own
+                                 code-behind). The Overview list lays out vertically, so
+                                 Before = top edge, After = bottom edge (MainWindow.axaml's
+                                 tab headers use the same pattern, just left/right since
+                                 those lay out horizontally). -->
+                            <Rectangle Height="3" VerticalAlignment="Top" HorizontalAlignment="Stretch" Fill="DodgerBlue"
+                                       IsVisible="{Binding DropIndicator, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Before}"/>
+                            <Rectangle Height="3" VerticalAlignment="Bottom" HorizontalAlignment="Stretch" Fill="DodgerBlue"
+                                       IsVisible="{Binding DropIndicator, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=After}"/>
+                            </Grid>
+                            </Border>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>

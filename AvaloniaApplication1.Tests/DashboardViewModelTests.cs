@@ -41,7 +41,7 @@ public class DashboardViewModelTests
     public void Aggregates_SumAcrossEveryConfiguredGroup()
     {
         var groups = new ObservableCollection<GroupViewModel>();
-        var dashboard = new DashboardViewModel(groups, _ => { });
+        var dashboard = new DashboardViewModel(groups, _ => { }, (_, _, _) => { });
 
         var g1 = MakeGroup("Server1");
         var g2 = MakeGroup("Server2");
@@ -63,7 +63,7 @@ public class DashboardViewModelTests
     public void Aggregates_ReactToGroupAddedOrRemoved()
     {
         var groups = new ObservableCollection<GroupViewModel>();
-        var dashboard = new DashboardViewModel(groups, _ => { });
+        var dashboard = new DashboardViewModel(groups, _ => { }, (_, _, _) => { });
 
         var g1 = MakeGroup("Server1");
         groups.Add(g1);
@@ -82,7 +82,7 @@ public class DashboardViewModelTests
         var groups = new ObservableCollection<GroupViewModel>();
         var g1 = MakeGroup("Server1");
         groups.Add(g1);
-        var dashboard = new DashboardViewModel(groups, _ => { });
+        var dashboard = new DashboardViewModel(groups, _ => { }, (_, _, _) => { });
 
         g1.UnreadEventCount = 4;
         Assert.Equal(4, dashboard.TotalUnreadEvents);
@@ -99,7 +99,7 @@ public class DashboardViewModelTests
         var groups = new ObservableCollection<GroupViewModel>();
         var g1 = MakeGroup("Server1");
         groups.Add(g1);
-        var dashboard = new DashboardViewModel(groups, _ => { });
+        var dashboard = new DashboardViewModel(groups, _ => { }, (_, _, _) => { });
 
         var slotId = Guid.NewGuid();
         g1.Hints.Add(MakeHint(slotId, "Open Hint"));
@@ -117,7 +117,7 @@ public class DashboardViewModelTests
         var g2 = MakeGroup("Server2");
         groups.Add(g1);
         groups.Add(g2);
-        var dashboard = new DashboardViewModel(groups, _ => { });
+        var dashboard = new DashboardViewModel(groups, _ => { }, (_, _, _) => { });
 
         g1.Hints.Add(MakeHint(Guid.NewGuid(), "Sword"));
         g2.Hints.Add(MakeHint(Guid.NewGuid(), "Shield"));
@@ -135,7 +135,7 @@ public class DashboardViewModelTests
         var g2 = MakeGroup("Server2");
         groups.Add(g1);
         groups.Add(g2);
-        var dashboard = new DashboardViewModel(groups, _ => { });
+        var dashboard = new DashboardViewModel(groups, _ => { }, (_, _, _) => { });
 
         g1.Hints.Add(MakeHint(Guid.NewGuid(), "Sword"));
         g2.Hints.Add(MakeHint(Guid.NewGuid(), "Shield"));
@@ -153,7 +153,7 @@ public class DashboardViewModelTests
         var g1 = MakeGroup("Server1");
         groups.Add(g1);
         g1.Group.Slots.Add(new SlotProfile { GroupId = g1.Group.Id, SlotName = "Alice" });
-        var dashboard = new DashboardViewModel(groups, _ => { });
+        var dashboard = new DashboardViewModel(groups, _ => { }, (_, _, _) => { });
 
         Assert.Equal(new SlotProfile?[] { null }, dashboard.HintFilter.SlotOptions);
     }
@@ -170,7 +170,7 @@ public class DashboardViewModelTests
         g1.Group.Slots.Add(alice);
         var bob = new SlotProfile { GroupId = g2.Group.Id, SlotName = "Bob" };
         g2.Group.Slots.Add(bob);
-        var dashboard = new DashboardViewModel(groups, _ => { });
+        var dashboard = new DashboardViewModel(groups, _ => { }, (_, _, _) => { });
 
         dashboard.HintFilter.SelectedServer = g1;
         Assert.Equal(new SlotProfile?[] { null, alice }, dashboard.HintFilter.SlotOptions);
@@ -193,7 +193,7 @@ public class DashboardViewModelTests
         var bob = new SlotProfile { GroupId = g1.Group.Id, SlotName = "Bob" };
         g1.Group.Slots.Add(alice);
         g1.Group.Slots.Add(bob);
-        var dashboard = new DashboardViewModel(groups, _ => { });
+        var dashboard = new DashboardViewModel(groups, _ => { }, (_, _, _) => { });
 
         g1.Hints.Add(MakeHint(alice.Id, "Sword"));
         g1.Hints.Add(MakeHint(bob.Id, "Shield"));
@@ -211,7 +211,7 @@ public class DashboardViewModelTests
         var groups = new ObservableCollection<GroupViewModel>();
         var g1 = MakeGroup("Server1");
         groups.Add(g1);
-        var dashboard = new DashboardViewModel(groups, _ => { });
+        var dashboard = new DashboardViewModel(groups, _ => { }, (_, _, _) => { });
 
         g1.Hints.Add(MakeHint(Guid.NewGuid(), "Big Key", itemKind: EventTextSegmentKind.ItemProgression));
         g1.Hints.Add(MakeHint(Guid.NewGuid(), "Rupees", itemKind: EventTextSegmentKind.ItemOther));
@@ -229,7 +229,7 @@ public class DashboardViewModelTests
         var groups = new ObservableCollection<GroupViewModel>();
         var g1 = MakeGroup("Server1");
         groups.Add(g1);
-        var dashboard = new DashboardViewModel(groups, _ => { });
+        var dashboard = new DashboardViewModel(groups, _ => { }, (_, _, _) => { });
 
         Assert.Empty(dashboard.VisibleHints);
 
@@ -244,7 +244,7 @@ public class DashboardViewModelTests
         var groups = new ObservableCollection<GroupViewModel>();
         var g1 = MakeGroup("Server1");
         groups.Add(g1);
-        var dashboard = new DashboardViewModel(groups, _ => { });
+        var dashboard = new DashboardViewModel(groups, _ => { }, (_, _, _) => { });
 
         var hint = MakeHint(Guid.NewGuid(), "Sword");
         g1.Hints.Add(hint);
@@ -263,7 +263,7 @@ public class DashboardViewModelTests
         groups.Add(g1);
 
         GroupViewModel? selected = null;
-        var dashboard = new DashboardViewModel(groups, g => selected = g);
+        var dashboard = new DashboardViewModel(groups, g => selected = g, (_, _, _) => { });
 
         dashboard.SelectGroupAndLeaveDashboard(g1);
 
@@ -276,7 +276,7 @@ public class DashboardViewModelTests
     public void SelectedLeftPanel_DefaultsToOverview()
     {
         var groups = new ObservableCollection<GroupViewModel>();
-        var dashboard = new DashboardViewModel(groups, _ => { });
+        var dashboard = new DashboardViewModel(groups, _ => { }, (_, _, _) => { });
 
         Assert.Equal(DashboardLeftPanel.Overview, dashboard.SelectedLeftPanel);
     }
@@ -285,7 +285,7 @@ public class DashboardViewModelTests
     public void ShowEventsPanelAndShowOverviewPanelCommands_ToggleSelectedLeftPanel()
     {
         var groups = new ObservableCollection<GroupViewModel>();
-        var dashboard = new DashboardViewModel(groups, _ => { });
+        var dashboard = new DashboardViewModel(groups, _ => { }, (_, _, _) => { });
 
         dashboard.ShowEventsPanelCommand.Execute(null);
         Assert.Equal(DashboardLeftPanel.Events, dashboard.SelectedLeftPanel);
@@ -302,7 +302,7 @@ public class DashboardViewModelTests
         var g2 = MakeGroup("Server2");
         groups.Add(g1);
         groups.Add(g2);
-        var dashboard = new DashboardViewModel(groups, _ => { });
+        var dashboard = new DashboardViewModel(groups, _ => { }, (_, _, _) => { });
 
         g1.Events.Add(new EventEntry { Text = "Alice connected", Type = EventType.Connected });
         g2.Events.Add(new EventEntry { Text = "hello", Type = EventType.Chat });
@@ -320,7 +320,7 @@ public class DashboardViewModelTests
         var g2 = MakeGroup("Server2");
         groups.Add(g1);
         groups.Add(g2);
-        var dashboard = new DashboardViewModel(groups, _ => { });
+        var dashboard = new DashboardViewModel(groups, _ => { }, (_, _, _) => { });
 
         g1.Events.Add(new EventEntry { Text = "Alice connected", Type = EventType.Connected });
         g2.Events.Add(new EventEntry { Text = "hello", Type = EventType.Chat });
@@ -337,7 +337,7 @@ public class DashboardViewModelTests
         var groups = new ObservableCollection<GroupViewModel>();
         var g1 = MakeGroup("Server1");
         groups.Add(g1);
-        var dashboard = new DashboardViewModel(groups, _ => { });
+        var dashboard = new DashboardViewModel(groups, _ => { }, (_, _, _) => { });
 
         Assert.Empty(dashboard.VisibleEvents);
 
@@ -352,7 +352,7 @@ public class DashboardViewModelTests
         var groups = new ObservableCollection<GroupViewModel>();
         var g1 = MakeGroup("Server1");
         groups.Add(g1);
-        var dashboard = new DashboardViewModel(groups, _ => { });
+        var dashboard = new DashboardViewModel(groups, _ => { }, (_, _, _) => { });
 
         Assert.Equal(new GroupViewModel?[] { null, g1 }, dashboard.EventsFilter.ServerOptions);
     }
@@ -375,7 +375,7 @@ public class DashboardViewModelTests
         g1.Group.Slots.Add(alice);
         var bob = new SlotProfile { GroupId = g2.Group.Id, SlotName = "Bob" };
         g2.Group.Slots.Add(bob);
-        var dashboard = new DashboardViewModel(groups, _ => { });
+        var dashboard = new DashboardViewModel(groups, _ => { }, (_, _, _) => { });
 
         Assert.Equal(new SlotProfile?[] { null }, dashboard.EventsFilter.SlotOptions);
 
@@ -399,7 +399,7 @@ public class DashboardViewModelTests
         var bob = new SlotProfile { GroupId = g1.Group.Id, SlotName = "Bob" };
         g1.Group.Slots.Add(alice);
         g1.Group.Slots.Add(bob);
-        var dashboard = new DashboardViewModel(groups, _ => { });
+        var dashboard = new DashboardViewModel(groups, _ => { }, (_, _, _) => { });
 
         g1.Events.Add(new EventEntry { Text = "Alice's event", Type = EventType.ItemReceived, SlotId = alice.Id });
         g1.Events.Add(new EventEntry { Text = "Bob's event", Type = EventType.ItemReceived, SlotId = bob.Id });
@@ -425,7 +425,7 @@ public class DashboardViewModelTests
         g1.Group.Slots.Add(alice);
         g1.Group.Slots.Add(bob);
         g1.SetLeaderStateWithoutTriggeringSwitch(alice.Id, alice);
-        var dashboard = new DashboardViewModel(groups, _ => { });
+        var dashboard = new DashboardViewModel(groups, _ => { }, (_, _, _) => { });
 
         dashboard.EventsFilter.SelectedServer = g1;
         dashboard.EventsFilter.SelectedSlot = bob;
@@ -440,7 +440,7 @@ public class DashboardViewModelTests
         var groups = new ObservableCollection<GroupViewModel>();
         var g1 = MakeGroup("Server1");
         groups.Add(g1);
-        var dashboard = new DashboardViewModel(groups, _ => { });
+        var dashboard = new DashboardViewModel(groups, _ => { }, (_, _, _) => { });
         dashboard.EventsFilter.SelectedServer = g1;
 
         groups.Remove(g1);
@@ -466,7 +466,7 @@ public class DashboardViewModelTests
         var alice = new SlotProfile { GroupId = g1.Group.Id, SlotName = "Alice" };
         g1.Group.Slots.Add(alice);
         g1.SetLeaderStateWithoutTriggeringSwitch(alice.Id, alice);
-        var dashboard = new DashboardViewModel(groups, _ => { });
+        var dashboard = new DashboardViewModel(groups, _ => { }, (_, _, _) => { });
 
         dashboard.EventsFilter.SelectedServer = g1;
 
@@ -482,7 +482,7 @@ public class DashboardViewModelTests
         groups.Add(g1);
         var alice = new SlotProfile { GroupId = g1.Group.Id, SlotName = "Alice" };
         g1.Group.Slots.Add(alice);
-        var dashboard = new DashboardViewModel(groups, _ => { });
+        var dashboard = new DashboardViewModel(groups, _ => { }, (_, _, _) => { });
 
         Assert.False(dashboard.CanSendMessage, "no server selected yet - must not report sendable.");
 
@@ -507,7 +507,7 @@ public class DashboardViewModelTests
         g1.Group.Slots.Add(alice);
         g1.SetLeaderStateWithoutTriggeringSwitch(alice.Id, alice);
         g1.ConnectionState = ConnectionState.Connected; // g1 is connected, g2 is not.
-        var dashboard = new DashboardViewModel(groups, _ => { });
+        var dashboard = new DashboardViewModel(groups, _ => { }, (_, _, _) => { });
 
         dashboard.SelectedSendServerGroup = g1;
         Assert.True(dashboard.CanSendMessage);

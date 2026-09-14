@@ -22,6 +22,7 @@ The other configured slots on that server aren't just sitting idle, though:
 - **Add slot...** adds one or more further slots to the currently selected server in one go: pick players from the room's actual roster (each can optionally get its own password override, for rooms that use per-slot passwords), queue up as many as you like, then confirm once to add them all together.
 - **Edit server...** changes a server's name/host/port/password/auto-connect, and manages its already-configured slots in one place - pick which slot should be the default leader, or remove a slot entirely (both listed alphabetically, with the default leader always shown first). This is also where you set an optional **multiworld tracker** (a room id or tracker URL) for the combined progress bar below.
 - **Chat as** (the account dropdown on each server's message bar) switches which configured slot is currently live - see "How connections work" above.
+- **Reordering tabs** - drag a server's tab and drop it before or after another one (a thin blue line shows exactly where it'll land); the new order is remembered across restarts.
 - **Hint...** opens a dedicated picker window for that server's leader: browse the full item list for the game (not just items already seen) and send a `!hint`/`!hint_location` request without typing it by hand, with a checkbox to exclude items you've already received/hinted.
 - **Progress bar** in each tab's status row splits into up to four colored segments - your own done/remaining checks, and (once a multiworld tracker is configured) everyone else's done/remaining checks in the room. Hover it for the exact numbers; no tracker configured just shows your own two segments and a hint on how to add one.
 - **DeathLink** events from other players in the room (for games that support it) show up in the event log as "DeathLink: ...". Archipolygo only ever displays these - it never sends one on your behalf and never reacts to one (no pausing, no simulated death), so there's nothing to turn on or off.
@@ -33,7 +34,7 @@ The other configured slots on that server aren't just sitting idle, though:
 
 The **Dashboard** button in the toolbar (the app opens on it by default) switches the whole window from the per-server tabs to an all-servers-at-a-glance view; the same button then reads "Tab View" to switch back. It's a view swap, not another tab - your existing tabs and their live connections are untouched underneath it.
 
-- **Overview** (left, default) lists every configured server with its connection status, unread-events/open-hints badges, and the same combined progress bar as its tab - each row also has small Connect/Disconnect, Add slot, Edit server, and Remove server icons, so common per-server actions don't need a trip to that server's own tab. Clicking a row (outside those icons) jumps straight to that server's tab.
+- **Overview** (left, default) lists every configured server with its connection status, unread-events/open-hints badges, and the same combined progress bar as its tab - each row also has small Connect/Disconnect, Add slot, Edit server, and Remove server icons, so common per-server actions don't need a trip to that server's own tab. Clicking a row (outside those icons) jumps straight to that server's tab. The small grip icon on the left of each row reorders servers the same way dragging a tab does - the rest of the row stays click-to-navigate.
 - **Events** (left, toggle next to Overview) is a shared, server-spanning event log - every server's activity mixed together by default, with a Server/Slot filter pair to narrow it down. Below the log, a separate "Send as" Server/Slot picker (deliberately independent from the filter above) lets you pick a server and slot to send a chat message through, without leaving the Dashboard.
 - **Hints** (right, always visible regardless of which left panel is active) is the same idea for hints across every server: only ever shows open (unfound) hints, with its own Server/Slot/item-category filters, independent of each tab's own Hints panel filters.
 
@@ -59,7 +60,6 @@ still just an idea, not built:
 
 - **Better item/trap icons** - game-specific icons instead of just color and text (see `Item-Trap-Icons.md` in that directory).
 - **Taskbar-button / title-bar flash / tray icon / log export** - visibility options for running the app in the background, deliberately dropped early on and worth revisiting (see `Fenster-Blinken.md`, `Tray-Icon.md`, `Log-Export.md`).
-- **Manual tab reordering** (drag & drop) - a plan exists (see `Tab-Reihenfolge.md`) but isn't built yet.
 - **Config export/import** and **not storing passwords at all** - `groups.json` today holds plain-text passwords with no backup/restore flow (see `Config-Export-Import.md`, `Passwort-Speicherung.md`).
 - **Keyboard shortcuts** and **popping a tab into its own window** for multi-monitor setups (see `Tastenkuerzel.md`, `Tab-Eigenes-Fenster.md`).
 

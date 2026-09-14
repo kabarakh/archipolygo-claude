@@ -1,5 +1,74 @@
 # Umsetzungsplan: manuelles Tab-Reordering (Drag & Drop)
 
+## Status: ✅ Umgesetzt (2026-09-14)
+
+Erst grob im `TestHarness` nachgebaut (identische Views/ViewModels wie die
+echte App, per `ProjectReference` - siehe `.claude/skills/ui-feature-prototyp/SKILL.md`),
+dort mehrfach mit dem Entwickler durchgesprochen und korrigiert, bevor es als
+fertig galt. Weicht an mehreren Stellen vom Plantext unten ab:
+
+- **Payload-Format:** `DataFormat.CreateInProcessFormat<GroupViewModel>`
+  allein reicht nicht - auf macOS crasht `DoDragDropAsync`, wenn das
+  einzige `DataTransferItem` gar nichts pasteboard-schreibbares enthält
+  (`NSDraggingSession`-Exception "There are 0 items on the pasteboard, but
+  1 drag images"). Fix: dasselbe Item trägt zusätzlich eine reine
+  `DataFormat.Text`-Repräsentation (nie zurückgelesen, nur für die native
+  Drag-Brücke) - siehe `GroupReorderDragDrop.StartDragAsync`.
+- **Avalonia-12.0.4-API bestätigt:** tatsächlich schon `DataTransfer`/
+  `DataTransferItem`/`DragDrop.DoDragDropAsync(PointerPressedEventArgs, ...)`
+  - nicht das ältere `DataObject`/`DoDragDrop`, das der Plantext unten als
+  Möglichkeit offenließ. Gegen den echten 12.0.4-Quellcode verifiziert
+  (nicht die main-Branch-Doku, die der Plan selbst schon als nur grobe
+  Orientierung markiert hatte).
+- **Visuelles Feedback ging über die "offene Detailfrage" unten hinaus:**
+  statt nur Standard-Cursor (die eigene Empfehlung im Plan für v1) wurde
+  eine echte Einfüge-Linie gebaut (`GroupViewModel.DropIndicator`, Enum
+  `Before`/`After`/`None`, in `Models/DropIndicatorPosition.cs`) - ein
+  dünner Strich an der jeweiligen Kante des Ziel-Tabs/der Ziel-Zeile, je
+  nachdem auf welcher Hälfte gerade gehovert wird (Dev-Wunsch, nachdem die
+  erste, einfachere Version - ein Rahmen ums ganze Ziel-Element,
+  `GroupViewModel.IsDropTarget` als bool - sich im TestHarness als "klebt
+  zu sehr am Tab-Text" erwies). Diese erste Rahmen-Version brachte
+  außerdem den CLAUDE.md-Gotcha zu "ein lokaler XAML-Attributwert schlägt
+  immer einen Style-Setter" zutage (ein lokales `BorderBrush="Transparent"`
+  machte den eigentlich vorgesehenen `DodgerBlue`-Style-Setter zu totem
+  Code).
+- **Dashboard-Overview bekam dieselbe Funktion, nicht nur die Tableiste:**
+  der Plan unten entstand vor dem Dashboard-Feature und deckt nur die
+  Tableiste ab. Die Overview-Zeilen navigieren aber schon beim
+  `PointerPressed` weg vom Dashboard (Avalonia wählt eine `ListBoxItem` bei
+  Maus-Input beim Drücken aus, nicht erst beim Loslassen) - ein Drag hätte
+  dort nie eine Chance gehabt zu starten. Lösung: ein dediziertes, kleines
+  Grip-Icon (`Border.drag-handle` in `DashboardView.axaml`) startet dort
+  den Drag; der Rest der Zeile bleibt reine Klick-Navigation
+  (`ListBox.SelectionChanged`, wie vor diesem Feature). Bei der Tableiste
+  war das nicht nötig - ein Klick auf einen Tab wählt ihn dort nur aus,
+  kein Konflikt mit Drag.
+- **Index-Berechnung für Vor/Nach-Ziel:** `MainWindowViewModel.ReorderGroup`
+  nimmt jetzt einen dritten Parameter `insertAfter` (abgeleitet aus dem
+  zuletzt beim DragOver gesetzten `DropIndicator`) und rechnet die exakte
+  `ObservableCollection<T>.Move`-Zielposition entsprechend um (`Move`
+  arbeitet in Post-Removal-Indizierung, siehe die Methode selbst) - im
+  Plan unten noch nicht vorgesehen, der nur eine einfache "an
+  Zielposition" ohne Vor/Nach-Unterscheidung kannte.
+- **Padding/Margin-Umbau für die Linie:** damit die Einfüge-Linie exakt auf
+  der echten Grenze zwischen zwei Tabs/Zeilen landet statt vom
+  Fluent-Theme-Padding (`TabItem`/`ListBoxItem`) eingerückt zu sein, wurde
+  dieses Theme-Padding auf beiden Elementen auf `0` gesetzt und stattdessen
+  als `Margin` auf dem jeweiligen Inhalt nachgebildet (dev feedback: erste
+  Version wirkte "sehr flach", weil dabei zunächst zu wenig Margin
+  nachgebildet wurde - korrigiert).
+- **Tests:** die eigentliche Drag-Geste (Press/Move-Schwellenwert,
+  `DoDragDropAsync`) lässt sich unter Avalonia.Headless nicht simulieren
+  (kein registrierter `IPlatformDragSource`) - ehrlich als Lücke
+  dokumentiert, genau wie unten im Plan vorgesehen. Stattdessen: Kategorie
+  A gegen `MainWindowViewModel.ReorderGroup`/`DashboardViewModel.ReorderGroup`
+  direkt (`GroupReorderTests.cs`), Kategorie C gegen die echten
+  DragOver/DragLeave/Drop-Handler per händisch gebautem `DragEventArgs`
+  (`TabReorderDragDropTests.cs`).
+
+---
+
 Ergänzt die ursprünglich in `archipolygo_feature_ideas.md` gelistete Idee
 "Manual tab reordering (drag & drop) instead of only automatic host/port
 grouping" (dieser Index ist inzwischen archiviert). Nutzer-Entscheidung:
@@ -29,7 +98,7 @@ konsultieren.
 
 ## Vorbereitung für ein späteres Follow-up: Tab in eigenes Fenster lösen
 
-[`Tab-Eigenes-Fenster.md`](Tab-Eigenes-Fenster.md) beschreibt separat die
+[`Tab-Eigenes-Fenster.md`](../Tab-Eigenes-Fenster.md) beschreibt separat die
 Idee "Tab in eigenes Fenster lösen" (Multi-Monitor). Die naheliegende UX dafür ist dieselbe
 Drag-Geste wie hier: innerhalb der Tableiste losgelassen = Reorder, außerhalb
 der `TabControl`-Bounds losgelassen = neues Fenster. Das wird hier bewusst
@@ -45,6 +114,16 @@ der `DoDragDrop`-Payload (Quell-`GroupViewModel` über das
 eine andere Tab-Position in derselben `TabControl`" gebunden sind, sondern
 generisch genug bleiben, um später um einen zusätzlichen
 "außerhalb jeder `TabControl` losgelassen"-Fall erweitert zu werden.
+
+**Umsetzung:** genau so gebaut - `GroupReorderDragDrop` (in
+`Views/GroupReorderDragDrop.cs`) kennt nur den Payload (Quell-`GroupViewModel`
+über das `"ArchipolygoGroupTab"`-Format) und die Press/Move-Schwellenwert-
+Erkennung, nichts über "Ziel ist eine TabControl-Position" - die eigentliche
+Zielauflösung (Tab-Header vs. Overview-Zeile, deren jeweilige
+Vor/Nach-Bestimmung) lebt komplett in den beiden Views' eigenem Code-behind.
+Ein späteres "außerhalb jeder `TabControl` losgelassen"-Fall für dieses
+Follow-up kann also darauf aufsetzen, ohne die Drag-Erkennung selbst
+anzufassen.
 
 ## Ansatz
 
@@ -92,6 +171,10 @@ der Ziel-`GroupViewModel`, an die ein `Style`-Trigger im `ItemTemplate`
 einen Rahmen bindet). Für die erste Version reicht vermutlich der
 Standard-Cursor; ein Indikator wäre ein optionales Polish-Follow-up.
 
+**Umsetzung:** ein echter Einfüge-Indikator wurde gebaut (siehe Status oben)
+- nicht als optionales Follow-up, sondern gleich als Teil dieser
+  Implementierung, auf expliziten Dev-Wunsch.
+
 ## Tests
 
 - **Kategorie C**: `[AvaloniaFact]`, echtes `MainWindow` mit mehreren
@@ -107,3 +190,11 @@ Standard-Cursor; ein Indikator wäre ein optionales Polish-Follow-up.
   dokumentieren, analog zum bereits bekannten Caveat bei
   `ChatSlotComboBoxTests`), danach `Groups`-Reihenfolge und
   `FakePersistenceService`-Aufruf prüfen.
+
+**Umsetzung:** genau der dokumentierte Fallback - `DoDragDropAsync`/die
+Pointer-Gestenerkennung selbst ließ sich unter Avalonia.Headless nicht
+sauber simulieren (kein registrierter `IPlatformDragSource`), ersatzweise
+direkte Kategorie-A-Tests gegen die Reorder-Methoden
+(`GroupReorderTests.cs`) plus Kategorie-C-Tests gegen die echten
+DragOver/DragLeave/Drop-Handler per händisch gebautem `DragEventArgs`
+(`TabReorderDragDropTests.cs`) - siehe Status oben.

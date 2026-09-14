@@ -1,6 +1,7 @@
 using System;
 using Archipolygo.Models;
 using Archipolygo.ViewModels;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -72,7 +73,12 @@ public partial class DashboardView : UserControl
     /// Clears the selection right back out afterward so the same row can be
     /// clicked again next time the dashboard is shown - otherwise a second
     /// click on an already-selected row wouldn't raise <see cref="ListBox.SelectionChanged"/>
-    /// at all.
+    /// at all. Plain <c>SelectionChanged</c>, not a hand-rolled press/release
+    /// gesture (used to be, for one version of Feature-Plaene/Tab-Reihenfolge.md's
+    /// manual drag-reordering) - dragging now only ever starts from each
+    /// row's own dedicated grip handle (see <see cref="OnOverviewGripPointerPressed"/>),
+    /// so a plain click anywhere else on the row has no press-vs-drag
+    /// ambiguity left to resolve.
     /// </summary>
     private void OnOverviewRowSelected(object? sender, SelectionChangedEventArgs e)
     {
@@ -85,7 +91,130 @@ public partial class DashboardView : UserControl
         ViewModel.SelectGroupAndLeaveDashboard(group);
     }
 
-    /// <summary>Same navigation as <see cref="OnOverviewRowSelected"/>, triggered from the shared Hints list instead - each row carries its own <see cref="GroupViewModel"/> (see <see cref="DashboardHintRow"/>), so this works regardless of which server filter is currently selected.</summary>
+    // ── Overview row: manual drag-reordering (Feature-Plaene/Tab-Reihenfolge.md) ──
+    //
+    // Unlike MainWindow.axaml's tab headers (where the whole header is
+    // draggable, since a plain click there only ever selects the tab - no
+    // conflict), a plain click on an Overview row navigates away from the
+    // Dashboard entirely; Avalonia selects a ListBoxItem (and so fires
+    // SelectionChanged) on PointerPressed for mouse input, which would fire
+    // that navigation instantly on press, before a drag gesture could ever
+    // get a chance to start. So dragging is scoped to a small dedicated grip
+    // handle instead (Border.drag-handle in DashboardView.axaml) - only it
+    // marks PointerPressed Handled (same trick the per-row icon buttons
+    // already rely on to keep their own clicks from also navigating the
+    // row - their own Button press handling marks it Handled before it ever
+    // reaches this row's ListBoxItem, see
+    // DashboardTabTests.RowIconClick_DoesNotAlsoNavigateTheRow), which is
+    // also why the grip is a plain Border and not a real Button: a Button's
+    // own internal press-state tracking would fight this drag-threshold
+    // detection instead of just getting out of the way.
+
+    private PointerPressedEventArgs? _overviewGripPressedArgs;
+    private GroupViewModel? _overviewGripDragCandidate;
+    private Point _overviewGripDragStartPosition;
+    private ulong _overviewGripPressedTimestamp;
+    private bool _overviewGripDragStarted;
+
+    private void OnOverviewGripPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (sender is not Control control || control.DataContext is not GroupViewModel group)
+        {
+            return;
+        }
+
+        // Stops this press from reaching the row's own ListBoxItem
+        // selection (and so its SelectionChanged-driven navigation) - see
+        // this section's own comment above.
+        e.Handled = true;
+        _overviewGripPressedArgs = e;
+        _overviewGripDragCandidate = group;
+        _overviewGripDragStartPosition = e.GetPosition(control);
+        _overviewGripPressedTimestamp = e.Timestamp;
+        _overviewGripDragStarted = false;
+    }
+
+    private async void OnOverviewGripPointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (_overviewGripDragCandidate is not { } group || _overviewGripDragStarted ||
+            _overviewGripPressedArgs is not { } pressedArgs || sender is not Control control)
+        {
+            return;
+        }
+
+        if (!GroupReorderDragDrop.ShouldStartDrag(_overviewGripDragStartPosition, _overviewGripPressedTimestamp, e.GetPosition(control), e.Timestamp))
+        {
+            return;
+        }
+
+        // Consume immediately - one DoDragDropAsync per press, and this also
+        // means a PointerMoved that fires again while the drag is already
+        // in flight (or after it ended) is a harmless no-op above.
+        _overviewGripDragStarted = true;
+        await GroupReorderDragDrop.StartDragAsync(pressedArgs, group);
+        group.DropIndicator = DropIndicatorPosition.None;
+    }
+
+    /// <summary>
+    /// Disarms the gesture-tracking fields once the pointer comes back up -
+    /// see <see cref="MainWindow.OnGroupTabPointerReleased"/>'s doc comment
+    /// for why this is needed (a plain click otherwise leaves
+    /// <see cref="_overviewGripDragCandidate"/> set, and a later
+    /// unrelated hover move over the grip - PointerMoved fires for that
+    /// too, not just movement while a button is held - would start a
+    /// phantom drag).
+    /// </summary>
+    private void OnOverviewGripPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        _overviewGripPressedArgs = null;
+        _overviewGripDragCandidate = null;
+        _overviewGripDragStarted = false;
+    }
+
+    private void OnOverviewRowDragOver(object? sender, DragEventArgs e)
+    {
+        if (sender is not Control { DataContext: GroupViewModel target } control)
+        {
+            return;
+        }
+
+        var isValidTarget = GroupReorderDragDrop.TryGetSource(e.DataTransfer) is { } source && !ReferenceEquals(source, target);
+        e.DragEffects = isValidTarget ? DragDropEffects.Move : DragDropEffects.None;
+        // The Overview list lays out top-to-bottom - top half of the
+        // hovered row means "insert before this server", bottom half means
+        // "after" (MainWindow.axaml's tab headers use the same idea, just
+        // left/right since those lay out horizontally).
+        target.DropIndicator = !isValidTarget
+            ? DropIndicatorPosition.None
+            : e.GetPosition(control).Y < control.Bounds.Height / 2
+                ? DropIndicatorPosition.Before
+                : DropIndicatorPosition.After;
+    }
+
+    private void OnOverviewRowDragLeave(object? sender, DragEventArgs e)
+    {
+        if (sender is Control { DataContext: GroupViewModel target })
+        {
+            target.DropIndicator = DropIndicatorPosition.None;
+        }
+    }
+
+    private void OnOverviewRowDrop(object? sender, DragEventArgs e)
+    {
+        if (sender is not Control { DataContext: GroupViewModel target })
+        {
+            return;
+        }
+
+        var insertAfter = target.DropIndicator == DropIndicatorPosition.After;
+        target.DropIndicator = DropIndicatorPosition.None;
+        if (GroupReorderDragDrop.TryGetSource(e.DataTransfer) is { } source)
+        {
+            ViewModel.ReorderGroup(source, target, insertAfter);
+        }
+    }
+
+    /// <summary>Same navigation as the Overview row's own <see cref="OnOverviewRowSelected"/>, triggered from the shared Hints list instead - each row carries its own <see cref="GroupViewModel"/> (see <see cref="DashboardHintRow"/>), so this works regardless of which server filter is currently selected. Hints rows aren't drag-reorderable, so this is unaffected by any of the above.</summary>
     private void OnHintRowSelected(object? sender, SelectionChangedEventArgs e)
     {
         if (e.AddedItems.Count == 0 || e.AddedItems[0] is not DashboardHintRow row)

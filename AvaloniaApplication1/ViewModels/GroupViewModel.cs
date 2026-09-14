@@ -87,6 +87,19 @@ public partial class GroupViewModel : ViewModelBase
     [ObservableProperty]
     private bool _isSelected;
 
+    /// <summary>
+    /// Where a manual tab-reorder drag (Feature-Plaene/Tab-Reihenfolge.md)
+    /// is currently hovering relative to this group's tab header or
+    /// Dashboard Overview row - purely a UI hint (drives a thin
+    /// insertion-line indicator via MainWindow.axaml's/DashboardView.axaml's
+    /// own Styles), no bearing on <see cref="ConnectionManager"/> or
+    /// persistence. Set by the code-behind DragOver handlers and cleared
+    /// again on DragLeave/Drop, in both places that drag a
+    /// <see cref="GroupViewModel"/> tab payload.
+    /// </summary>
+    [ObservableProperty]
+    private DropIndicatorPosition _dropIndicator = DropIndicatorPosition.None;
+
     [ObservableProperty]
     private HintFilter _selectedHintFilter = HintFilter.Unfound;
 

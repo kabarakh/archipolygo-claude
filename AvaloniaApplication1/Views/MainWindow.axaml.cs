@@ -1,4 +1,5 @@
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
@@ -225,4 +226,113 @@ public partial class MainWindow : Window
         }
     }
 
+    // ── Manual tab-reordering (Feature-Plaene/Tab-Reihenfolge.md) ──
+    //
+    // A plain tab click must keep working exactly as before (TabControl
+    // already selects a tab on PointerPressed) - unlike DashboardView's
+    // Overview rows (see DashboardView.axaml.cs), nothing here is ever
+    // marked Handled on press, so this only ever adds drag detection on
+    // top of the existing click behavior, never replaces it.
+
+    private PointerPressedEventArgs? _groupTabPressedArgs;
+    private GroupViewModel? _groupTabDragCandidate;
+    private Point _groupTabDragStartPosition;
+    private ulong _groupTabPressedTimestamp;
+    private bool _groupTabDragStarted;
+
+    private void OnGroupTabPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (sender is not Control control || control.DataContext is not GroupViewModel group)
+        {
+            return;
+        }
+
+        _groupTabPressedArgs = e;
+        _groupTabDragCandidate = group;
+        _groupTabDragStartPosition = e.GetPosition(control);
+        _groupTabPressedTimestamp = e.Timestamp;
+        _groupTabDragStarted = false;
+    }
+
+    private async void OnGroupTabPointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (_groupTabDragCandidate is not { } group || _groupTabDragStarted ||
+            _groupTabPressedArgs is not { } pressedArgs || sender is not Control control)
+        {
+            return;
+        }
+
+        if (!GroupReorderDragDrop.ShouldStartDrag(_groupTabDragStartPosition, _groupTabPressedTimestamp, e.GetPosition(control), e.Timestamp))
+        {
+            return;
+        }
+
+        // Consume immediately - one DoDragDropAsync per press, and this also
+        // means a PointerMoved that fires again while the drag is already
+        // in flight (or after it ended) is a harmless no-op above.
+        _groupTabDragStarted = true;
+        await GroupReorderDragDrop.StartDragAsync(pressedArgs, group);
+        group.DropIndicator = DropIndicatorPosition.None;
+    }
+
+    /// <summary>
+    /// Disarms the gesture-tracking fields once the pointer comes back up -
+    /// without this, a plain click (press then release, no real drag)
+    /// left <see cref="_groupTabDragCandidate"/> set, and
+    /// <see cref="OnGroupTabPointerMoved"/> fires for plain hover movement
+    /// too, not just movement while a button is held. Once enough real time
+    /// had simply passed and the cursor had moved anywhere at all - true
+    /// for basically any later hover, unrelated to the original click - a
+    /// phantom drag started despite no button being pressed anymore (dev
+    /// feedback: clicking a tab then just moving the mouse afterward showed
+    /// a drag cursor). <see cref="OnGroupTabPointerPressed"/> re-arms it
+    /// fresh on the next real press.
+    /// </summary>
+    private void OnGroupTabPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        _groupTabPressedArgs = null;
+        _groupTabDragCandidate = null;
+        _groupTabDragStarted = false;
+    }
+
+    private void OnGroupTabDragOver(object? sender, DragEventArgs e)
+    {
+        if (sender is not Control { DataContext: GroupViewModel target } control)
+        {
+            return;
+        }
+
+        var isValidTarget = GroupReorderDragDrop.TryGetSource(e.DataTransfer) is { } source && !ReferenceEquals(source, target);
+        e.DragEffects = isValidTarget ? DragDropEffects.Move : DragDropEffects.None;
+        // Tab headers lay out left-to-right - left half of the hovered
+        // header means "insert before this tab", right half means "after".
+        target.DropIndicator = !isValidTarget
+            ? DropIndicatorPosition.None
+            : e.GetPosition(control).X < control.Bounds.Width / 2
+                ? DropIndicatorPosition.Before
+                : DropIndicatorPosition.After;
+    }
+
+    private void OnGroupTabDragLeave(object? sender, DragEventArgs e)
+    {
+        if (sender is Control { DataContext: GroupViewModel target })
+        {
+            target.DropIndicator = DropIndicatorPosition.None;
+        }
+    }
+
+    private void OnGroupTabDrop(object? sender, DragEventArgs e)
+    {
+        if (sender is not Control { DataContext: GroupViewModel target })
+        {
+            return;
+        }
+
+        var insertAfter = target.DropIndicator == DropIndicatorPosition.After;
+        target.DropIndicator = DropIndicatorPosition.None;
+        if (GroupReorderDragDrop.TryGetSource(e.DataTransfer) is { } source)
+        {
+            ViewModel.ReorderGroup(source, target, insertAfter);
+        }
+    }
 }

@@ -164,7 +164,7 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             SelectedGroup = group;
             IsDashboardVisible = false;
-        });
+        }, ReorderGroup);
 
         SelectedGroup = Groups.Count > 0 ? Groups[0] : null;
 
@@ -595,6 +595,62 @@ public partial class MainWindowViewModel : ViewModelBase
         // up rather than leaving an orphaned cache folder behind forever.
         _persistenceService.DeleteDataPackageCacheForGroup(groupToRemove.Group.Id);
 
+        PersistGroups();
+    }
+
+    /// <summary>
+    /// Manual tab-reordering (Feature-Plaene/Tab-Reihenfolge.md) - moves
+    /// <paramref name="source"/> to sit immediately before or after
+    /// <paramref name="target"/> in <see cref="Groups"/> (whichever the
+    /// insertion-line indicator - <see cref="GroupViewModel.DropIndicator"/> -
+    /// last showed; <paramref name="insertAfter"/> is the caller's own
+    /// already-resolved read of that). Called from two places that each own
+    /// their own Avalonia drag/drop mechanics: <see cref="Views.MainWindow"/>'s
+    /// tab-header code-behind directly, and <see cref="Dashboard"/>'s
+    /// Overview-row code-behind via the same callback-based decoupling
+    /// <see cref="DashboardViewModel"/> already uses for
+    /// <c>SelectGroupAndLeaveDashboard</c> - this class is the only place
+    /// that's allowed to call the private <see cref="PersistGroups"/>.
+    /// <see cref="ObservableCollection{T}.Move"/> already raises the
+    /// <c>CollectionChanged</c> the bound <c>TabControl</c>/Overview
+    /// <c>ListBox</c> need to reorder visually; no separate "OrderIndex"
+    /// property, since <see cref="GetAllGroups"/> (and so
+    /// <c>groups.json</c>) reads <see cref="Groups"/>' order directly.
+    /// No-ops if source and target are the same group, or either one isn't
+    /// currently in <see cref="Groups"/> (e.g. removed mid-drag).
+    /// </summary>
+    /// <remarks>
+    /// Index math: the desired final position (in the *original*,
+    /// pre-removal index space) is <c>target's index, or +1 if
+    /// insertAfter</c>. <see cref="ObservableCollection{T}.Move"/>'s own
+    /// <c>newIndex</c>, however, is a *post-removal* index (it removes at
+    /// <c>oldIndex</c> first, then inserts at <c>newIndex</c> into the
+    /// now-one-shorter list) - so that desired index needs to shift down by
+    /// one whenever <paramref name="source"/> was originally positioned
+    /// before it (removing it shifts everything after it left by one). This
+    /// was worked out and hand-verified against a handful of drag
+    /// directions (forward/backward, before/after) rather than trusted on
+    /// first principles alone - see <c>GroupReorderTests</c> for those exact
+    /// cases.
+    /// </remarks>
+    public void ReorderGroup(GroupViewModel source, GroupViewModel target, bool insertAfter)
+    {
+        if (ReferenceEquals(source, target))
+        {
+            return;
+        }
+
+        var oldIndex = Groups.IndexOf(source);
+        var targetIndex = Groups.IndexOf(target);
+        if (oldIndex < 0 || targetIndex < 0)
+        {
+            return;
+        }
+
+        var desiredIndex = insertAfter ? targetIndex + 1 : targetIndex;
+        var newIndex = oldIndex < desiredIndex ? desiredIndex - 1 : desiredIndex;
+
+        Groups.Move(oldIndex, newIndex);
         PersistGroups();
     }
 

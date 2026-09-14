@@ -65,6 +65,24 @@ public partial class TestHarnessApp : Application
                 new() { LocationId = 5, Name = "Village Square - Well" },
             });
 
+            // Three more demo servers, deliberately not auto-connecting
+            // (nothing here exercises their connection state) - purely so
+            // there's more than one tab/Overview row to actually drag
+            // around (see Feature-Plaene/Tab-Reihenfolge.md). "TestServer"
+            // above stays first since ControlPanelWindow's buttons are all
+            // wired to that one specifically.
+            mainWindowViewModel.AddNewGroup("AlphaServer", "alpha.example", 38281, string.Empty, "AlphaSlot", autoConnect: false);
+            mainWindowViewModel.AddNewGroup("BravoServer", "bravo.example", 38281, string.Empty, "BravoSlot", autoConnect: false);
+            mainWindowViewModel.AddNewGroup("CharlieServer", "charlie.example", 38281, string.Empty, "CharlieSlot", autoConnect: false);
+
+            // AddNewGroup above always selects whichever group it just added
+            // - reselect TestServer so the app doesn't open on CharlieServer's
+            // (empty) tab, and so the Dashboard's default view (see
+            // MainWindowViewModel.IsDashboardVisible) shows all four rows
+            // with TestServer's own data visible first if "Tab View" is
+            // clicked.
+            mainWindowViewModel.SelectedGroup = groupViewModel;
+
             // Explicit manual position so the main window can never overlap
             // ControlPanelWindow (which sits at (20,20), 260 wide) - keeps
             // both fully visible side by side for whoever is clicking

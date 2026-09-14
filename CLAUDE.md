@@ -157,16 +157,20 @@ doc comment explaining what it's for and why it's shaped that way.
   its own status at the top: 🗨️ **Discuss** = a rough first outline, not yet
   ready for real implementation, still needs a design discussion (e.g.
   `Item-Trap-Icons.md`, `Tastenkuerzel.md`); 📝 an actual Umsetzungsplan-style
-  doc, ready to implement (e.g. `Tab-Reihenfolge.md`). Once a plan is
-  actually implemented, its file moves into `Feature-Plaene/`'s `Archiv/`
+  doc, ready to implement - none currently open (every plan that reached
+  that stage so far ended up built; see `Tab-Reihenfolge.md` below for what
+  one used to look like before it got there). Once a plan is actually
+  implemented, its file moves into `Feature-Plaene/`'s `Archiv/`
   subdirectory and gains a "Status: ✅ Umgesetzt" section at the top
   documenting how the real implementation ended up differing from the
   original plan (Tier 2's UI in `Fortschrittsanzeigen.md`, macOS's exclusion
-  in `Auto-Update.md`, ...) - read that section before touching related code
-  instead of trusting the rest of the plan doc to still match reality
-  exactly. Mockup images/HTML referenced from a plan file (e.g.
-  `dashboard-tab-mockup.html`, `passwort-dialog-mockup.html`) live in
-  `Claude outputs/`, alongside that same historical archive.
+  in `Auto-Update.md`, manual tab-reordering's insertion-line indicator and
+  Dashboard-Overview support in `Tab-Reihenfolge.md`, ...) - read that
+  section before touching related code instead of trusting the rest of the
+  plan doc to still match reality exactly. Mockup images/HTML referenced
+  from a plan file (e.g. `dashboard-tab-mockup.html`,
+  `passwort-dialog-mockup.html`) live in `Claude outputs/`, alongside that
+  same historical archive.
 
 ## Non-obvious gotchas already worked around here
 
@@ -184,6 +188,24 @@ way first - each was a real bug with a specific root cause.
 - **A horizontal `StackPanel`'s children default to `VerticalAlignment="Stretch"`.**
   A plain `TextBlock` next to a taller `Button` looks top-aligned unless it
   gets an explicit `VerticalAlignment="Center"` of its own.
+- **A local XAML attribute value always beats a `Style` `Setter` for the same
+  property, even when the style's selector matches** (same precedence rule
+  as WPF: local value > style setter > default). Setting e.g.
+  `BorderBrush="Transparent"` directly on an element while also relying on a
+  `Style Selector="Border.some-class"` to set `BorderBrush` conditionally
+  makes that Setter permanently dead code - the local value always wins,
+  whether or not the class is applied. Real incident: manual tab-reordering's
+  first drop-target design (`Tab-Reihenfolge.md`, since replaced by an
+  insertion-line indicator) highlighted the whole hovered tab
+  header/Overview row with a border - it never appeared because that
+  `Border` had a local `BorderBrush="Transparent"` alongside a
+  `Border.drop-target` style meant to override it to `DodgerBlue`. If a
+  property needs a "normal" value *and* a conditional style-driven override,
+  only one of the two should ever set it locally - the rest belongs in
+  styles (a default-state style rule, or nothing at all if the property's
+  own default already matches). `DashboardView.axaml`'s `Border.drag-handle`
+  style (added for that same feature's reordering grip) follows this
+  correctly and is a good live reference.
 - **`CommunityToolkit.Mvvm`'s `[RelayCommand]` strips a trailing `Async`
   from the generated command name.** `RemoveConfiguredSlotAsync()` →
   `RemoveConfiguredSlotCommand`, not `RemoveConfiguredSlotAsyncCommand`. Easy

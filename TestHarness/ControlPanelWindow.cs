@@ -105,6 +105,23 @@ public sealed class ControlPanelWindow : Window
         _addSlotPickerResultText = new TextBlock { TextWrapping = Avalonia.Media.TextWrapping.Wrap, FontSize = 11 };
         panel.Children.Add(_addSlotPickerResultText);
 
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Tab-Reordering (Drag & Drop)",
+            FontWeight = Avalonia.Media.FontWeight.Bold,
+            Margin = new Avalonia.Thickness(0, 10, 0, 0)
+        });
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Nicht separat nachgebaut - das ist bereits das echte MainWindow/DashboardView " +
+                   "mit vier Demo-Servern. Zum Ausprobieren: im Dashboard (Startansicht) eine " +
+                   "Overview-Zeile per Drag auf eine andere ziehen, oder auf \"Tab View\" wechseln " +
+                   "und dasselbe mit den Tab-Headern oben tun. Siehe Feature-Plaene/Tab-Reihenfolge.md.",
+            FontSize = 11,
+            Opacity = 0.7,
+            TextWrapping = Avalonia.Media.TextWrapping.Wrap
+        });
+
         Content = new ScrollViewer { Content = panel };
     }
 

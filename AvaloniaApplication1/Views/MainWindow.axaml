@@ -30,6 +30,22 @@
             <Setter Property="FontWeight" Value="Bold"/>
         </Style>
 
+        <!-- Zeroes out Fluent's own default TabItem Padding (themed as
+             {DynamicResource TabItemHeaderMargin}, not actually a Margin
+             despite the resource's name - the theme's own TabItem Margin
+             is already 0) - manual tab-reordering's insertion-line
+             indicator (Feature-Plaene/Tab-Reihenfolge.md) sits at the edge
+             of the tab header's own custom Border further down, and that
+             Border's Padding is now the *only* spacing around a tab's
+             content (see that Border's own comment). Without this, the
+             indicator would sit inset from the true boundary between two
+             tabs by the theme's own padding on top of that, reading as
+             "stuck to the text with a dead gap on the other side" instead
+             of a single clean line exactly between the two tabs. -->
+        <Style Selector="TabItem">
+            <Setter Property="Padding" Value="0"/>
+        </Style>
+
         <!-- The log filter buttons (Events relevance/category, Hints) each
              get an "active" class bound to whether they represent the
              currently selected filter value (see Classes.active on each
@@ -62,6 +78,7 @@
         <Style Selector="CheckBox">
             <Setter Property="Margin" Value="0,0,8,4"/>
         </Style>
+
     </Window.Styles>
 
     <Design.DataContext>
@@ -140,23 +157,88 @@
         <TabControl IsVisible="{Binding !IsDashboardVisible}" ItemsSource="{Binding Groups}" SelectedItem="{Binding SelectedGroup}">
             <TabControl.ItemTemplate>
                 <DataTemplate DataType="vm:GroupViewModel">
-                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                        <Ellipse Width="8" Height="8" VerticalAlignment="Center"
-                                 Fill="{Binding ConnectionState, Converter={StaticResource ConnectionStateToBrushConverter}}"/>
-                        <Border Background="OrangeRed" CornerRadius="8" MinWidth="16" Height="16"
-                                Padding="4,0" VerticalAlignment="Center"
-                                IsVisible="{Binding HasUnreadEvents}">
-                            <TextBlock Text="{Binding UnreadEventCount}" Foreground="White" FontSize="10"
-                                       FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                        <TextBlock Text="{Binding HeaderText}"/>
-                        <!-- Only shown while there's no live leader connection,
-                             so the tab itself surfaces "disconnected"/
-                             "connecting"/"reconnecting"/"error" without
-                             needing to select it. -->
-                        <TextBlock Text="{Binding ConnectionState}" FontSize="11" Opacity="0.7"
-                                   VerticalAlignment="Center" IsVisible="{Binding !IsLeaderConnected}"/>
-                    </StackPanel>
+                    <!-- Border, not a bare StackPanel: manual tab-reordering
+                         (Feature-Plaene/Tab-Reihenfolge.md) needs a place to
+                         hang AllowDrop/drag handlers on, and a Grid inside it
+                         to layer the insertion-line indicators (see below)
+                         over the header content. A plain click still selects
+                         the tab exactly as before - nothing here marks
+                         PointerPressed Handled, so TabControl's own
+                         press-selects-tab behavior is untouched; only a move
+                         past the threshold turns it into a drag instead. -->
+                    <!-- Background="Transparent" (not just left unset) - a Border
+                         with no Background at all isn't hit-test visible across its
+                         own empty area in Avalonia, only its BorderBrush stroke and
+                         its children are; without this, a press landing in any gap
+                         between this header's children would fall straight through
+                         instead of reaching the drag handlers below. -->
+                    <!-- Tag, not Name - a repeated x:Name inside a DataTemplate collides
+                         once more than one tab is realized at once (same reasoning as
+                         DashboardView.axaml's per-row icon buttons); lets a test find
+                         "this group's own tab header Border" the same way.
+                         No Padding here, deliberately - see the StackPanel's own
+                         Margin below for why. -->
+                    <Border Background="Transparent"
+                            Tag="GroupTabHeader"
+                            DragDrop.AllowDrop="True"
+                            PointerPressed="OnGroupTabPointerPressed"
+                            PointerMoved="OnGroupTabPointerMoved"
+                            PointerReleased="OnGroupTabPointerReleased"
+                            DragDrop.DragOver="OnGroupTabDragOver"
+                            DragDrop.DragLeave="OnGroupTabDragLeave"
+                            DragDrop.Drop="OnGroupTabDrop">
+                        <!-- Grid, not the StackPanel directly as the Border's child -
+                             lets the two insertion-line Rectangles below sit layered
+                             on top of the header content instead of pushed beside it
+                             (a Grid with no explicit Row/ColumnDefinitions puts every
+                             child in the same single cell, overlapping). -->
+                        <Grid>
+                            <!-- The content's breathing room lives here, as a Margin
+                                 on the content itself, not as Padding on the Border
+                                 above: a Border's Padding insets its whole Child (this
+                                 Grid), which would inset the Rectangles below by the
+                                 same amount and defeat their whole point - TabItem's
+                                 own Padding is zeroed out above (its Margin already
+                                 was 0), so this Border's bounds are exactly the tab's
+                                 bounds, and the Rectangles (anchored to the Grid's own
+                                 edge, i.e. this Border's true outer edge) land exactly
+                                 on the boundary between two adjacent tabs instead of
+                                 inset from it. -->
+                            <StackPanel Orientation="Horizontal" Spacing="6" Margin="10,6" VerticalAlignment="Center">
+                                <Ellipse Width="8" Height="8" VerticalAlignment="Center"
+                                         Fill="{Binding ConnectionState, Converter={StaticResource ConnectionStateToBrushConverter}}"/>
+                                <Border Background="OrangeRed" CornerRadius="8" MinWidth="16" Height="16"
+                                        Padding="4,0" VerticalAlignment="Center"
+                                        IsVisible="{Binding HasUnreadEvents}">
+                                    <TextBlock Text="{Binding UnreadEventCount}" Foreground="White" FontSize="10"
+                                               FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                                <TextBlock Text="{Binding HeaderText}"/>
+                                <!-- Only shown while there's no live leader connection,
+                                     so the tab itself surfaces "disconnected"/
+                                     "connecting"/"reconnecting"/"error" without
+                                     needing to select it. -->
+                                <TextBlock Text="{Binding ConnectionState}" FontSize="11" Opacity="0.7"
+                                           VerticalAlignment="Center" IsVisible="{Binding !IsLeaderConnected}"/>
+                            </StackPanel>
+
+                            <!-- Manual tab-reordering insertion-line indicators
+                                 (Feature-Plaene/Tab-Reihenfolge.md) - a thin bar at
+                                 this tab's leading (Before) or trailing (After) edge
+                                 while a reorder drag hovers here on that side (see
+                                 GroupViewModel.DropIndicator, set by
+                                 OnGroupTabDragOver/Leave in MainWindow.axaml.cs).
+                                 Tab headers lay out horizontally, so Before = left
+                                 edge, After = right edge. Fill is a plain per-instance
+                                 value, not a Style Setter this time - no local-value-
+                                 beats-style-setter trap to worry about (see CLAUDE.md's
+                                 gotcha on that, from this element's first design). -->
+                            <Rectangle Width="3" HorizontalAlignment="Left" VerticalAlignment="Stretch" Fill="DodgerBlue"
+                                       IsVisible="{Binding DropIndicator, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Before}"/>
+                            <Rectangle Width="3" HorizontalAlignment="Right" VerticalAlignment="Stretch" Fill="DodgerBlue"
+                                       IsVisible="{Binding DropIndicator, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=After}"/>
+                        </Grid>
+                    </Border>
                 </DataTemplate>
             </TabControl.ItemTemplate>
             <TabControl.ContentTemplate>

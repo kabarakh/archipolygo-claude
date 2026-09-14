@@ -10,7 +10,7 @@ own window (for multi-monitor setups)") übernommen.
 ## Zusammenspiel mit manuellem Tab-Reordering (2026-09-13 Diskussion)
 
 Naheliegende UX: dieselbe Drag-Geste wie beim
-[manuellen Tab-Reordering](Tab-Reihenfolge.md) - innerhalb der Tableiste
+[manuellen Tab-Reordering](Archiv/Tab-Reihenfolge.md) - innerhalb der Tableiste
 losgelassen = Reorder, außerhalb der `TabControl`-Bounds losgelassen = neues
 Fenster. Trotzdem **bewusst als eigenes, späteres Feature** geplant, nicht
 gemeinsam mit dem Reordering gebaut: Tab-Reordering ist klein
@@ -31,7 +31,10 @@ braucht dagegen echte Multi-Window-Unterstützung:
 `Tab-Reihenfolge.md`s eigener Plan merkt an, seine
 Pointer-Threshold-Erkennung und den `DoDragDrop`-Payload generisch genug zu
 halten, damit dieses Feature sie später wiederverwenden kann, statt sie neu
-zu bauen.
+zu bauen. Inzwischen umgesetzt: genau dieser wiederverwendbare Teil lebt
+jetzt als eigene, ziel-unabhängige Klasse `GroupReorderDragDrop`
+(`Views/GroupReorderDragDrop.cs`) - siehe `Tab-Reihenfolge.md`s eigenen
+Status-Abschnitt.
 
 ## Cross-Referenz zu [`Fenster-Blinken.md`](Fenster-Blinken.md)
 

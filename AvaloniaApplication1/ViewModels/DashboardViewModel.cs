@@ -24,6 +24,7 @@ public partial class DashboardViewModel : ViewModelBase
 {
     private readonly ObservableCollection<GroupViewModel> _groups;
     private readonly Action<GroupViewModel> _selectGroupAndLeaveDashboard;
+    private readonly Action<GroupViewModel, GroupViewModel, bool> _reorderGroups;
 
     /// <summary>Handlers currently subscribed to each group's <see cref="GroupViewModel.Hints"/> collection, so <see cref="UnsubscribeGroup"/> can remove the exact same delegate instance later.</summary>
     private readonly Dictionary<GroupViewModel, NotifyCollectionChangedEventHandler> _hintsCollectionHandlers = new();
@@ -39,10 +40,12 @@ public partial class DashboardViewModel : ViewModelBase
     /// <summary>Server+slot display filter for <see cref="VisibleEvents"/> - see <see cref="DashboardServerSlotFilter"/>.</summary>
     public DashboardServerSlotFilter EventsFilter { get; }
 
-    public DashboardViewModel(ObservableCollection<GroupViewModel> groups, Action<GroupViewModel> selectGroupAndLeaveDashboard)
+    public DashboardViewModel(ObservableCollection<GroupViewModel> groups, Action<GroupViewModel> selectGroupAndLeaveDashboard,
+        Action<GroupViewModel, GroupViewModel, bool> reorderGroups)
     {
         _groups = groups;
         _selectGroupAndLeaveDashboard = selectGroupAndLeaveDashboard;
+        _reorderGroups = reorderGroups;
 
         HintFilter = new DashboardServerSlotFilter(_groups);
         HintFilter.PropertyChanged += (_, e) => OnFilterPropertyChanged(e, nameof(VisibleHints));
@@ -72,6 +75,15 @@ public partial class DashboardViewModel : ViewModelBase
     /// <c>TabControl</c> view.
     /// </summary>
     public void SelectGroupAndLeaveDashboard(GroupViewModel group) => _selectGroupAndLeaveDashboard(group);
+
+    /// <summary>
+    /// Overview-row drag-reorder (Feature-Plaene/Tab-Reihenfolge.md) -
+    /// delegates to <see cref="MainWindowViewModel.ReorderGroup"/> via the
+    /// same callback-based decoupling as <see cref="SelectGroupAndLeaveDashboard"/>,
+    /// so this class still never references <see cref="MainWindowViewModel"/>
+    /// directly.
+    /// </summary>
+    public void ReorderGroup(GroupViewModel source, GroupViewModel target, bool insertAfter) => _reorderGroups(source, target, insertAfter);
 
     public int TotalServers => _groups.Count;
 

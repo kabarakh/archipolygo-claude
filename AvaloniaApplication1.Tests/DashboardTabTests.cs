@@ -35,10 +35,11 @@ public class DashboardTabTests
         return window;
     }
 
-    private static void ClickButton(MainWindow window, Button button)
+    /// <summary>Simulates a plain click (press+release at the same point) on any <see cref="Control"/>, not just a <see cref="Button"/> - e.g. an Overview row's own <c>Border</c> (see <see cref="FindOverviewRow"/>), which has no click Command of its own to invoke directly.</summary>
+    private static void ClickButton(MainWindow window, Control control)
     {
-        var localCenter = new Avalonia.Point(button.Bounds.Width / 2, button.Bounds.Height / 2);
-        var pointInWindow = button.TranslatePoint(localCenter, window) ?? localCenter;
+        var localCenter = new Avalonia.Point(control.Bounds.Width / 2, control.Bounds.Height / 2);
+        var pointInWindow = control.TranslatePoint(localCenter, window) ?? localCenter;
         window.MouseDown(pointInWindow, MouseButton.Left);
         window.MouseUp(pointInWindow, MouseButton.Left);
         Dispatcher.UIThread.RunJobs();
@@ -118,10 +119,12 @@ public class DashboardTabTests
         Dispatcher.UIThread.RunJobs();
 
         var dashboardView = window.GetVisualDescendants().OfType<DashboardView>().Single();
-        var overviewList = dashboardView.GetVisualDescendants().OfType<ListBox>().Single(l => l.Name == "OverviewListBox");
 
-        overviewList.SelectedItem = group2;
-        Dispatcher.UIThread.RunJobs();
+        // A real press+release click, not overviewList.SelectedItem = group2 -
+        // since Tab-Reihenfolge.md's drag-reordering support, the row no
+        // longer navigates via ListBox selection at all (see this row's own
+        // Border/OnOverviewRowPointerPressed et al. in DashboardView.axaml.cs).
+        ClickButton(window, FindOverviewRow(dashboardView, group2));
 
         Assert.Equal(group2, mainWindowViewModel.SelectedGroup);
         Assert.False(mainWindowViewModel.IsDashboardVisible);
@@ -252,6 +255,11 @@ public class DashboardTabTests
     private static Button FindRowIcon(DashboardView dashboardView, GroupViewModel group, string tag) =>
         dashboardView.GetVisualDescendants().OfType<Button>()
             .Single(b => b.Classes.Contains("icon-button") && b.DataContext == group && (string?)b.Tag == tag);
+
+    /// <summary>Finds the given group's own Overview row root <c>Border</c> (see DashboardView.axaml's own comment on why this needs a <c>Tag</c>-based lookup - several other <c>Border</c>s in the same row are also bound to this <see cref="GroupViewModel"/>).</summary>
+    private static Border FindOverviewRow(DashboardView dashboardView, GroupViewModel group) =>
+        dashboardView.GetVisualDescendants().OfType<Border>()
+            .Single(b => (string?)b.Tag == "OverviewRow" && b.DataContext == group);
 
     private static (MainWindow window, DashboardView dashboardView, MainWindowViewModel viewModel, GroupViewModel group) SetUpSingleGroupDashboard()
     {
