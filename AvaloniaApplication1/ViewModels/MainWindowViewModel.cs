@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Archipolygo.Models;
 using Archipolygo.Services;
@@ -24,6 +25,33 @@ public partial class MainWindowViewModel : ViewModelBase
     /// and "Update now"/"Check for updates" actions all silently no-op.
     /// </summary>
     private readonly IUpdateService? _updateService;
+
+    /// <summary>
+    /// Ensures only one password-prompt dialog round is ever shown at a
+    /// time - see <see cref="HandlePasswordRequestedAsync"/>'s doc comment.
+    /// Different groups' connects are NOT otherwise serialized against each
+    /// other (each has its own independent gate inside
+    /// <see cref="ConnectionManager"/>), so without this, a manual reconnect
+    /// on one server while the startup sequence is mid-way through another
+    /// could pop two password windows at once.
+    /// </summary>
+    private readonly SemaphoreSlim _passwordPromptGate = new(1, 1);
+
+    /// <summary>
+    /// Set by <see cref="Views.MainWindow"/> (the one place with an actual
+    /// <see cref="Avalonia.Controls.Window"/> to own a dialog) to actually
+    /// show a <see cref="PasswordPromptWindow"/> - deliberately NOT called
+    /// directly from this class, which stays free of any
+    /// <c>Archipolygo.Views</c>/<c>Window</c> dependency, same separation
+    /// every other dialog in this app keeps (the view model exposes data/
+    /// commands; the view decides when and how to show something). Returns
+    /// whether the user actually clicked "Connect" (vs. Cancel, or the
+    /// <see cref="CancellationToken"/> forcing the window closed - see
+    /// <see cref="Views.PasswordPromptWindow.ShowDialogAsync"/>). Null only
+    /// in the design-time construction path, in which case a password
+    /// request can never actually be shown.
+    /// </summary>
+    public Func<PasswordPromptViewModel, CancellationToken, Task<bool>>? ShowPasswordPromptDialogAsync { get; set; }
 
     public ObservableCollection<GroupViewModel> Groups { get; } = new();
 
@@ -155,6 +183,12 @@ public partial class MainWindowViewModel : ViewModelBase
         };
         _connectionManager.SlotInitialSyncCompleted += (_, _) => StartupSyncCompleted++;
 
+        // Feature-Plaene/Passwort-Speicherung.md: the one real subscriber of
+        // this hook, wired once here just like GroupPersistNeeded/
+        // SlotSyncBatchStarting above - see PasswordRequested's own doc
+        // comment for what this covers.
+        _connectionManager.PasswordRequested = HandlePasswordRequestedAsync;
+
         foreach (var group in _persistenceService.LoadGroups())
         {
             Groups.Add(new GroupViewModel(group, _connectionManager, _multiworldTrackerService));
@@ -282,6 +316,132 @@ public partial class MainWindowViewModel : ViewModelBase
                 await Task.Delay(ConnectionManager.StartupGroupSpacing);
             }
         }
+    }
+
+    /// <summary>
+    /// <see cref="IConnectionManager.PasswordRequested"/>'s real
+    /// implementation - see Feature-Plaene/Passwort-Speicherung.md. Builds a
+    /// consolidated <see cref="PasswordPromptViewModel"/> covering every
+    /// group/slot that currently needs a password (not just
+    /// <paramref name="slot"/>, the one that happened to trigger this
+    /// particular call) and shows it via <see cref="ShowPasswordPromptDialogAsync"/>.
+    ///
+    /// This is also the whole mechanism that turns several time-spaced hook
+    /// calls (one per group, as <see cref="InitializeGroupsAsync"/>'s
+    /// startup loop reaches each of them a few seconds apart) into what
+    /// looks like ONE consolidated dialog: the first group to actually ask
+    /// greedily scans and shows every currently-needing group/slot at once;
+    /// every field binds straight through to <see cref="SlotProfile.Password"/>/
+    /// <see cref="ServerConnectionGroup.Password"/> (see
+    /// <see cref="Models.PasswordPromptSlotRow"/>'s own doc comment), so by
+    /// the time a later group's own hook call arrives, its password is
+    /// already sitting there and the fast-path check below resolves it
+    /// without showing anything again. A later <c>InvalidPassword</c> failure
+    /// for one specific group re-invokes this in retry mode, and the same
+    /// scan then naturally finds only that one remaining unresolved slot -
+    /// "only the affected group re-prompts" falls out of this for free,
+    /// with no extra bookkeeping needed.
+    /// </summary>
+    private async Task<bool> HandlePasswordRequestedAsync(GroupViewModel group, SlotProfile slot, bool isRetry, CancellationToken cancellationToken)
+    {
+        // Fast path, checked BEFORE ever queuing behind another group's
+        // dialog: a concurrent round already in flight for a different
+        // group may have picked this slot's own password up along the way
+        // (see the greedy-scan doc comment above) - nothing left to ask. Not
+        // checked for isRetry: there, the current value is exactly what's
+        // known WRONG, so it must never count as "already resolved".
+        if (!isRetry && HasKnownPassword(group, slot))
+        {
+            return true;
+        }
+
+        if (ShowPasswordPromptDialogAsync is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            await _passwordPromptGate.WaitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+
+        try
+        {
+            // Re-check now that the gate is actually held - the round that
+            // was just using it may have resolved this exact request too.
+            if (!isRetry && HasKnownPassword(group, slot))
+            {
+                return true;
+            }
+
+            var promptViewModel = BuildPasswordPromptViewModel(group, slot, isRetry);
+            var accepted = await ShowPasswordPromptDialogAsync(promptViewModel, cancellationToken);
+
+            // "Connect" only means every FILLED field should be tried - a
+            // group/slot left blank stays disconnected this round (see
+            // Feature-Plaene/Passwort-Speicherung.md's validation rule), so
+            // the actual answer for this specific slot still depends on
+            // whether its own field (or its group's fallback) ended up
+            // filled, not just which button was clicked.
+            return accepted && HasKnownPassword(group, slot);
+        }
+        finally
+        {
+            _passwordPromptGate.Release();
+        }
+    }
+
+    private static bool HasKnownPassword(GroupViewModel group, SlotProfile slot) =>
+        !string.IsNullOrEmpty(slot.Password) || !string.IsNullOrEmpty(group.Group.Password);
+
+    private static bool NeedsPassword(GroupViewModel group, SlotProfile slot) =>
+        slot.RequiresPassword && !HasKnownPassword(group, slot);
+
+    /// <summary>
+    /// Scans every configured group/slot for whoever currently needs a
+    /// password (see <see cref="NeedsPassword"/>), force-including
+    /// <paramref name="askingSlot"/> itself when <paramref name="isRetry"/>
+    /// (its field is non-empty but known wrong, so the normal scan alone
+    /// would wrongly skip it - see <see cref="HandlePasswordRequestedAsync"/>'s
+    /// own already-checked fast path for the non-retry case, which means
+    /// this force-include is never needed there). A group only appears at
+    /// all if it has at least one such slot.
+    /// </summary>
+    private PasswordPromptViewModel BuildPasswordPromptViewModel(GroupViewModel askingGroup, SlotProfile askingSlot, bool isRetry)
+    {
+        var groupRows = new List<PasswordPromptGroupRow>();
+
+        foreach (var groupViewModel in Groups)
+        {
+            var slotsNeeding = groupViewModel.Group.Slots.Where(s => NeedsPassword(groupViewModel, s)).ToList();
+
+            if (isRetry && ReferenceEquals(groupViewModel, askingGroup) && !slotsNeeding.Contains(askingSlot))
+            {
+                slotsNeeding.Add(askingSlot);
+            }
+
+            if (slotsNeeding.Count == 0)
+            {
+                continue;
+            }
+
+            var slotRows = slotsNeeding
+                .Select(s => new PasswordPromptSlotRow { Slot = s, ShowError = isRetry && s == askingSlot })
+                .ToList();
+
+            groupRows.Add(new PasswordPromptGroupRow
+            {
+                Group = groupViewModel.Group,
+                Slots = slotRows,
+                SlotFieldsExpanded = PasswordPromptGroupRow.ShouldStartExpanded(slotRows)
+            });
+        }
+
+        return PasswordPromptViewModel.For(groupRows);
     }
 
     /// <summary>

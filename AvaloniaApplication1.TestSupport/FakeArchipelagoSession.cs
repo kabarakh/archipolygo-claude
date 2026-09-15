@@ -95,9 +95,20 @@ public sealed class FakeArchipelagoSession : IArchipelagoSession
     /// </summary>
     public Task<RoomInfoPacket> ConnectAsync() => Task.FromResult<RoomInfoPacket>(RoomInfoToReturn!);
 
+    /// <summary>
+    /// The <c>password</c> argument <see cref="LoginAsync"/> was last called
+    /// with - lets a test assert what <c>ConnectionManager</c> actually sent
+    /// (e.g. after a password-prompt retry populated a fresh value), not
+    /// just whether the login it requested succeeded or failed. Feature-Plaene/Passwort-Speicherung.md.
+    /// </summary>
+    public string? LastPasswordArgument { get; private set; }
+
     public Task<LoginResult> LoginAsync(string game, string name, ItemsHandlingFlags itemsHandlingFlags,
-        Version? version = null, string[]? tags = null, string? uuid = null, string? password = null, bool requestSlotData = true) =>
-        LoginResultSource.Task;
+        Version? version = null, string[]? tags = null, string? uuid = null, string? password = null, bool requestSlotData = true)
+    {
+        LastPasswordArgument = password;
+        return LoginResultSource.Task;
+    }
 
     public LoginResult TryConnectAndLogin(string game, string name, ItemsHandlingFlags itemsHandlingFlags,
         Version? version = null, string[]? tags = null, string? uuid = null, string? password = null, bool requestSlotData = true) =>

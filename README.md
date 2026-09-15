@@ -15,6 +15,7 @@ The other configured slots on that server aren't just sitting idle, though:
 - **Passive updates.** The leader's connection sees the whole room's chat and item-send log, not just its own slot. Archipolygo mirrors any item send or hint that concerns one of your *other* configured slots straight into that slot's own item/hint history, live, without ever opening a second connection for it.
 - **Catch-up sync.** A slot that missed activity while the app itself was closed (or that was just added) gets a brief, one-shot connection: it logs in just long enough to pull whatever it missed (received items, hints), then disconnects again. This is what the "Catching up slots: N/M" progress banner at startup is doing - working through every configured slot across every server, one at a time, so a whole app restart doesn't hit any single Archipelago server with a burst of simultaneous logins.
 - **Switching leader.** Picking a different slot from the account dropdown ("Chat as") makes *that* slot the leader instead: it connects first, and only once that succeeds does the previous leader disconnect, so there's no visible gap. Whichever slot you leave as leader is remembered as that server's default, and reconnects automatically the next time you start the app - until you hit Disconnect, which turns auto-reconnect back off for that server until you connect it again by hand.
+- **Passwords aren't stored.** A room/slot password you type in is used for that connection only and never written to disk - only the fact that a server needs one is remembered. If a server that's needed a password before is about to auto-connect and doesn't have one yet, Archipolygo asks first, in one dialog covering every server that currently needs one rather than interrupting you server by server; leaving a field blank there just keeps that one server disconnected until you fill it in (from that same dialog on a later reconnect, or from Edit server...).
 
 ## Using the app
 
@@ -60,7 +61,7 @@ still just an idea, not built:
 
 - **Better item/trap icons** - game-specific icons instead of just color and text (see `Item-Trap-Icons.md` in that directory).
 - **Taskbar-button / title-bar flash / tray icon / log export** - visibility options for running the app in the background, deliberately dropped early on and worth revisiting (see `Fenster-Blinken.md`, `Tray-Icon.md`, `Log-Export.md`).
-- **Config export/import** and **not storing passwords at all** - `groups.json` today holds plain-text passwords with no backup/restore flow (see `Config-Export-Import.md`, `Passwort-Speicherung.md`).
+- **Config export/import** - no backup/restore flow for `groups.json` yet (see `Config-Export-Import.md`).
 - **Keyboard shortcuts** and **popping a tab into its own window** for multi-monitor setups (see `Tastenkuerzel.md`, `Tab-Eigenes-Fenster.md`).
 
 ## Tech stack

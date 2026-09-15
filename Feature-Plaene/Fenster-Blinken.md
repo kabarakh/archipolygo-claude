@@ -32,8 +32,8 @@ Aufrufe pro OS über den nativen Fenster-Handle (`TryGetPlatformHandle()`):
   (Taskleisten-Blinken, Titelleisten-Hervorhebung oder gar nichts);
   Wayland-Unterstützung ist uneinheitlich je nach Compositor.
 
-Das hat dieselbe Form wie die Passwort-Idee (siehe
-[`Passwort-Speicherung.md`](Passwort-Speicherung.md)): eine kleine
+Das hat dieselbe Form wie die (inzwischen umgesetzte) Passwort-Idee (siehe
+[`Passwort-Speicherung.md`](Archiv/Passwort-Speicherung.md)): eine kleine
 `IWindowAttentionService`-artige Abstraktion mit drei
 Plattform-Implementierungen, kein einzelner Cross-Platform-Call.
 

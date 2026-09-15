@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using Archipelago.MultiClient.Net.Helpers;
 using Archipolygo.Models;
@@ -56,6 +57,43 @@ public interface IConnectionManager
     /// startup pass. Always raised on the UI thread.
     /// </summary>
     event Action<int>? SlotSyncBatchStarting;
+
+    /// <summary>
+    /// Settable hook (not a multi-subscriber event - exactly one real
+    /// subscriber ever wires this, <see cref="Archipolygo.ViewModels.MainWindowViewModel"/>,
+    /// same shape as e.g. an optional service dependency) letting the UI
+    /// layer obtain a password on demand from deep inside a connect attempt -
+    /// see Feature-Plaene/Passwort-Speicherung.md. Called from
+    /// <c>ConnectSlotSessionAsync</c>, so it transparently covers every
+    /// connect path (leader connects, catch-up/sibling sync, Hint-picker
+    /// probe connects) with no changes needed at any of their call sites.
+    ///
+    /// Invoked when <paramref name="slot"/>'s own effective password
+    /// (<see cref="SlotProfile.Password"/>, or else
+    /// <see cref="ServerConnectionGroup.Password"/>) is currently empty but
+    /// <see cref="SlotProfile.RequiresPassword"/> says one is needed
+    /// (<paramref name="isRetryAfterFailure"/> false), or right after a
+    /// login just failed specifically because of a missing/wrong password
+    /// (<paramref name="isRetryAfterFailure"/> true) - in the retry case,
+    /// whatever was already in <see cref="SlotProfile.Password"/>/
+    /// <see cref="ServerConnectionGroup.Password"/> is known wrong. The
+    /// callback is expected to (eventually) populate one or both of those
+    /// properties with a fresh value and return <c>true</c> so the caller
+    /// retries the login with it, or return <c>false</c> if the user
+    /// declined/cancelled - in which case the connect attempt gives up
+    /// quietly (no <see cref="IMessageHistoryService.HandleError"/> call),
+    /// exactly as if this group simply weren't configured to connect at all
+    /// right now, and (for a leader session) its <see cref="ConnectionState"/>
+    /// settles back to <see cref="ConnectionState.Disconnected"/> rather than
+    /// staying stuck on "Connecting".
+    ///
+    /// <c>null</c> (every existing test construction site, and the real app
+    /// until <c>MainWindowViewModel</c>'s constructor runs) means: never
+    /// prompt, just fail/skip silently - exactly today's behavior for any
+    /// slot that happens to have <see cref="SlotProfile.RequiresPassword"/>
+    /// set without an actual password around.
+    /// </summary>
+    Func<GroupViewModel, SlotProfile, bool, CancellationToken, Task<bool>>? PasswordRequested { get; set; }
 
     /// <summary>
     /// Makes <paramref name="targetSlot"/> the group's leader: connects it,

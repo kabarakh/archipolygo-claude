@@ -47,7 +47,7 @@ public sealed class PersistenceServiceTests : IDisposable
             Password = "secret",
             AutoConnect = true
         };
-        var slot1 = new SlotProfile { GroupId = group.Id, SlotName = "Alice" };
+        var slot1 = new SlotProfile { GroupId = group.Id, SlotName = "Alice", RequiresPassword = true };
         var slot2 = new SlotProfile { GroupId = group.Id, SlotName = "Bob", Password = "override" };
         group.Slots.Add(slot1);
         group.Slots.Add(slot2);
@@ -61,7 +61,9 @@ public sealed class PersistenceServiceTests : IDisposable
         Assert.Equal("My Server", loadedGroup.Name);
         Assert.Equal("archipelago.gg", loadedGroup.Host);
         Assert.Equal(12345, loadedGroup.Port);
-        Assert.Equal("secret", loadedGroup.Password);
+        // Feature-Plaene/Passwort-Speicherung.md: never persisted - see the
+        // two tests below for the actual password-handling behavior.
+        Assert.Equal(string.Empty, loadedGroup.Password);
         Assert.True(loadedGroup.AutoConnect);
         Assert.Equal(slot1.Id, loadedGroup.PreferredLeaderSlotId);
 
@@ -69,9 +71,69 @@ public sealed class PersistenceServiceTests : IDisposable
         var loadedSlot1 = loadedGroup.Slots.Single(s => s.Id == slot1.Id);
         Assert.Equal("Alice", loadedSlot1.SlotName);
         Assert.Null(loadedSlot1.Password);
+        Assert.True(loadedSlot1.RequiresPassword);
         var loadedSlot2 = loadedGroup.Slots.Single(s => s.Id == slot2.Id);
         Assert.Equal("Bob", loadedSlot2.SlotName);
-        Assert.Equal("override", loadedSlot2.Password);
+        Assert.Null(loadedSlot2.Password);
+        Assert.False(loadedSlot2.RequiresPassword);
+    }
+
+    [Fact]
+    public void SaveGroups_NeverWritesAPasswordKey_EvenWhenOneIsSet()
+    {
+        // The actual "don't store passwords" promise, checked against the
+        // raw file text rather than the typed model - a regression here
+        // (e.g. someone removing [JsonIgnore]) wouldn't be caught by the
+        // round-trip test above, since that only asserts what comes back
+        // out, not what's actually sitting on disk in between.
+        var group = new ServerConnectionGroup { Name = "S", Host = "h", Port = 1, Password = "secret" };
+        var slot = new SlotProfile { GroupId = group.Id, SlotName = "Alice", Password = "slot-secret" };
+        group.Slots.Add(slot);
+
+        _service.SaveGroups(new[] { group });
+
+        var rawJson = File.ReadAllText(Path.Combine(_tempDirectory, "groups.json"));
+        Assert.DoesNotContain("secret", rawJson, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"Password\"", rawJson, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LoadGroups_LegacyFileWithRealPassword_MigratesToRequiresPasswordFlag()
+    {
+        // Simulates a groups.json written by a pre-Passwort-Speicherung.md
+        // build: a real "Password" string still on disk. The normal typed
+        // Deserialize silently drops it (now [JsonIgnore]d) - this is what
+        // ApplyLegacyPasswordRequirement's raw pre-pass is for for.
+        Directory.CreateDirectory(_tempDirectory);
+        var groupId = Guid.NewGuid();
+        var slotWithGroupPasswordId = Guid.NewGuid();
+        var slotWithOwnOverrideId = Guid.NewGuid();
+        var slotNeverPasswordedId = Guid.NewGuid();
+        var legacyJson = $$"""
+            [
+              {
+                "Id": "{{groupId}}",
+                "Name": "Legacy Server",
+                "Host": "archipelago.gg",
+                "Port": 38281,
+                "Password": "secret",
+                "AutoConnect": true,
+                "Slots": [
+                  { "Id": "{{slotWithGroupPasswordId}}", "GroupId": "{{groupId}}", "SlotName": "Alice", "Password": null },
+                  { "Id": "{{slotWithOwnOverrideId}}", "GroupId": "{{groupId}}", "SlotName": "Bob", "Password": "own-override" },
+                  { "Id": "{{slotNeverPasswordedId}}", "GroupId": "{{groupId}}", "SlotName": "Carol", "Password": "" }
+                ]
+              }
+            ]
+            """;
+        File.WriteAllText(Path.Combine(_tempDirectory, "groups.json"), legacyJson);
+
+        var loaded = _service.LoadGroups();
+
+        var loadedGroup = Assert.Single(loaded);
+        Assert.Equal(string.Empty, loadedGroup.Password); // never re-populated from the legacy text
+        Assert.All(loadedGroup.Slots, s => Assert.True(s.RequiresPassword));
+        Assert.All(loadedGroup.Slots, s => Assert.Null(s.Password));
     }
 
     [Fact]

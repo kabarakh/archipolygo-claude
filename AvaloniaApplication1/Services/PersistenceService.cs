@@ -94,7 +94,9 @@ public class PersistenceService : IPersistenceService
         try
         {
             var json = File.ReadAllText(_groupsFilePath);
-            return JsonSerializer.Deserialize<List<ServerConnectionGroup>>(json, JsonOptions) ?? new List<ServerConnectionGroup>();
+            var groups = JsonSerializer.Deserialize<List<ServerConnectionGroup>>(json, JsonOptions) ?? new List<ServerConnectionGroup>();
+            ApplyLegacyPasswordRequirement(json, groups);
+            return groups;
         }
         catch (Exception)
         {
@@ -102,6 +104,100 @@ public class PersistenceService : IPersistenceService
             return new List<ServerConnectionGroup>();
         }
     }
+
+    /// <summary>
+    /// Feature-Plaene/Passwort-Speicherung.md's migration for a
+    /// <c>groups.json</c> written before passwords stopped being persisted:
+    /// <see cref="SlotProfile.Password"/>/<see cref="ServerConnectionGroup.Password"/>
+    /// are now <c>[JsonIgnore]</c>d, so an old file's real "Password" text is
+    /// silently dropped by the normal typed <see cref="JsonSerializer.Deserialize"/>
+    /// above with no trace of it ever having needed one. This raw pre-pass
+    /// over the very same JSON text (a plain <see cref="JsonDocument"/> walk,
+    /// not the strongly-typed model, since the typed shape can no longer see
+    /// that property at all) checks whether each group/slot's raw "Password"
+    /// property was non-empty, and if so forces that already-deserialized
+    /// slot's <see cref="SlotProfile.RequiresPassword"/> true - so the very
+    /// next connect attempt asks for it via the normal password-prompt flow
+    /// (<see cref="ConnectionManager.PasswordRequested"/>) instead of
+    /// silently trying an empty password first and failing.
+    ///
+    /// Needs no "already migrated" flag/gate: once <see cref="SaveGroups"/>
+    /// writes this file again - which happens the moment anything else about
+    /// a group changes, or as soon as this same startup's own connect
+    /// attempts update <see cref="SlotProfile.RequiresPassword"/> and raise
+    /// <see cref="ConnectionManager.GroupPersistNeeded"/> - the file never
+    /// contains "Password" text again, so this becomes a permanent no-op for
+    /// that group from then on. Positional, not by id: the raw array and the
+    /// deserialized list were both just read from the exact same JSON text,
+    /// so their order and count are always identical.
+    /// </summary>
+    private static void ApplyLegacyPasswordRequirement(string json, List<ServerConnectionGroup> groups)
+    {
+        if (groups.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind != JsonValueKind.Array)
+            {
+                return;
+            }
+
+            var groupIndex = 0;
+            foreach (var groupElement in document.RootElement.EnumerateArray())
+            {
+                if (groupIndex >= groups.Count)
+                {
+                    break;
+                }
+
+                var group = groups[groupIndex];
+                groupIndex++;
+
+                var groupHadPassword = HasNonEmptyLegacyPassword(groupElement);
+
+                if (!groupElement.TryGetProperty("Slots", out var slotsElement) || slotsElement.ValueKind != JsonValueKind.Array)
+                {
+                    continue;
+                }
+
+                var slotIndex = 0;
+                foreach (var slotElement in slotsElement.EnumerateArray())
+                {
+                    if (slotIndex >= group.Slots.Count)
+                    {
+                        break;
+                    }
+
+                    // A slot needed *a* password if either its own override
+                    // or the group's shared password was on file - the old
+                    // effectivePassword fallback rule means either one could
+                    // have been what actually made its login succeed.
+                    if (groupHadPassword || HasNonEmptyLegacyPassword(slotElement))
+                    {
+                        group.Slots[slotIndex].RequiresPassword = true;
+                    }
+
+                    slotIndex++;
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // Best-effort only - the normal typed Deserialize above already
+            // succeeded (or this method wouldn't have been called), so
+            // there's nothing to recover here beyond simply not migrating
+            // this one load.
+        }
+    }
+
+    private static bool HasNonEmptyLegacyPassword(JsonElement element) =>
+        element.TryGetProperty("Password", out var passwordElement) &&
+        passwordElement.ValueKind == JsonValueKind.String &&
+        !string.IsNullOrEmpty(passwordElement.GetString());
 
     public void SaveGroups(IEnumerable<ServerConnectionGroup> groups)
     {
@@ -279,13 +375,24 @@ public class PersistenceService : IPersistenceService
                 Password = first.Password
             };
 
+            var groupHadPassword = !string.IsNullOrEmpty(first.Password);
+
             foreach (var legacy in bucket)
             {
                 var slot = new SlotProfile
                 {
                     Id = legacy.Id,
                     GroupId = group.Id,
-                    SlotName = legacy.SlotName
+                    SlotName = legacy.SlotName,
+                    // See Feature-Plaene/Passwort-Speicherung.md: this legacy
+                    // format's own Password is about to become
+                    // [JsonIgnore]d too (never written back out by the
+                    // SaveGroups call right after this method returns), so
+                    // the fact that one was on file here is preserved as
+                    // this flag instead, same reasoning as
+                    // ApplyLegacyPasswordRequirement's own migration for the
+                    // newer groups.json format.
+                    RequiresPassword = groupHadPassword || !string.IsNullOrEmpty(legacy.Password)
                 };
                 group.Slots.Add(slot);
 

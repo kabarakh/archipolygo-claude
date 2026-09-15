@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Archipelago.MultiClient.Net.Enums;
 using Archipelago.MultiClient.Net.Helpers;
@@ -43,6 +44,13 @@ public sealed class FakeConnectionManager : IConnectionManager
     // purpose (see the class doc comment), just declared to satisfy
     // IConnectionManager.
     public event Action<int>? SlotSyncBatchStarting;
+
+    // Never invoked by this fake: nothing here ever calls SlotProfile.RequiresPassword
+    // true / leaves a SlotProfile.Password empty in a way that would need it
+    // (SwitchLeaderAsync below always "succeeds" unconditionally, no real
+    // login). Declared purely to satisfy IConnectionManager - see
+    // Feature-Plaene/Passwort-Speicherung.md.
+    public Func<GroupViewModel, SlotProfile, bool, CancellationToken, Task<bool>>? PasswordRequested { get; set; }
 
     // --- Fake hint room -----------------------------------------------
     //

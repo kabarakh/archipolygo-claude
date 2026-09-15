@@ -1,5 +1,6 @@
 using System;
 using System.Collections.ObjectModel;
+using System.Text.Json.Serialization;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace Archipolygo.Models;
@@ -28,8 +29,15 @@ public partial class ServerConnectionGroup : ObservableObject
     [ObservableProperty]
     private int _port = 38281;
 
-    /// <summary>Room password, shared by every slot on this server.</summary>
+    /// <summary>
+    /// Room password, shared by every slot on this server. Purely in-memory/
+    /// per-session (see <see cref="JsonIgnoreAttribute"/>) - see
+    /// Feature-Plaene/Passwort-Speicherung.md: never written to
+    /// <c>groups.json</c>. <see cref="SlotProfile.RequiresPassword"/> is the
+    /// persisted stand-in per slot.
+    /// </summary>
     [ObservableProperty]
+    [property: JsonIgnore]
     private string _password = string.Empty;
 
     /// <summary>

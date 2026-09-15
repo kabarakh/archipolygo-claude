@@ -1,4 +1,5 @@
 using System;
+using System.Text.Json.Serialization;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace Archipolygo.Models;
@@ -31,9 +32,33 @@ public partial class SlotProfile : ObservableObject
     /// password differs from the group's shared <see cref="ServerConnectionGroup.Password"/>
     /// - some custom-hosted Archipelago servers support a different password
     /// per slot. Null (the common case) means: use the group's password.
+    /// <see cref="JsonIgnoreAttribute"/>: see Feature-Plaene/Passwort-Speicherung.md -
+    /// this is now a purely in-memory, per-session value, never written to
+    /// <c>groups.json</c>. <see cref="RequiresPassword"/> is the persisted
+    /// stand-in that lets the app know to ask for it again next time it's
+    /// actually needed, without ever storing the secret itself.
     /// </summary>
     [ObservableProperty]
+    [property: JsonIgnore]
     private string? _password;
+
+    /// <summary>
+    /// Whether this slot's own connect needs a non-empty effective password
+    /// (its own <see cref="Password"/> override, or else the group's shared
+    /// <see cref="ServerConnectionGroup.Password"/>) to succeed - learned
+    /// from real connect attempts (see <see cref="Services.ConnectionManager"/>'s
+    /// login-result handling) rather than ever asked for up front. Default
+    /// <c>false</c> means "not known to need one yet", not "definitely
+    /// doesn't" - a brand-new slot, or one that's never actually attempted a
+    /// login. Self-healing: flips to <c>true</c> the moment a login either
+    /// succeeds with a non-empty password or fails specifically because one
+    /// was missing/wrong, and back to <c>false</c> the moment one succeeds
+    /// with an empty password - so a server that used to need one (or didn't)
+    /// and later changes is picked up again automatically rather than trusting
+    /// a stale belief forever. See Feature-Plaene/Passwort-Speicherung.md.
+    /// </summary>
+    [ObservableProperty]
+    private bool _requiresPassword;
 
     /// <summary>
     /// This slot's alias in the room, learned "for free" from the player

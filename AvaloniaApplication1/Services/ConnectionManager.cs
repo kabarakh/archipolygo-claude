@@ -208,6 +208,9 @@ public class ConnectionManager : IConnectionManager
     /// <inheritdoc/>
     public event Action<int>? SlotSyncBatchStarting;
 
+    /// <inheritdoc/>
+    public Func<GroupViewModel, SlotProfile, bool, CancellationToken, Task<bool>>? PasswordRequested { get; set; }
+
     public ConnectionManager(
         IMessageHistoryService messageHistoryService,
         IHintService hintService,
@@ -631,52 +634,72 @@ public class ConnectionManager : IConnectionManager
     private void RaiseSlotSyncBatchStarting(int slotCount) =>
         Dispatcher.UIThread.Post(() => SlotSyncBatchStarting?.Invoke(slotCount));
 
+    /// <summary>
+    /// Serializes against <see cref="SwitchLeaderAsync"/>/<see cref="DisconnectGroupAsync"/>/
+    /// <see cref="CatchUpSyncAsync"/> via the same per-group gate those use -
+    /// added for Feature-Plaene/Passwort-Speicherung.md: without it, this
+    /// method's own probe connect (below) could run fully concurrently with
+    /// this same group's gated leader connect (e.g. one that's itself
+    /// awaiting a password prompt), a real hole in the "slots never connect
+    /// concurrently" invariant every other connect-triggering method here
+    /// already keeps. No behavior change for the fast paths above (an
+    /// already-open session is just as available whether or not the gate is
+    /// held), only for the fallback probe-connect path.
+    /// </summary>
     public async Task<IReadOnlyList<Archipelago.MultiClient.Net.Helpers.PlayerInfo>> GetRoomPlayersAsync(GroupViewModel group)
     {
         var groupId = group.Group.Id;
-
-        // Prefer an already-open session (the leader, or a catch-up dip
-        // already in flight) over opening a redundant extra connection just
-        // to read the roster.
-        if (_leaderSlotByGroup.TryGetValue(groupId, out var leaderId) && _sessions.TryGetValue(leaderId, out var leaderSession))
+        var gate = _groupLocks.GetOrAdd(groupId, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync();
+        try
         {
-            return FilterToRealPlayers(leaderSession.Players.AllPlayers);
-        }
-
-        foreach (var slot in group.Group.Slots)
-        {
-            if (_sessions.TryGetValue(slot.Id, out var existingSession))
+            // Prefer an already-open session (the leader, or a catch-up dip
+            // already in flight) over opening a redundant extra connection
+            // just to read the roster.
+            if (_leaderSlotByGroup.TryGetValue(groupId, out var leaderId) && _sessions.TryGetValue(leaderId, out var leaderSession))
             {
-                return FilterToRealPlayers(existingSession.Players.AllPlayers);
+                return FilterToRealPlayers(leaderSession.Players.AllPlayers);
             }
-        }
 
-        // Nothing connected right now - open a brief temporary session using
-        // whichever slot is already configured, purely to read the room's
-        // current player list, then close it again immediately. Has the same
-        // side effects as a catch-up sync for that one slot (harmless/
-        // desirable on its own); it just doesn't wait out the full backlog
-        // grace period before tearing down again.
-        var probeSlot = group.Group.Slots.FirstOrDefault();
-        if (probeSlot is null)
+            foreach (var slot in group.Group.Slots)
+            {
+                if (_sessions.TryGetValue(slot.Id, out var existingSession))
+                {
+                    return FilterToRealPlayers(existingSession.Players.AllPlayers);
+                }
+            }
+
+            // Nothing connected right now - open a brief temporary session
+            // using whichever slot is already configured, purely to read the
+            // room's current player list, then close it again immediately.
+            // Has the same side effects as a catch-up sync for that one slot
+            // (harmless/desirable on its own); it just doesn't wait out the
+            // full backlog grace period before tearing down again.
+            var probeSlot = group.Group.Slots.FirstOrDefault();
+            if (probeSlot is null)
+            {
+                return Array.Empty<Archipelago.MultiClient.Net.Helpers.PlayerInfo>();
+            }
+
+            var session = await ConnectSlotSessionAsync(group, probeSlot, isLeaderSession: false);
+            if (session is null)
+            {
+                return Array.Empty<Archipelago.MultiClient.Net.Helpers.PlayerInfo>();
+            }
+
+            var players = FilterToRealPlayers(session.Players.AllPlayers);
+
+            if (_sessions.TryRemove(probeSlot.Id, out var stillTracked) && stillTracked == session)
+            {
+                await TryCloseSocketAsync(group, probeSlot, session);
+            }
+
+            return players;
+        }
+        finally
         {
-            return Array.Empty<Archipelago.MultiClient.Net.Helpers.PlayerInfo>();
+            gate.Release();
         }
-
-        var session = await ConnectSlotSessionAsync(group, probeSlot, isLeaderSession: false);
-        if (session is null)
-        {
-            return Array.Empty<Archipelago.MultiClient.Net.Helpers.PlayerInfo>();
-        }
-
-        var players = FilterToRealPlayers(session.Players.AllPlayers);
-
-        if (_sessions.TryRemove(probeSlot.Id, out var stillTracked) && stillTracked == session)
-        {
-            await TryCloseSocketAsync(group, probeSlot, session);
-        }
-
-        return players;
     }
 
     /// <summary>
@@ -1053,6 +1076,41 @@ public class ConnectionManager : IConnectionManager
     /// caller shortly after this returns). Returns null (having already
     /// reported the failure) if the connection or login fails.
     /// </summary>
+    /// <summary>
+    /// Whether <paramref name="slot"/>'s own connect currently has no known
+    /// way to satisfy a password it's believed to need - see
+    /// <see cref="PasswordRequested"/>. Deliberately checks both
+    /// <see cref="SlotProfile.Password"/> and <see cref="ServerConnectionGroup.Password"/>
+    /// independently (not the single <c>effectivePassword</c> fallback
+    /// value) so a slot with its own currently-empty override still counts
+    /// as needing one even when the group's shared password happens to
+    /// already be filled in for a different, override-less sibling slot.
+    /// </summary>
+    private static bool NeedsPasswordPrompt(GroupViewModel group, SlotProfile slot) =>
+        slot.RequiresPassword && string.IsNullOrEmpty(slot.Password) && string.IsNullOrEmpty(group.Group.Password);
+
+    /// <summary>
+    /// Updates <see cref="SlotProfile.RequiresPassword"/> and, only if the
+    /// value actually changed, raises <see cref="GroupPersistNeeded"/> (same
+    /// event <see cref="SwitchLeaderAsync"/> already uses for AutoConnect/
+    /// PreferredLeaderSlotId changes) so this self-healed belief survives a
+    /// restart. Posted to the UI thread like every other UI-observable
+    /// mutation this class makes - see CLAUDE.md's own note on this.
+    /// </summary>
+    private void UpdateRequiresPassword(GroupViewModel group, SlotProfile slot, bool requiresPassword)
+    {
+        if (slot.RequiresPassword == requiresPassword)
+        {
+            return;
+        }
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            slot.RequiresPassword = requiresPassword;
+            GroupPersistNeeded?.Invoke(group);
+        });
+    }
+
     private async Task<IArchipelagoSession?> ConnectSlotSessionAsync(GroupViewModel group, SlotProfile slot, bool isLeaderSession, CancellationToken cancellationToken = default)
     {
         // Up to MaxTransientConnectRetries extra attempts, each with a
@@ -1171,6 +1229,31 @@ public class ConnectionManager : IConnectionManager
 
             try
             {
+                // Proactive password prompt: nothing about the server needs
+                // to be known yet (RequiresPassword + the currently-empty
+                // Password fields are enough), so this runs BEFORE opening
+                // the socket, not after - an arbitrarily long human pause
+                // between an open socket and actually logging in would
+                // otherwise be a needless window for it to idle-time-out.
+                // See PasswordRequested's own doc comment for why this
+                // works uniformly for every connect path. No socket has
+                // been opened yet at this point (that's what ConnectAsync()
+                // right below does), so a decline/cancel here needs no
+                // TryCloseSocketAsync cleanup - there's nothing to close.
+                if (NeedsPasswordPrompt(group, slot) && PasswordRequested is not null)
+                {
+                    var obtained = await PasswordRequested(group, slot, false /* isRetryAfterFailure */, cancellationToken);
+                    if (!obtained || cancellationToken.IsCancellationRequested)
+                    {
+                        if (isLeaderSession)
+                        {
+                            SetConnectionState(group, ConnectionState.Disconnected);
+                        }
+
+                        return null; // declined/cancelled - quiet skip, not a real error.
+                    }
+                }
+
                 var roomInfo = await session.ConnectAsync();
                 if (roomInfo is not null)
                 {
@@ -1216,6 +1299,43 @@ public class ConnectionManager : IConnectionManager
                 if (loginResult is not LoginSuccessful)
                 {
                     var failure = (LoginFailure)loginResult;
+
+                    // "InvalidPassword indicates the wrong, or no password
+                    // when it was required, was sent" (Archipelago.MultiClient.Net
+                    // 6.7.1's own docs) - the one LoginFailure reason this
+                    // class treats specially: learn RequiresPassword even
+                    // though this attempt failed (see UpdateRequiresPassword),
+                    // regardless of whether anyone is listening on
+                    // PasswordRequested to actually act on it - and, only
+                    // when someone is, offer a retry with a freshly obtained
+                    // password instead of giving up immediately. Every other
+                    // reason (bad slot name, version mismatch, ...) is a
+                    // real, unrelated rejection and falls through to the
+                    // plain error path below exactly as before.
+                    if (failure.ErrorCodes.Contains(ConnectionRefusedError.InvalidPassword))
+                    {
+                        UpdateRequiresPassword(group, slot, true);
+
+                        if (PasswordRequested is not null)
+                        {
+                            await TryCloseSocketAsync(group, slot, session);
+
+                            var provided = await PasswordRequested(group, slot, true /* isRetryAfterFailure */, cancellationToken);
+                            if (provided && !cancellationToken.IsCancellationRequested)
+                            {
+                                attempt--; // a password retry doesn't consume a MaxTransientConnectRetries slot.
+                                continue;
+                            }
+
+                            if (isLeaderSession)
+                            {
+                                SetConnectionState(group, ConnectionState.Disconnected);
+                            }
+
+                            return null; // declined/cancelled - quiet skip, not a real error.
+                        }
+                    }
+
                     var errorText = string.Join("; ", failure.Errors);
                     if (isLeaderSession)
                     {
@@ -1226,6 +1346,15 @@ public class ConnectionManager : IConnectionManager
                     await TryCloseSocketAsync(group, slot, session);
                     return null; // a real rejection, not a transient hiccup - never retried.
                 }
+
+                // Login succeeded - learn whether a password was actually
+                // needed from what was actually used, self-healing either
+                // direction (see SlotProfile.RequiresPassword's doc comment):
+                // an empty effectivePassword succeeding is proof positive
+                // nothing was required; a non-empty one succeeding is proof
+                // one was (an InvalidPassword LoginFailure would have come
+                // back otherwise).
+                UpdateRequiresPassword(group, slot, !string.IsNullOrEmpty(effectivePassword));
             }
             catch (Exception ex) when (IsTransientConnectFailure(ex) && attempt <= MaxTransientConnectRetries)
             {

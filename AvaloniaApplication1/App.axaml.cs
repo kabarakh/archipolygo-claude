@@ -45,10 +45,22 @@ public partial class App : Application
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            desktop.MainWindow = new MainWindow
+            var mainWindowViewModel = Services.GetRequiredService<MainWindowViewModel>();
+            var mainWindow = new MainWindow
             {
-                DataContext = Services.GetRequiredService<MainWindowViewModel>(),
+                DataContext = mainWindowViewModel,
             };
+
+            // Feature-Plaene/Passwort-Speicherung.md: the only place with an
+            // actual Window to own a PasswordPromptWindow - see
+            // MainWindowViewModel.ShowPasswordPromptDialogAsync's own doc
+            // comment for why this isn't wired inside MainWindowViewModel or
+            // MainWindow.axaml.cs's own constructor instead (DataContext
+            // isn't assigned yet at either of those points).
+            mainWindowViewModel.ShowPasswordPromptDialogAsync =
+                (viewModel, cancellationToken) => PasswordPromptWindow.ShowDialogAsync(mainWindow, viewModel, cancellationToken);
+
+            desktop.MainWindow = mainWindow;
         }
 
         base.OnFrameworkInitializationCompleted();

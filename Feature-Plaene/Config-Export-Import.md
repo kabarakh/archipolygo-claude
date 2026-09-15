@@ -17,14 +17,12 @@ der App selbst).
 
 ## Offene Fragen vor einem echten Plan
 
-- **Überschneidung mit ["Don't store passwords at all"](Passwort-Speicherung.md)**:
-  falls diese Idee zuerst umgesetzt wird, enthält `groups.json` gar keine
-  Passwörter mehr - ein Export wäre dann automatisch schon "sicher" genug
-  zum Teilen/Sichern, ohne eigene Verschlüsselung. Wird die Passwort-Idee
-  *nicht* umgesetzt, müsste Export/Import überlegen, ob Klartext-Passwörter
-  unverändert mit exportiert werden sollen (Backup-Anwendungsfall spricht
-  dafür, Weitergabe-Anwendungsfall dagegen) - die beiden Ideen sollten daher
-  nicht unabhängig voneinander geplant werden.
+- **["Don't store passwords at all"](Archiv/Passwort-Speicherung.md) ist
+  inzwischen umgesetzt** (2026-09-15) - `groups.json` enthält seitdem gar
+  keine Passwörter mehr, nur noch ein `RequiresPassword`-Flag pro Slot. Ein
+  Export ist dadurch bereits "sicher" genug zum Teilen/Sichern, ohne eigene
+  Verschlüsselung; Export/Import muss sich also nicht mehr mit
+  Klartext-Passwörtern in der exportierten Datei auseinandersetzen.
 - Ist "Export" einfach ein Kopieren/Anzeigen des `groups.json`-Pfads (damit
   Nutzer die Datei selbst finden/sichern), oder ein echter
   Save-As-Dialog innerhalb der App?
