@@ -670,7 +670,7 @@ public partial class GroupViewModel : ViewModelBase
 
     /// <summary>
     /// Removes one already-configured slot from <see cref="Group"/>'s
-    /// <c>Slots</c> (see <see cref="MainWindowViewModel.RemoveSlotFromGroup"/>)
+    /// <c>Slots</c> (see <see cref="MainWindowViewModel.RemoveSlotFromGroupCoreAsync"/>)
     /// via a targeted <see cref="Slots"/>/<see cref="SlotFilterOptions"/>
     /// removal rather than letting <see cref="OnSlotsCollectionChanged"/>
     /// run its normal <see cref="RefreshSlotOrder"/> - same reasoning as
@@ -684,7 +684,7 @@ public partial class GroupViewModel : ViewModelBase
     /// to null (the leader silently vanishing from the account dropdown)
     /// whenever a *different* slot on the same server was removed. Removing
     /// the slot that IS currently selected is unaffected by this fix and
-    /// stays exactly as safe as before: <see cref="MainWindowViewModel.RemoveSlotFromGroup"/>
+    /// stays exactly as safe as before: <see cref="MainWindowViewModel.RemoveSlotFromGroupCoreAsync"/>
     /// disconnects that slot first, which clears <see cref="SelectedChatSlot"/>
     /// itself under <see cref="SetLeaderStateWithoutTriggeringSwitch"/>'s own
     /// re-entrancy guard before this method ever runs.

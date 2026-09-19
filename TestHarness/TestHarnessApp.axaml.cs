@@ -93,6 +93,17 @@ public partial class TestHarnessApp : Application
                 WindowStartupLocation = Avalonia.Controls.WindowStartupLocation.Manual,
                 Position = new Avalonia.PixelPoint(300, 20)
             };
+
+            // Same wiring as the real App.axaml.cs - without this, clicking
+            // "Remove server" or hitting a password-needed slot here would
+            // silently skip the dialog the real app shows, which isn't what
+            // this harness is for (see .claude/skills/ui-feature-prototyp/SKILL.md -
+            // it should behave like the real app minus the network).
+            mainWindowViewModel.ShowPasswordPromptDialogAsync =
+                (viewModel, cancellationToken) => PasswordPromptWindow.ShowDialogAsync(mainWindow, viewModel, cancellationToken);
+            mainWindowViewModel.ShowConfirmationDialogAsync =
+                viewModel => ConfirmationWindow.ShowDialogAsync(mainWindow, viewModel);
+
             desktop.MainWindow = mainWindow;
 
             var controlPanel = new ControlPanelWindow(groupViewModel, slot, siblingSlot, connectionManager);

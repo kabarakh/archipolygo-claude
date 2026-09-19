@@ -55,4 +55,30 @@ public sealed class MainWindowViewModelGroupRemovalTests : IDisposable
         Assert.Null(_persistenceService.LoadDataPackageCache(groupToRemove.Group.Id, "Kirby Super Star"));
         Assert.NotNull(_persistenceService.LoadDataPackageCache(otherGroup.Group.Id, "Kirby Super Star"));
     }
+
+    [Fact]
+    public async Task RemoveGroupAsync_DecliningTheConfirmation_LeavesTheGroupInPlace()
+    {
+        var mainWindowViewModel = new MainWindowViewModel(_persistenceService, new FakeConnectionManager(), new MultiworldTrackerService());
+        mainWindowViewModel.AddNewGroup("Server1", "host1", 1, string.Empty, "Alice", autoConnect: false);
+        var group = mainWindowViewModel.Groups[0];
+
+        mainWindowViewModel.ShowConfirmationDialogAsync = _ => Task.FromResult(false);
+        await mainWindowViewModel.RemoveGroupAsync(group);
+
+        Assert.Contains(group, mainWindowViewModel.Groups);
+    }
+
+    [Fact]
+    public async Task RemoveGroupAsync_ConfirmingTheDialog_RemovesTheGroup()
+    {
+        var mainWindowViewModel = new MainWindowViewModel(_persistenceService, new FakeConnectionManager(), new MultiworldTrackerService());
+        mainWindowViewModel.AddNewGroup("Server1", "host1", 1, string.Empty, "Alice", autoConnect: false);
+        var group = mainWindowViewModel.Groups[0];
+
+        mainWindowViewModel.ShowConfirmationDialogAsync = _ => Task.FromResult(true);
+        await mainWindowViewModel.RemoveGroupAsync(group);
+
+        Assert.DoesNotContain(group, mainWindowViewModel.Groups);
+    }
 }

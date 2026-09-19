@@ -60,6 +60,11 @@ public partial class App : Application
             mainWindowViewModel.ShowPasswordPromptDialogAsync =
                 (viewModel, cancellationToken) => PasswordPromptWindow.ShowDialogAsync(mainWindow, viewModel, cancellationToken);
 
+            // Same reasoning as ShowPasswordPromptDialogAsync above - only
+            // this class has an actual Window to own the confirmation dialog.
+            mainWindowViewModel.ShowConfirmationDialogAsync =
+                viewModel => ConfirmationWindow.ShowDialogAsync(mainWindow, viewModel);
+
             desktop.MainWindow = mainWindow;
         }
 

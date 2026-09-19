@@ -354,7 +354,7 @@ public class DashboardTabTests
         Assert.Equal(group1, editServerGroup);
     }
 
-    /// <summary>Remove needs no dialog, so this exercises the full path: icon click → <see cref="DashboardView.RemoveServerRequested"/> → <see cref="MainWindow"/>'s subscription → <see cref="MainWindowViewModel.RemoveGroupAsync"/>.</summary>
+    /// <summary>This <see cref="MainWindowViewModel"/> never has <see cref="MainWindowViewModel.ShowConfirmationDialogAsync"/> wired up (only <c>App.axaml.cs</c> does that for the real app), so <see cref="MainWindowViewModel.RemoveGroupAsync"/> skips the confirmation and removes immediately - letting this exercise the rest of the full path unattended: icon click → <see cref="DashboardView.RemoveServerRequested"/> → <see cref="MainWindow"/>'s subscription → <see cref="MainWindowViewModel.RemoveGroupAsync"/>.</summary>
     [AvaloniaFact]
     public void RowIcon_RemoveServer_ActuallyRemovesTheClickedRowsGroup_LeavesOthersAndDashboardOpen()
     {

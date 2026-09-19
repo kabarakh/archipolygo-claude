@@ -88,8 +88,9 @@ consistently explain reasoning, not just mechanics).
   `=> Group.Slots` passthrough if you touch this; it'll lose the ordering.
 
 If you're asked to change connection/leader/reconnect behavior, start in
-`ConnectionManager.cs` - it's one file, ~800 lines, and every method has a
-doc comment explaining what it's for and why it's shaped that way.
+`ConnectionManager.cs` - it's one file (grown well past its original ~800
+lines as more of this doc's own behavior got added to it), and every method
+has a doc comment explaining what it's for and why it's shaped that way.
 
 ## Where things live
 

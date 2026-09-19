@@ -103,9 +103,13 @@
 
         <!-- Editing an existing server: manage its already-configured slots
              - which one auto-connects at startup by default, and remove one
-             entirely. Removing takes effect immediately (see
-             OnRemoveConfiguredSlotClick), not on Save, since a disconnect
-             it may trigger can't cleanly be undone by Cancel. -->
+             entirely. "✕" asks for confirmation (re-adding a removed slot
+             later means re-syncing its whole history from scratch) and then
+             only stages the removal - the row disappears from this list
+             right away, but the actual removal (and any disconnect it may
+             trigger) is deferred to Save, so Cancel can still back out of it.
+             See OnRemoveConfiguredSlotClick and
+             ConnectionEditorViewModel.RemoveConfiguredSlot's own doc comments. -->
         <StackPanel IsVisible="{Binding ShowSlotManagement}" Spacing="4">
             <TextBlock Text="Slots"/>
             <!-- Capped height + internal scrolling instead of letting this

@@ -166,8 +166,7 @@ statt sich einzuloggen:**
 
 **Status:** Zuerst als anklickbarer Prototyp in `TestHarness/AddSlotPickerPrototype/`
 erprobt (mit synthetischen Spielernamen statt echtem Room-Roster; siehe
-`ControlPanelWindow`, Abschnitt „Add-Slot Redesign (Prototyp)" – der
-Prototyp bleibt als Referenz im Repo, wird aber nicht mehr weiterentwickelt).
+`ControlPanelWindow`, ehemaliger Abschnitt „Add-Slot Redesign (Prototyp)").
 Nach Durchklicken/Freigabe durch den Entwickler direkt umgesetzt in
 `Models/SelectableSlotRow.cs`, `ViewModels/ConnectionEditorViewModel.cs`
 (`FilteredSlotRows`/`SelectVisible`/`DeselectVisible`/`BuildSlotsToAdd`) und

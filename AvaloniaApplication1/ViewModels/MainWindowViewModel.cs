@@ -53,6 +53,16 @@ public partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     public Func<PasswordPromptViewModel, CancellationToken, Task<bool>>? ShowPasswordPromptDialogAsync { get; set; }
 
+    /// <summary>
+    /// Same wiring seam as <see cref="ShowPasswordPromptDialogAsync"/>, for
+    /// the app's one generic "are you sure?" dialog (<see cref="ConfirmationViewModel"/>) -
+    /// currently gates <see cref="RemoveGroupAsync"/>. Null in every existing
+    /// test construction site, same as that other Func: a test that doesn't
+    /// wire it up gets the pre-confirmation behavior (act immediately), since
+    /// there's no dialog it could possibly show.
+    /// </summary>
+    public Func<ConfirmationViewModel, Task<bool>>? ShowConfirmationDialogAsync { get; set; }
+
     public ObservableCollection<GroupViewModel> Groups { get; } = new();
 
     [ObservableProperty]
@@ -627,32 +637,11 @@ public partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     public Task<RoomConnectionInfo?> ResolveRoomConnectionInfoAsync(string roomId) => _multiworldTrackerService.ResolveRoomConnectionInfoAsync(roomId);
 
-    public void RenameSlot(SlotProfile slot, string newName)
-    {
-        slot.SlotName = newName;
-        PersistGroups();
-    }
-
     /// <summary>
-    /// Removes one already-configured slot from a server immediately (as
-    /// opposed to <see cref="UpdateGroup"/>'s staged, Save-time batch) -
-    /// currently unused by <see cref="Views.ConnectionEditorWindow"/> itself
-    /// (see <see cref="UpdateGroup"/>'s doc comment for why removal there is
-    /// deferred instead), kept as a public building block for any future
-    /// call site that genuinely wants an immediate removal outside that
-    /// dialog's edit-then-save flow.
-    /// </summary>
-    public async Task RemoveSlotFromGroup(GroupViewModel groupViewModel, SlotProfile slot)
-    {
-        await RemoveSlotFromGroupCoreAsync(groupViewModel, slot);
-        PersistGroups();
-    }
-
-    /// <summary>
-    /// The actual removal logic shared by <see cref="RemoveSlotFromGroup"/>
-    /// (immediate) and <see cref="UpdateGroup"/>'s staged batch - deliberately
-    /// does not call <see cref="PersistGroups"/> itself, so a batch of several
-    /// removals persists once at the end instead of once per slot.
+    /// The actual removal logic behind <see cref="UpdateGroup"/>'s staged
+    /// batch - deliberately does not call <see cref="PersistGroups"/> itself,
+    /// so a batch of several removals persists once at the end instead of
+    /// once per slot.
     ///
     /// If the removed slot is the current leader, disconnects it first
     /// (<see cref="IConnectionManager.DisconnectGroupAsync"/> also clears
@@ -734,9 +723,30 @@ public partial class MainWindowViewModel : ViewModelBase
     /// when the removed group actually was the selected one - removing a
     /// different server's row from the Dashboard has no reason to change
     /// which tab is selected underneath it.
+    ///
+    /// Asks for confirmation first (<see cref="ShowConfirmationDialogAsync"/>)
+    /// - there's no way to get a removed server back except reconfiguring it
+    /// and re-syncing every slot from scratch, so an accidental click here is
+    /// expensive to undo. A decline no-ops entirely: no disconnect, no
+    /// persist.
     /// </summary>
     public async Task RemoveGroupAsync(GroupViewModel groupToRemove)
     {
+        if (ShowConfirmationDialogAsync is not null)
+        {
+            var confirmed = await ShowConfirmationDialogAsync(new ConfirmationViewModel
+            {
+                Title = "Remove server?",
+                Message = $"Remove \"{groupToRemove.Group.Name}\" and every slot configured on it? " +
+                          "You'll need to reconnect and re-sync from scratch if you add it back later.",
+            });
+
+            if (!confirmed)
+            {
+                return;
+            }
+        }
+
         if (groupToRemove.LeaderSlotId is not null)
         {
             await _connectionManager.DisconnectGroupAsync(groupToRemove);

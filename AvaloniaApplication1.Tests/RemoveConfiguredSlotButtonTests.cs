@@ -1,4 +1,5 @@
 using System.Linq;
+using System.Threading.Tasks;
 using Archipolygo.Models;
 using Archipolygo.ViewModels;
 using Archipolygo.Views;
@@ -14,16 +15,18 @@ namespace AvaloniaApplication1.Tests;
 
 /// <summary>
 /// Kategorie C (Test-Umsetzungsplan.md): clicking "✕" in <see cref="ConnectionEditorWindow"/>'s
-/// slot-management list must only *stage* a removal - not remove/disconnect
-/// the slot right away. A real simulated click, wired via code-behind
-/// (<c>OnRemoveConfiguredSlotClick</c>) rather than calling the command
-/// property directly, so a future edit that gets the generated command name
-/// wrong there would actually be caught by this test (<c>[RelayCommand]</c>
-/// on the now-synchronous <c>RemoveConfiguredSlot</c> still generates
-/// <c>RemoveConfiguredSlotCommand</c> - see CLAUDE.md's trailing-"Async"-
-/// stripping gotcha, which only applies to the async case, not this one).
+/// slot-management list must confirm (see <see cref="ConnectionEditorWindow.ShowConfirmationDialogAsync"/>,
+/// stubbed here instead of popping a real nested dialog) and only then
+/// *stage* a removal - not remove/disconnect the slot right away. A real
+/// simulated click, wired via code-behind (<c>OnRemoveConfiguredSlotClick</c>)
+/// rather than calling the command property directly, so a future edit that
+/// gets the generated command name wrong there would actually be caught by
+/// this test (<c>[RelayCommand]</c> on the now-synchronous
+/// <c>RemoveConfiguredSlot</c> still generates <c>RemoveConfiguredSlotCommand</c>
+/// - see CLAUDE.md's trailing-"Async"-stripping gotcha, which only applies to
+/// the async case, not this one).
 ///
-/// This staging behavior itself exists because the old design - removing
+/// The staging behavior itself exists because the old design - removing
 /// (and disconnecting, if it was the live leader) the instant "✕" was
 /// clicked - meant "make a different slot the default, then remove the old
 /// leader" in the same Edit Server session could disconnect the user before
@@ -45,6 +48,7 @@ public class RemoveConfiguredSlotButtonTests
         var viewModel = ConnectionEditorViewModel.ForEditGroup(group);
 
         var window = new ConnectionEditorWindow { DataContext = viewModel };
+        window.ShowConfirmationDialogAsync = _ => Task.FromResult(true);
         window.Show();
         Dispatcher.UIThread.RunJobs();
 
@@ -86,6 +90,7 @@ public class RemoveConfiguredSlotButtonTests
         var viewModel = ConnectionEditorViewModel.ForEditGroup(group);
 
         var window = new ConnectionEditorWindow { DataContext = viewModel };
+        window.ShowConfirmationDialogAsync = _ => Task.FromResult(true);
         window.Show();
         Dispatcher.UIThread.RunJobs();
 
@@ -99,5 +104,36 @@ public class RemoveConfiguredSlotButtonTests
 
         Assert.True(viewModel.TryBuildResult(out var result));
         Assert.Null(result.PreferredLeaderSlotId);
+    }
+
+    /// <summary>
+    /// Declining the confirmation must leave everything untouched - no staged
+    /// removal, row still in the list - not just skip the disconnect.
+    /// </summary>
+    [AvaloniaFact]
+    public void DecliningTheConfirmation_LeavesTheRowAndSlotUntouched()
+    {
+        var group = new ServerConnectionGroup { Name = "Test Server", Host = "host", Port = 1 };
+        var slot = new SlotProfile { GroupId = group.Id, SlotName = "Alice" };
+        group.Slots.Add(slot);
+
+        var viewModel = ConnectionEditorViewModel.ForEditGroup(group);
+
+        var window = new ConnectionEditorWindow { DataContext = viewModel };
+        window.ShowConfirmationDialogAsync = _ => Task.FromResult(false);
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var removeButton = window.GetVisualDescendants().OfType<Button>()
+            .First(b => Equals(b.Content, "✕") && (b.DataContext as ConfiguredSlotRow)?.Slot == slot);
+        var localCenter = new Point(removeButton.Bounds.Width / 2, removeButton.Bounds.Height / 2);
+        var pointInWindow = removeButton.TranslatePoint(localCenter, window) ?? localCenter;
+        window.MouseDown(pointInWindow, MouseButton.Left);
+        window.MouseUp(pointInWindow, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains(viewModel.ConfiguredSlotRows, r => r.Slot == slot);
+        Assert.True(viewModel.TryBuildResult(out var result));
+        Assert.DoesNotContain(slot, result.SlotsToRemove);
     }
 }

@@ -1,0 +1,28 @@
+<!-- The app's one generic "are you sure?" dialog - see ConfirmationViewModel's
+     own doc comment for why this is shared rather than bespoke per call site.
+     Width matches ConnectionEditorWindow/PasswordPromptWindow/SettingsWindow. -->
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Archipolygo.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        x:Class="Archipolygo.Views.ConfirmationWindow"
+        x:DataType="vm:ConfirmationViewModel"
+        Width="380" SizeToContent="Height" CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Title="{Binding Title}">
+
+    <Design.DataContext>
+        <vm:ConfirmationViewModel Title="Remove server?" Message="Remove &quot;Example Server&quot;? This can't be undone." ConfirmText="Remove"/>
+    </Design.DataContext>
+
+    <StackPanel Margin="16" Spacing="12">
+        <TextBlock Text="{Binding Message}" TextWrapping="Wrap"/>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+            <Button Content="Cancel" Click="OnCancelClick" IsCancel="True"/>
+            <Button Content="{Binding ConfirmText}" Click="OnConfirmClick"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

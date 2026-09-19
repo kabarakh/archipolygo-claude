@@ -1,3 +1,4 @@
+using System;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
@@ -11,9 +12,20 @@ public partial class ConnectionEditorWindow : Window
     public ConnectionEditorWindow()
     {
         InitializeComponent();
+        ShowConfirmationDialogAsync = viewModel => ConfirmationWindow.ShowDialogAsync(this, viewModel);
     }
 
     private ConnectionEditorViewModel ViewModel => (ConnectionEditorViewModel)DataContext!;
+
+    /// <summary>
+    /// Shows the "remove slot?" confirmation before staging a removal (see
+    /// <see cref="OnRemoveConfiguredSlotClick"/>). Defaults to a real
+    /// <see cref="ConfirmationWindow"/> owned by this window; tests substitute
+    /// a canned answer instead of actually popping a nested dialog - same
+    /// Func-property seam <see cref="ViewModels.MainWindowViewModel.ShowConfirmationDialogAsync"/>
+    /// uses for the app's other confirmation.
+    /// </summary>
+    public Func<ConfirmationViewModel, Task<bool>> ShowConfirmationDialogAsync { get; set; }
 
     /// <summary>
     /// Resolves the two fields that can each need an actual network
@@ -57,15 +69,29 @@ public partial class ConnectionEditorWindow : Window
     }
 
     /// <summary>
-    /// Stages a row's slot for removal (applied on Save, see
-    /// <see cref="ConnectionEditorViewModel.RemoveConfiguredSlot"/>) - same
-    /// DataContext situation as <see cref="OnMakeDefaultLeaderClick"/>.
+    /// Asks for confirmation, then stages a row's slot for removal (applied
+    /// on Save, see <see cref="ConnectionEditorViewModel.RemoveConfiguredSlot"/>)
+    /// - same DataContext situation as <see cref="OnMakeDefaultLeaderClick"/>.
+    /// A decline leaves the row exactly as it was; staging (and the row
+    /// disappearing from the list) only happens after the user actually
+    /// confirms, since re-adding a removed slot later means re-syncing its
+    /// whole history from scratch.
     /// </summary>
-    private void OnRemoveConfiguredSlotClick(object? sender, RoutedEventArgs e)
+    private async void OnRemoveConfiguredSlotClick(object? sender, RoutedEventArgs e)
     {
         if (sender is Button { DataContext: ConfiguredSlotRow row })
         {
-            ViewModel.RemoveConfiguredSlotCommand.Execute(row);
+            var confirmed = await ShowConfirmationDialogAsync(new ConfirmationViewModel
+            {
+                Title = "Remove slot?",
+                Message = $"Remove \"{row.Slot.DisplayName}\" from this server? " +
+                          "If you add it back later, its whole history will need to sync again from scratch.",
+            });
+
+            if (confirmed)
+            {
+                ViewModel.RemoveConfiguredSlotCommand.Execute(row);
+            }
         }
     }
 
