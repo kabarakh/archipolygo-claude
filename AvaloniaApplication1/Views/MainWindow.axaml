@@ -418,6 +418,8 @@
                                             Classes.active="{Binding SelectedEventRelevanceFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=All}"/>
                                     <Button Content="Concerns me" Classes="filter-toggle" Command="{Binding ShowOwnEventsOnlyCommand}"
                                             Classes.active="{Binding SelectedEventRelevanceFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ConcernsMe}"/>
+                                    <Button Content="Found by me" Classes="filter-toggle" Command="{Binding ShowFoundByMeEventsCommand}"
+                                            Classes.active="{Binding SelectedEventRelevanceFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=FoundByMe}"/>
                                     <Border Width="1" Background="Gray" Opacity="0.5" Margin="2,0"/>
                                     <Button Content="All" Classes="filter-toggle" Command="{Binding ShowAllEventCategoriesCommand}"
                                             Classes.active="{Binding SelectedEventCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=All}"/>
@@ -462,11 +464,17 @@
                                                      growing wider as a longer item scrolled into view and
                                                      got measured for the first time (Avalonia only
                                                      realizes/measures virtualized popup items on demand). -->
-                                                <TextBlock Text="{Binding Converter={StaticResource SlotFilterDisplayConverter}}"
+                                <TextBlock Text="{Binding Converter={StaticResource SlotFilterDisplayConverter}}"
                                                            MaxWidth="110" TextTrimming="CharacterEllipsis"/>
                                             </DataTemplate>
                                         </ComboBox.ItemTemplate>
                                     </ComboBox>
+                                    <!-- Copies the selected (earliest, if several) event and every
+                                         one after it in the current filtered view - see
+                                         ClipboardCopyHelper.CopyFromSelectedOnwardsAsync and
+                                         OnEventsListSelectionChanged for the enabled-state toggle. -->
+                                    <Button Name="CopyEventsFromHereButton" Content="Copy from here"
+                                            Click="OnCopyEventsFromHereClick" IsEnabled="False"/>
                                 </StackPanel>
 
                                 <!-- Grid rather than the ListBox alone, so the "jump to
@@ -484,7 +492,7 @@
                                          so several lines can be selected and copied at once - see
                                          OnEventsListKeyDown. -->
                                     <ListBox Name="EventsListBox" ItemsSource="{Binding VisibleEvents}" SelectionMode="Multiple"
-                                             KeyDown="OnEventsListKeyDown">
+                                             KeyDown="OnEventsListKeyDown" SelectionChanged="OnEventsListSelectionChanged">
                                         <ListBox.ItemTemplate>
                                             <DataTemplate DataType="m:EventEntry">
                                                 <StackPanel Orientation="Horizontal" Spacing="8">
@@ -590,7 +598,7 @@
                                 </WrapPanel>
 
                                 <!-- Row 2 – slot filter (per-panel) + search box (shared, filters active panel) -->
-                                <Grid Grid.Row="2" ColumnDefinitions="Auto,*" Margin="0,0,0,4">
+                                <Grid Grid.Row="2" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,4">
                                     <!-- Width fixed, same reasoning as the Events column's slot filter above. -->
                                     <ComboBox Grid.Column="0" Width="130" Margin="0,0,8,0"
                                               IsVisible="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Hints}"
@@ -627,16 +635,23 @@
                                         </ComboBox.ItemTemplate>
                                     </ComboBox>
                                     <TextBox Grid.Column="1" Text="{Binding ItemSearchText}" PlaceholderText="Search..."/>
+                                    <!-- Hints-only, same "Copy from here" idea as the Events column -
+                                         no Items-panel equivalent since Received Items isn't part of
+                                         this export feature's scope. -->
+                                    <Button Grid.Column="2" Name="CopyHintsFromHereButton" Content="Copy from here"
+                                            Margin="8,0,0,0"
+                                            IsVisible="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Hints}"
+                                            Click="OnCopyHintsFromHereClick" IsEnabled="False"/>
                                 </Grid>
 
                                 <!-- Row 3 – Hints list. SelectionMode="Multiple" + KeyDown, same
                                      copy-selected-lines mechanism as the Events list above (see
                                      OnHintsListKeyDown), just with its own selection/clipboard
                                      since the two lists are otherwise unrelated. -->
-                                <ListBox Grid.Row="3"
+                                <ListBox Grid.Row="3" Name="HintsListBox"
                                          IsVisible="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Hints}"
                                          ItemsSource="{Binding VisibleHints}" SelectionMode="Multiple"
-                                         KeyDown="OnHintsListKeyDown">
+                                         KeyDown="OnHintsListKeyDown" SelectionChanged="OnHintsListSelectionChanged">
                                     <ListBox.ItemTemplate>
                                         <DataTemplate DataType="m:HintEntry">
                                             <StackPanel Orientation="Vertical" Spacing="2" Margin="0,2">

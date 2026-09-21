@@ -1,9 +1,11 @@
+using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.VisualTree;
 using Archipolygo.Models;
 using Archipolygo.ViewModels;
 
@@ -151,6 +153,92 @@ public partial class MainWindow : Window
         {
             e.Handled = true;
         }
+    }
+
+    /// <summary>
+    /// Finds a same-named descendant control starting from another element in
+    /// the same, already-instantiated template - the Events/Hints/Items UI
+    /// lives inside <c>TabControl.ContentTemplate</c> (see CLAUDE.md's
+    /// lazy-materialization gotcha for that same template), so each open tab
+    /// gets its own instance of e.g. "EventsListBox"; a plain compiled x:Name
+    /// field would be ambiguous across tabs, and Avalonia doesn't generate one
+    /// for elements inside a template for exactly that reason. Walking up from
+    /// any element that's definitely in the same instance (e.g. the button
+    /// that was just clicked) and searching each ancestor's descendants finds
+    /// the right one without needing a global/static lookup.
+    /// </summary>
+    private static T? FindInSameTemplateInstance<T>(Visual anchor, string name) where T : Control
+    {
+        for (var ancestor = anchor.GetVisualParent(); ancestor is not null; ancestor = ancestor.GetVisualParent())
+        {
+            var match = ancestor.GetVisualDescendants().OfType<T>().FirstOrDefault(c => c.Name == name);
+            if (match is not null)
+            {
+                return match;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// "Copy from here" for the Events list - copies the earliest selected
+    /// event and everything after it in the current filtered view (see
+    /// <see cref="ClipboardCopyHelper.CopyFromSelectedOnwardsAsync{T}"/>),
+    /// same per-line text as <see cref="OnEventsListKeyDown"/>.
+    /// </summary>
+    private async void OnCopyEventsFromHereClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Visual anchor || FindInSameTemplateInstance<ListBox>(anchor, "EventsListBox") is not { } eventsListBox)
+        {
+            return;
+        }
+
+        await ClipboardCopyHelper.CopyFromSelectedOnwardsAsync<EventEntry>(this, eventsListBox, entry => entry.Text);
+    }
+
+    /// <summary>
+    /// Same mechanism as <see cref="OnCopyEventsFromHereClick"/>, for the
+    /// Hints list - same per-line text as <see cref="OnHintsListKeyDown"/>.
+    /// </summary>
+    private async void OnCopyHintsFromHereClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Visual anchor || FindInSameTemplateInstance<ListBox>(anchor, "HintsListBox") is not { } hintsListBox)
+        {
+            return;
+        }
+
+        await ClipboardCopyHelper.CopyFromSelectedOnwardsAsync<HintEntry>(this, hintsListBox,
+            hint => $"{hint.ItemName}: {hint.FindingPlayerName} -> {hint.ReceivingPlayerName} : {hint.LocationName}");
+    }
+
+    /// <summary>
+    /// Toggles the Events column's "Copy from here" button's enabled state
+    /// with the Events list's selection - the button needs an anchor row, so
+    /// it stays disabled (rather than silently no-op on click) until one is
+    /// selected. Code-behind-driven rather than a bound view-model property,
+    /// matching this list's existing selection handling (see
+    /// <see cref="OnEventsListKeyDown"/>).
+    /// </summary>
+    private void OnEventsListSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (sender is not ListBox listBox || FindInSameTemplateInstance<Button>(listBox, "CopyEventsFromHereButton") is not { } button)
+        {
+            return;
+        }
+
+        button.IsEnabled = listBox.SelectedItems is { Count: > 0 };
+    }
+
+    /// <summary>Same mechanism as <see cref="OnEventsListSelectionChanged"/>, for the Hints list.</summary>
+    private void OnHintsListSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (sender is not ListBox listBox || FindInSameTemplateInstance<Button>(listBox, "CopyHintsFromHereButton") is not { } button)
+        {
+            return;
+        }
+
+        button.IsEnabled = listBox.SelectedItems is { Count: > 0 };
     }
 
     /// <summary>

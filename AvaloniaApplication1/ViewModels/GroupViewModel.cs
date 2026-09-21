@@ -264,6 +264,10 @@ public partial class GroupViewModel : ViewModelBase
     /// slot filter dropdown. Room-wide chat lines (<see cref="EventEntry.SlotId"/>
     /// is null) always pass the slot filter, since they aren't tied to any
     /// one configured slot in the first place.
+    /// <see cref="EventRelevanceFilter.FoundByMe"/> is the mirror of
+    /// <see cref="EventRelevanceFilter.ConcernsMe"/> - items this group's own
+    /// slots found for someone else, rather than received themselves - see
+    /// the filter's own doc comment for how that's detected.
     /// </summary>
     public IEnumerable<EventEntry> VisibleEvents
     {
@@ -274,6 +278,22 @@ public partial class GroupViewModel : ViewModelBase
             if (SelectedEventRelevanceFilter == EventRelevanceFilter.ConcernsMe)
             {
                 events = events.Where(e => e.ConcernsOwnSlot);
+            }
+            else if (SelectedEventRelevanceFilter == EventRelevanceFilter.FoundByMe)
+            {
+                // An item-send line's first segment is its finder (AP chat
+                // lines read "{finder} sent {item} to {receiver} ({location})")
+                // - EventSegmentBuilder.BuildChatSegments already classifies
+                // that part as OwnSlotName/ConnectedSlotName when the finder is
+                // one of this group's own configured slots. A line for this
+                // slot's own direct receipt (BuildItemReceivedSegments) always
+                // starts with a plain "Received " segment instead, so it's
+                // correctly excluded here without any extra check.
+                events = events.Where(e =>
+                    e.Type == EventType.ItemReceived &&
+                    e.Segments.Count > 0 &&
+                    (e.Segments[0].Kind == EventTextSegmentKind.OwnSlotName ||
+                     e.Segments[0].Kind == EventTextSegmentKind.ConnectedSlotName));
             }
 
             events = SelectedEventCategoryFilter switch
@@ -1184,6 +1204,9 @@ public partial class GroupViewModel : ViewModelBase
 
     [RelayCommand]
     private void ShowOwnEventsOnly() => SelectedEventRelevanceFilter = EventRelevanceFilter.ConcernsMe;
+
+    [RelayCommand]
+    private void ShowFoundByMeEvents() => SelectedEventRelevanceFilter = EventRelevanceFilter.FoundByMe;
 
     [RelayCommand]
     private void ShowAllEventCategories() => SelectedEventCategoryFilter = EventCategoryFilter.All;

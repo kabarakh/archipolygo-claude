@@ -59,4 +59,45 @@ public static class ClipboardCopyHelper
 
         return true;
     }
+
+    /// <summary>
+    /// "Copy from here" - unlike <see cref="CopySelectedLinesAsync{T}"/>
+    /// (which copies exactly the selected rows), this copies the earliest
+    /// selected row (in display order, not selection order - so shift-clicking
+    /// out of order still anchors on the topmost pick) plus every row after it,
+    /// regardless of whether those later rows are themselves selected. Built
+    /// for sharing "everything since this point" without having to shift-click
+    /// all the way to the newest entry. No-op (returns <c>false</c>) if
+    /// nothing is selected.
+    /// </summary>
+    /// <param name="anchor">Any control in the same visual tree as <paramref name="listBox"/> - used only to resolve the hosting <see cref="TopLevel"/>'s clipboard.</param>
+    public static async Task<bool> CopyFromSelectedOnwardsAsync<T>(Visual anchor, ListBox listBox, Func<T, string> toText) where T : class
+    {
+        if (listBox.SelectedItems is not { Count: > 0 } selectedItems)
+        {
+            return false;
+        }
+
+        var selected = new HashSet<object>(selectedItems.Cast<object>());
+        var displayOrder = ((listBox.ItemsSource as IEnumerable)?.Cast<object>() ?? Enumerable.Empty<object>()).ToList();
+        var anchorIndex = displayOrder.FindIndex(selected.Contains);
+        if (anchorIndex < 0)
+        {
+            return false;
+        }
+
+        var text = string.Join(Environment.NewLine, displayOrder.Skip(anchorIndex).OfType<T>().Select(toText));
+        if (text.Length == 0)
+        {
+            return false;
+        }
+
+        var clipboard = TopLevel.GetTopLevel(anchor)?.Clipboard;
+        if (clipboard is not null)
+        {
+            await clipboard.SetTextAsync(text);
+        }
+
+        return true;
+    }
 }
