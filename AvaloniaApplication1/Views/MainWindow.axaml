@@ -205,6 +205,11 @@
                                  on the boundary between two adjacent tabs instead of
                                  inset from it. -->
                             <StackPanel Orientation="Horizontal" Spacing="6" Margin="10,6" VerticalAlignment="Center">
+                                <!-- Server color (Feature-Plaene/Server-Farben.md) - a small
+                                     dot, separate from the connection-state Ellipse right
+                                     after it, so the two stay independently readable. -->
+                                <Ellipse Width="6" Height="6" VerticalAlignment="Center"
+                                         Fill="{Binding ColorBrush}"/>
                                 <Ellipse Width="8" Height="8" VerticalAlignment="Center"
                                          Fill="{Binding ConnectionState, Converter={StaticResource ConnectionStateToBrushConverter}}"/>
                                 <Border Background="OrangeRed" CornerRadius="8" MinWidth="16" Height="16"
@@ -213,7 +218,7 @@
                                     <TextBlock Text="{Binding UnreadEventCount}" Foreground="White" FontSize="10"
                                                FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 </Border>
-                                <TextBlock Text="{Binding HeaderText}"/>
+                                <TextBlock Text="{Binding HeaderText}" Foreground="{Binding ColorBrush}"/>
                                 <!-- Only shown while there's no live leader connection,
                                      so the tab itself surfaces "disconnected"/
                                      "connecting"/"reconnecting"/"error" without

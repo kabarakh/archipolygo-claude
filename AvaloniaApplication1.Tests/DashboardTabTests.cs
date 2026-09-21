@@ -640,4 +640,68 @@ public class DashboardTabTests
         Assert.Contains(group.HeaderText, texts);
         Assert.Contains("hello from Alice", texts);
     }
+
+    // ── Events relevance/category/item-kind filter row (Feature-Plaene/Dashboard-Event-Filter.md) ──
+    // "Concerns me"/"Chat" are unique labels across the whole DashboardView
+    // (the Hints column's item-category row only has All/Progression/Useful/
+    // Normal/Trap) - a plain Single() lookup by content is enough, no
+    // disambiguation helper needed.
+
+    [AvaloniaFact]
+    public void EventsPanel_RelevanceAndCategoryButtons_ClickSetsActiveClassAndFiltersTheList()
+    {
+        var (window, dashboardView, viewModel, group) = SetUpSingleGroupDashboard();
+        group.Events.Add(new EventEntry { Text = "concerns me", Type = EventType.ItemReceived, ConcernsOwnSlot = true });
+        group.Events.Add(new EventEntry { Text = "others chatting", Type = EventType.Chat, ConcernsOwnSlot = false });
+        ClickButton(window, dashboardView.GetVisualDescendants().OfType<Button>().Single(b => Equals(b.Content, "Events")));
+        Dispatcher.UIThread.RunJobs();
+
+        var concernsMeButton = dashboardView.GetVisualDescendants().OfType<Button>().Single(b => Equals(b.Content, "Concerns me"));
+        Assert.DoesNotContain("active", concernsMeButton.Classes);
+
+        ClickButton(window, concernsMeButton);
+
+        Assert.Contains("active", concernsMeButton.Classes);
+        Assert.Equal(EventRelevanceFilter.ConcernsMe, viewModel.Dashboard.SelectedEventRelevanceFilter);
+        Assert.Equal(new[] { "concerns me" }, viewModel.Dashboard.VisibleEvents.Select(r => r.Event.Text));
+
+        var chatButton = dashboardView.GetVisualDescendants().OfType<Button>().Single(b => Equals(b.Content, "Chat"));
+        ClickButton(window, chatButton);
+
+        Assert.Contains("active", chatButton.Classes);
+        Assert.Equal(EventCategoryFilter.Chat, viewModel.Dashboard.SelectedEventCategoryFilter);
+    }
+
+    [AvaloniaFact]
+    public void EventsPanel_ItemKindCheckboxes_UncheckingHidesThatKindFromTheList()
+    {
+        var (window, dashboardView, viewModel, group) = SetUpSingleGroupDashboard();
+        group.Events.Add(new EventEntry { Text = "trap item", Type = EventType.ItemReceived, Segments = new[] { new EventTextSegment("Bomb", EventTextSegmentKind.ItemTrap) } });
+        ClickButton(window, dashboardView.GetVisualDescendants().OfType<Button>().Single(b => Equals(b.Content, "Events")));
+        Dispatcher.UIThread.RunJobs();
+
+        var trapCheckbox = dashboardView.GetVisualDescendants().OfType<CheckBox>().Single(c => Equals(c.Content, "Trap"));
+        Assert.True(trapCheckbox.IsChecked);
+        Assert.Single(viewModel.Dashboard.VisibleEvents);
+
+        trapCheckbox.IsChecked = false;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(viewModel.Dashboard.ShowTrapItemEvents);
+        Assert.Empty(viewModel.Dashboard.VisibleEvents);
+    }
+
+    /// <summary>The Dashboard's Events filters must never be shared with (or affected by) any individual tab's own <see cref="GroupViewModel"/> filter state - see Feature-Plaene/Dashboard-Event-Filter.md.</summary>
+    [AvaloniaFact]
+    public void EventsPanel_FilterButtons_DoNotAffectAnyTabsOwnGroupViewModelFilters()
+    {
+        var (window, dashboardView, viewModel, group) = SetUpSingleGroupDashboard();
+        ClickButton(window, dashboardView.GetVisualDescendants().OfType<Button>().Single(b => Equals(b.Content, "Events")));
+        Dispatcher.UIThread.RunJobs();
+
+        var concernsMeButton = dashboardView.GetVisualDescendants().OfType<Button>().Single(b => Equals(b.Content, "Concerns me"));
+        ClickButton(window, concernsMeButton);
+
+        Assert.Equal(EventRelevanceFilter.All, group.SelectedEventRelevanceFilter);
+    }
 }

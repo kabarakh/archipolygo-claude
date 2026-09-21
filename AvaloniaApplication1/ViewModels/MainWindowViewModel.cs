@@ -475,7 +475,8 @@ public partial class MainWindowViewModel : ViewModelBase
             Password = password,
             AutoConnect = autoConnect,
             TrackerReferenceInput = trackerReferenceInput,
-            TrackerId = trackerId
+            TrackerId = trackerId,
+            Color = ServerColorPalette.AssignColor(Groups.Select(g => g.Group.Color))
         };
 
         var slot = new SlotProfile { GroupId = group.Id, SlotName = slotName };

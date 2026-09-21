@@ -137,6 +137,35 @@ public sealed class PersistenceServiceTests : IDisposable
     }
 
     [Fact]
+    public void LoadGroups_GroupsFileWithoutColorField_AssignsDeterministicColorsInFileOrder()
+    {
+        // Feature-Plaene/Server-Farben.md's migration: a groups.json written
+        // before ServerConnectionGroup.Color existed has no "Color" field at
+        // all - the normal typed Deserialize just leaves it at its default
+        // (empty string), and AssignMissingColors is what's supposed to fill
+        // it in, in file order, exactly as if each group had been created
+        // fresh one after another.
+        Directory.CreateDirectory(_tempDirectory);
+        var firstId = Guid.NewGuid();
+        var secondId = Guid.NewGuid();
+        var thirdId = Guid.NewGuid();
+        var legacyJson = $$"""
+            [
+              { "Id": "{{firstId}}", "Name": "First", "Host": "archipelago.gg", "Port": 1, "Slots": [] },
+              { "Id": "{{secondId}}", "Name": "Second", "Host": "archipelago.gg", "Port": 2, "Slots": [] },
+              { "Id": "{{thirdId}}", "Name": "Third", "Host": "archipelago.gg", "Port": 3, "Slots": [] }
+            ]
+            """;
+        File.WriteAllText(Path.Combine(_tempDirectory, "groups.json"), legacyJson);
+
+        var loaded = _service.LoadGroups();
+
+        Assert.Equal(ServerColorPalette.Colors[0], loaded.Single(g => g.Id == firstId).Color);
+        Assert.Equal(ServerColorPalette.Colors[1], loaded.Single(g => g.Id == secondId).Color);
+        Assert.Equal(ServerColorPalette.Colors[2], loaded.Single(g => g.Id == thirdId).Color);
+    }
+
+    [Fact]
     public void LoadGroups_NoGroupsFileAndNoLegacyFile_ReturnsEmptyList()
     {
         var loaded = _service.LoadGroups();

@@ -68,6 +68,20 @@ public partial class ServerConnectionGroup : ObservableObject
     public ObservableCollection<SlotProfile> Slots { get; } = new();
 
     /// <summary>
+    /// The color used to tell this server apart from others across the app -
+    /// a name from <see cref="ServerColorPalette.Colors"/>, assigned once
+    /// (see <see cref="Services.PersistenceService"/>/<c>MainWindowViewModel.AddNewGroup</c>)
+    /// and never reassigned afterward, even if that frees up a color another
+    /// group could otherwise have deduplicated against - see
+    /// Feature-Plaene/Server-Farben.md. Empty only in the brief window
+    /// between deserializing/creating a group and that assignment running;
+    /// never empty on a group a <see cref="ViewModels.GroupViewModel"/> has
+    /// already wrapped.
+    /// </summary>
+    [ObservableProperty]
+    private string _color = string.Empty;
+
+    /// <summary>
     /// Tier 2 of Fortschrittsanzeigen.md (whole-multiworld progress, not just
     /// this app's own configured slots): exactly what the user originally
     /// typed into the tracker field - the bare tracker SUUID, a room URL, or

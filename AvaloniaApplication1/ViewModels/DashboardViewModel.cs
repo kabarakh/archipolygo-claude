@@ -319,12 +319,78 @@ public partial class DashboardViewModel : ViewModelBase
     // filtering from "who's chatting".
 
     /// <summary>
+    /// Own, independent instance - never the same one as any tab's own
+    /// <see cref="GroupViewModel.SelectedEventRelevanceFilter"/>, so changing
+    /// this filter here never affects (or is affected by) any individual
+    /// server tab. Same isolation rule as <see cref="SelectedHintItemCategoryFilter"/>
+    /// above.
+    /// </summary>
+    [ObservableProperty]
+    private EventRelevanceFilter _selectedEventRelevanceFilter = EventRelevanceFilter.All;
+
+    /// <summary>Own, independent instance - see <see cref="SelectedEventRelevanceFilter"/>'s doc comment.</summary>
+    [ObservableProperty]
+    private EventCategoryFilter _selectedEventCategoryFilter = EventCategoryFilter.All;
+
+    /// <summary>
+    /// Independent checkbox filter narrowing <see cref="VisibleEvents"/> by
+    /// item category, own instances separate from any tab's own
+    /// <see cref="GroupViewModel.ShowProgressionItemEvents"/> etc. - see that
+    /// property's doc comment for the full filtering semantics (combines
+    /// with <see cref="SelectedEventCategoryFilter"/> rather than replacing it).
+    /// </summary>
+    [ObservableProperty]
+    private bool _showProgressionItemEvents = true;
+
+    [ObservableProperty]
+    private bool _showUsefulItemEvents = true;
+
+    [ObservableProperty]
+    private bool _showFillerItemEvents = true;
+
+    [ObservableProperty]
+    private bool _showTrapItemEvents = true;
+
+    partial void OnSelectedEventRelevanceFilterChanged(EventRelevanceFilter value) => OnPropertyChanged(nameof(VisibleEvents));
+
+    partial void OnSelectedEventCategoryFilterChanged(EventCategoryFilter value) => OnPropertyChanged(nameof(VisibleEvents));
+
+    partial void OnShowProgressionItemEventsChanged(bool value) => OnPropertyChanged(nameof(VisibleEvents));
+
+    partial void OnShowUsefulItemEventsChanged(bool value) => OnPropertyChanged(nameof(VisibleEvents));
+
+    partial void OnShowFillerItemEventsChanged(bool value) => OnPropertyChanged(nameof(VisibleEvents));
+
+    partial void OnShowTrapItemEventsChanged(bool value) => OnPropertyChanged(nameof(VisibleEvents));
+
+    [RelayCommand]
+    private void ShowAllEventsRelevance() => SelectedEventRelevanceFilter = EventRelevanceFilter.All;
+
+    [RelayCommand]
+    private void ShowOwnEventsOnly() => SelectedEventRelevanceFilter = EventRelevanceFilter.ConcernsMe;
+
+    [RelayCommand]
+    private void ShowAllEventCategories() => SelectedEventCategoryFilter = EventCategoryFilter.All;
+
+    [RelayCommand]
+    private void ShowHintEventsOnly() => SelectedEventCategoryFilter = EventCategoryFilter.Hints;
+
+    [RelayCommand]
+    private void ShowItemEventsOnly() => SelectedEventCategoryFilter = EventCategoryFilter.Items;
+
+    [RelayCommand]
+    private void ShowChatEventsOnly() => SelectedEventCategoryFilter = EventCategoryFilter.Chat;
+
+    /// <summary>
     /// Every configured server's events, tagged with their owning group (see
-    /// <see cref="DashboardEventRow"/>), narrowed by <see cref="EventsFilter"/>'s
-    /// server/slot selection - exactly the same two-stage filter cascade as
-    /// <see cref="VisibleHints"/> (both share <see cref="DashboardServerSlotFilter"/>).
-    /// A room-wide entry (<see cref="EventEntry.SlotId"/> null, e.g. plain
-    /// chat) always passes the slot filter, same as a tab's own Events list.
+    /// <see cref="DashboardEventRow"/>), narrowed by relevance, category and
+    /// item-kind (own, independent filter state - see
+    /// <see cref="SelectedEventRelevanceFilter"/>'s doc comment), then by
+    /// <see cref="EventsFilter"/>'s server/slot selection - exactly the same
+    /// two-stage server/slot cascade as <see cref="VisibleHints"/> (both
+    /// share <see cref="DashboardServerSlotFilter"/>). A room-wide entry
+    /// (<see cref="EventEntry.SlotId"/> null, e.g. plain chat) always passes
+    /// the slot filter, same as a tab's own Events list.
     /// </summary>
     public IEnumerable<DashboardEventRow> VisibleEvents
     {
@@ -335,6 +401,28 @@ public partial class DashboardViewModel : ViewModelBase
                 : new[] { EventsFilter.SelectedServer };
 
             var rows = groups.SelectMany(g => g.Events.Select(e => new DashboardEventRow(g, e)));
+
+            if (SelectedEventRelevanceFilter == EventRelevanceFilter.ConcernsMe)
+            {
+                rows = rows.Where(r => r.Event.ConcernsOwnSlot);
+            }
+
+            rows = SelectedEventCategoryFilter switch
+            {
+                EventCategoryFilter.Hints => rows.Where(r => r.Event.Type == EventType.HintReceived),
+                EventCategoryFilter.Items => rows.Where(r => r.Event.Type == EventType.ItemReceived),
+                EventCategoryFilter.Chat => rows.Where(r => r.Event.Type == EventType.Chat),
+                _ => rows,
+            };
+
+            rows = rows.Where(r => r.Event.ItemKind switch
+            {
+                EventTextSegmentKind.ItemProgression => ShowProgressionItemEvents,
+                EventTextSegmentKind.ItemUseful => ShowUsefulItemEvents,
+                EventTextSegmentKind.ItemOther => ShowFillerItemEvents,
+                EventTextSegmentKind.ItemTrap => ShowTrapItemEvents,
+                _ => true,
+            });
 
             if (EventsFilter.SelectedSlot is not null)
             {

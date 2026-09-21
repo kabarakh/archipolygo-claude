@@ -253,9 +253,15 @@
                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     </Border>
                                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                        <!-- Server color (Feature-Plaene/Server-Farben.md) -
+                                             same dot-plus-colored-name pattern as MainWindow.axaml's
+                                             own tab headers. -->
+                                        <Ellipse Width="6" Height="6" VerticalAlignment="Center"
+                                                 Fill="{Binding ColorBrush}"/>
                                         <Ellipse Width="8" Height="8" VerticalAlignment="Center"
                                                  Fill="{Binding ConnectionState, Converter={StaticResource ConnectionStateToBrushConverter}}"/>
-                                        <TextBlock Text="{Binding HeaderText}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding HeaderText}" FontWeight="SemiBold" VerticalAlignment="Center"
+                                                   Foreground="{Binding ColorBrush}"/>
                                         <Border Background="#e6f1fb" CornerRadius="10" Padding="6,1" VerticalAlignment="Center">
                                             <TextBlock Text="{Binding UnreadEventCount, StringFormat='{}{0} events'}" FontSize="11" Foreground="#0c447c"/>
                                         </Border>
@@ -400,15 +406,48 @@
                      box (dev's explicit call to decouple the two - see
                      DashboardViewModel's doc comments on
                      SelectedEventsServerFilter/SelectedSendServerGroup). -->
-                <Grid Grid.Row="2" RowDefinitions="Auto,*,Auto,Auto"
+                <Grid Grid.Row="2" RowDefinitions="Auto,Auto,Auto,*,Auto,Auto"
                       IsVisible="{Binding SelectedLeftPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Events}">
+                    <!-- Relevance + category toggle buttons - own, independent
+                         filter state (DashboardViewModel.SelectedEventRelevanceFilter/
+                         SelectedEventCategoryFilter), never the same instance as any
+                         tab's own GroupViewModel filters - see Feature-Plaene/Dashboard-Event-Filter.md.
+                         Same Button.filter-toggle Window-level style/classes as the
+                         identical row in MainWindow.axaml's own Events panel. -->
+                    <WrapPanel Grid.Row="0" Margin="0,0,0,4">
+                        <Button Content="All" Classes="filter-toggle" Command="{Binding ShowAllEventsRelevanceCommand}"
+                                Classes.active="{Binding SelectedEventRelevanceFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=All}"/>
+                        <Button Content="Concerns me" Classes="filter-toggle" Command="{Binding ShowOwnEventsOnlyCommand}"
+                                Classes.active="{Binding SelectedEventRelevanceFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ConcernsMe}"/>
+                        <Border Width="1" Background="Gray" Opacity="0.5" Margin="2,0"/>
+                        <Button Content="All" Classes="filter-toggle" Command="{Binding ShowAllEventCategoriesCommand}"
+                                Classes.active="{Binding SelectedEventCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=All}"/>
+                        <Button Content="Hints" Classes="filter-toggle" Command="{Binding ShowHintEventsOnlyCommand}"
+                                Classes.active="{Binding SelectedEventCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Hints}"/>
+                        <Button Content="Items" Classes="filter-toggle" Command="{Binding ShowItemEventsOnlyCommand}"
+                                Classes.active="{Binding SelectedEventCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Items}"/>
+                        <Button Content="Chat" Classes="filter-toggle" Command="{Binding ShowChatEventsOnlyCommand}"
+                                Classes.active="{Binding SelectedEventCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Chat}"/>
+                    </WrapPanel>
+
+                    <!-- Independent item-category checkboxes (not mutually exclusive
+                         with each other or with the filter-toggle buttons above) -
+                         own DashboardViewModel properties, same semantics as
+                         GroupViewModel.VisibleEvents' identical row. -->
+                    <WrapPanel Grid.Row="1" Margin="0,0,0,4">
+                        <CheckBox Content="Progression" IsChecked="{Binding ShowProgressionItemEvents}"/>
+                        <CheckBox Content="Useful" IsChecked="{Binding ShowUsefulItemEvents}"/>
+                        <CheckBox Content="Filler" IsChecked="{Binding ShowFillerItemEvents}"/>
+                        <CheckBox Content="Trap" IsChecked="{Binding ShowTrapItemEvents}"/>
+                    </WrapPanel>
+
                     <!-- Filter row: fixed-width ComboBoxes in a StackPanel,
                          not a Grid of equal Star columns - "*,*" stretched
                          each box to half the column's width, leaving them
                          looking far apart with dead space in between (dev
                          feedback). Same fix applied to the Hints filter row
                          below. -->
-                    <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" Margin="0,0,0,4">
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" Margin="0,0,0,4">
                         <ComboBox Name="DashboardEventsServerComboBox" Width="130"
                                   ItemsSource="{Binding EventsFilter.ServerOptions}" SelectedItem="{Binding EventsFilter.SelectedServer}">
                             <ComboBox.ItemTemplate>
@@ -440,7 +479,7 @@
                          corner of the list instead of taking its own row -
                          same overlay pattern as a server tab's own Events
                          list (see MainWindow.axaml and JumpToNewestButton). -->
-                    <Grid Grid.Row="1">
+                    <Grid Grid.Row="3">
                         <!-- SelectionMode="Multiple" + KeyDown copy shortcut -
                              same behavior as a server tab's own Events list
                              (see MainWindow.axaml's EventsListBox/OnEventsListKeyDown),
@@ -453,7 +492,7 @@
                             <ListBox.ItemTemplate>
                                 <DataTemplate DataType="m:DashboardEventRow">
                                     <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,2">
-                                        <TextBlock Text="{Binding Group.HeaderText}" Foreground="#185fa5" FontWeight="SemiBold" FontSize="11" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding Group.HeaderText}" Foreground="{Binding Group.ColorBrush}" FontWeight="SemiBold" FontSize="11" VerticalAlignment="Center"/>
                                         <TextBlock Text="{Binding Event.Timestamp, StringFormat='HH:mm:ss'}" Opacity="0.6" FontSize="11" VerticalAlignment="Center"/>
                                         <!-- ItemTemplate: shared EventTextSegmentTemplate (see
                                              App.axaml/Views/SharedTemplates.axaml) - the exact same
@@ -482,7 +521,7 @@
                          since it binds straight to
                          SelectedSendServerGroup.Slots/.SelectedChatSlot -
                          the group's own live state, not a Dashboard copy. -->
-                    <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
+                    <StackPanel Grid.Row="4" Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
                         <TextBlock Text="Send as:" Opacity="0.7" VerticalAlignment="Center"/>
                         <ComboBox Name="DashboardSendServerComboBox" Width="130"
                                   ItemsSource="{Binding Groups}" SelectedItem="{Binding SelectedSendServerGroup}">
@@ -512,7 +551,7 @@
                          that property's own doc comment for why the nested
                          version doesn't reliably gray out with nothing
                          selected. -->
-                    <Grid Grid.Row="3" ColumnDefinitions="*,Auto" Margin="0,4,0,0">
+                    <Grid Grid.Row="5" ColumnDefinitions="*,Auto" Margin="0,4,0,0">
                         <TextBox Grid.Column="0" Text="{Binding SelectedSendServerGroup.MessageToSend}" PlaceholderText="Message..."
                                  IsEnabled="{Binding CanSendMessage}">
                             <TextBox.KeyBindings>
@@ -592,7 +631,7 @@
                         <DataTemplate DataType="m:DashboardHintRow">
                             <StackPanel Spacing="2" Margin="0,2">
                                 <StackPanel Orientation="Horizontal" Spacing="4">
-                                    <TextBlock Text="{Binding Group.HeaderText}" Foreground="#185fa5" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{Binding Group.HeaderText}" Foreground="{Binding Group.ColorBrush}" FontWeight="SemiBold"/>
                                     <TextBlock Text="·" Opacity="0.5"/>
                                     <TextBlock Text="{Binding Hint.ItemName}" FontWeight="Bold" TextWrapping="Wrap"
                                                Foreground="{Binding Hint.ItemKind, Converter={StaticResource SegmentKindToBrushConverter}}"/>

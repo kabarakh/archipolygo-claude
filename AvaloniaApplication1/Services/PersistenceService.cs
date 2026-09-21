@@ -84,6 +84,7 @@ public class PersistenceService : IPersistenceService
             var migrated = MigrateLegacyProfilesIfNeeded();
             if (migrated is not null)
             {
+                AssignMissingColors(migrated);
                 SaveGroups(migrated);
                 return migrated;
             }
@@ -96,12 +97,36 @@ public class PersistenceService : IPersistenceService
             var json = File.ReadAllText(_groupsFilePath);
             var groups = JsonSerializer.Deserialize<List<ServerConnectionGroup>>(json, JsonOptions) ?? new List<ServerConnectionGroup>();
             ApplyLegacyPasswordRequirement(json, groups);
+            AssignMissingColors(groups);
             return groups;
         }
         catch (Exception)
         {
             // Corrupted/incompatible file: prefer an empty list over a crash at startup.
             return new List<ServerConnectionGroup>();
+        }
+    }
+
+    /// <summary>
+    /// Feature-Plaene/Server-Farben.md's migration for a <c>groups.json</c>
+    /// written before <see cref="ServerConnectionGroup.Color"/> existed (or
+    /// any other group that somehow ended up without one): walks the groups
+    /// in file order and assigns each colorless one the next color via
+    /// <see cref="ServerColorPalette.AssignColor"/>, counted against every
+    /// other group's color already decided in this same pass (all the ones
+    /// still colorless at that point contribute nothing, exactly like a
+    /// brand-new group being added one at a time) - so this produces the
+    /// exact same deterministic assignment as if every group had been
+    /// created fresh, one after another, in this file's order.
+    /// </summary>
+    private static void AssignMissingColors(List<ServerConnectionGroup> groups)
+    {
+        foreach (var group in groups)
+        {
+            if (string.IsNullOrEmpty(group.Color))
+            {
+                group.Color = ServerColorPalette.AssignColor(groups.Select(g => g.Color));
+            }
         }
     }
 

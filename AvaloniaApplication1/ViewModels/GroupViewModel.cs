@@ -7,6 +7,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Archipolygo.Models;
 using Archipolygo.Services;
+using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -354,6 +355,37 @@ public partial class GroupViewModel : ViewModelBase
     public bool HasUnreadEvents => UnreadEventCount > 0;
 
     public string HeaderText => Group.Name;
+
+    /// <summary>
+    /// <see cref="ServerConnectionGroup.Color"/> parsed to a brush, for the
+    /// tab header/Dashboard bindings (see Feature-Plaene/Server-Farben.md).
+    /// Falls back to the palette's first color rather than throwing if
+    /// <see cref="ServerConnectionGroup.Color"/> is ever empty/unparseable -
+    /// in practice that only happens in the brief window before assignment
+    /// runs (see <see cref="Services.PersistenceService"/>/
+    /// <c>MainWindowViewModel.AddNewGroup</c>), never on an already-wrapped
+    /// group. Unlike <see cref="HeaderText"/>, nothing re-raises this when
+    /// <see cref="Group"/> changes - the color is assigned once, before a
+    /// <see cref="GroupViewModel"/> ever reads it, and (per that same plan's
+    /// decision) never reassigned afterward, so there's nothing to react to.
+    /// </summary>
+    public IBrush ColorBrush
+    {
+        get
+        {
+            // Avalonia 12.0.4's Brush only offers a throwing Parse(string),
+            // no TryParse - verified against that exact tag's source rather
+            // than assuming a newer Avalonia version's API (see CLAUDE.md).
+            try
+            {
+                return Brush.Parse(Group.Color);
+            }
+            catch (Exception)
+            {
+                return Brush.Parse(ServerColorPalette.Colors[0]);
+            }
+        }
+    }
 
     /// <summary>
     /// <see cref="Slots"/> plus a leading null entry representing "All

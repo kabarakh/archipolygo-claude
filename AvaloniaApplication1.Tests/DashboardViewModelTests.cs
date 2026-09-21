@@ -515,4 +515,132 @@ public class DashboardViewModelTests
         dashboard.SelectedSendServerGroup = g2;
         Assert.False(dashboard.CanSendMessage, "g2 has no connected leader.");
     }
+
+    // ── Events relevance/category/item-kind filters (Feature-Plaene/Dashboard-Event-Filter.md) ──
+
+    [Fact]
+    public void VisibleEvents_RelevanceFilter_DefaultsToAll_ConcernsMeNarrowsToOwnSlotEntries()
+    {
+        var groups = new ObservableCollection<GroupViewModel>();
+        var g1 = MakeGroup("Server1");
+        groups.Add(g1);
+        var dashboard = new DashboardViewModel(groups, _ => { }, (_, _, _) => { });
+
+        g1.Events.Add(new EventEntry { Text = "concerns me", Type = EventType.ItemReceived, ConcernsOwnSlot = true });
+        g1.Events.Add(new EventEntry { Text = "other players' banter", Type = EventType.Chat, ConcernsOwnSlot = false });
+
+        Assert.Equal(EventRelevanceFilter.All, dashboard.SelectedEventRelevanceFilter);
+        Assert.Equal(2, dashboard.VisibleEvents.Count());
+
+        dashboard.SelectedEventRelevanceFilter = EventRelevanceFilter.ConcernsMe;
+
+        Assert.Equal(new[] { "concerns me" }, dashboard.VisibleEvents.Select(r => r.Event.Text));
+    }
+
+    [Fact]
+    public void VisibleEvents_CategoryFilter_NarrowsByEventType()
+    {
+        var groups = new ObservableCollection<GroupViewModel>();
+        var g1 = MakeGroup("Server1");
+        groups.Add(g1);
+        var dashboard = new DashboardViewModel(groups, _ => { }, (_, _, _) => { });
+
+        g1.Events.Add(new EventEntry { Text = "a hint", Type = EventType.HintReceived });
+        g1.Events.Add(new EventEntry { Text = "an item", Type = EventType.ItemReceived });
+        g1.Events.Add(new EventEntry { Text = "chat", Type = EventType.Chat });
+
+        dashboard.SelectedEventCategoryFilter = EventCategoryFilter.Hints;
+        Assert.Equal(new[] { "a hint" }, dashboard.VisibleEvents.Select(r => r.Event.Text));
+
+        dashboard.SelectedEventCategoryFilter = EventCategoryFilter.Items;
+        Assert.Equal(new[] { "an item" }, dashboard.VisibleEvents.Select(r => r.Event.Text));
+
+        dashboard.SelectedEventCategoryFilter = EventCategoryFilter.Chat;
+        Assert.Equal(new[] { "chat" }, dashboard.VisibleEvents.Select(r => r.Event.Text));
+
+        dashboard.SelectedEventCategoryFilter = EventCategoryFilter.All;
+        Assert.Equal(3, dashboard.VisibleEvents.Count());
+    }
+
+    [Fact]
+    public void VisibleEvents_ItemKindCheckboxes_DefaultToTrue_UncheckingOneHidesOnlyThatKind()
+    {
+        var groups = new ObservableCollection<GroupViewModel>();
+        var g1 = MakeGroup("Server1");
+        groups.Add(g1);
+        var dashboard = new DashboardViewModel(groups, _ => { }, (_, _, _) => { });
+
+        g1.Events.Add(new EventEntry { Text = "progression item", Type = EventType.ItemReceived, Segments = new[] { new EventTextSegment("Big Key", EventTextSegmentKind.ItemProgression) } });
+        g1.Events.Add(new EventEntry { Text = "trap item", Type = EventType.ItemReceived, Segments = new[] { new EventTextSegment("Bomb", EventTextSegmentKind.ItemTrap) } });
+        g1.Events.Add(new EventEntry { Text = "connect", Type = EventType.Connected });
+
+        Assert.True(dashboard.ShowProgressionItemEvents);
+        Assert.True(dashboard.ShowUsefulItemEvents);
+        Assert.True(dashboard.ShowFillerItemEvents);
+        Assert.True(dashboard.ShowTrapItemEvents);
+        Assert.Equal(3, dashboard.VisibleEvents.Count());
+
+        dashboard.ShowTrapItemEvents = false;
+
+        Assert.Equal(
+            new[] { "progression item", "connect" },
+            dashboard.VisibleEvents.Select(r => r.Event.Text));
+    }
+
+    [Fact]
+    public void EventFilterCommands_SetTheExpectedFilterValues()
+    {
+        var groups = new ObservableCollection<GroupViewModel>();
+        var dashboard = new DashboardViewModel(groups, _ => { }, (_, _, _) => { });
+
+        dashboard.ShowOwnEventsOnlyCommand.Execute(null);
+        Assert.Equal(EventRelevanceFilter.ConcernsMe, dashboard.SelectedEventRelevanceFilter);
+
+        dashboard.ShowAllEventsRelevanceCommand.Execute(null);
+        Assert.Equal(EventRelevanceFilter.All, dashboard.SelectedEventRelevanceFilter);
+
+        dashboard.ShowHintEventsOnlyCommand.Execute(null);
+        Assert.Equal(EventCategoryFilter.Hints, dashboard.SelectedEventCategoryFilter);
+
+        dashboard.ShowItemEventsOnlyCommand.Execute(null);
+        Assert.Equal(EventCategoryFilter.Items, dashboard.SelectedEventCategoryFilter);
+
+        dashboard.ShowChatEventsOnlyCommand.Execute(null);
+        Assert.Equal(EventCategoryFilter.Chat, dashboard.SelectedEventCategoryFilter);
+
+        dashboard.ShowAllEventCategoriesCommand.Execute(null);
+        Assert.Equal(EventCategoryFilter.All, dashboard.SelectedEventCategoryFilter);
+    }
+
+    /// <summary>
+    /// The Dashboard's Events filters must be entirely separate instances
+    /// from any tab's own <see cref="GroupViewModel"/> filters - changing one
+    /// side must never affect the other, in either direction (see
+    /// Feature-Plaene/Dashboard-Event-Filter.md's isolation requirement).
+    /// </summary>
+    [Fact]
+    public void EventFilters_AreIndependentFromAnyTabsOwnGroupViewModelFilters()
+    {
+        var groups = new ObservableCollection<GroupViewModel>();
+        var g1 = MakeGroup("Server1");
+        groups.Add(g1);
+        var dashboard = new DashboardViewModel(groups, _ => { }, (_, _, _) => { });
+
+        dashboard.SelectedEventRelevanceFilter = EventRelevanceFilter.ConcernsMe;
+        dashboard.SelectedEventCategoryFilter = EventCategoryFilter.Chat;
+        dashboard.ShowTrapItemEvents = false;
+
+        Assert.Equal(EventRelevanceFilter.All, g1.SelectedEventRelevanceFilter);
+        Assert.Equal(EventCategoryFilter.All, g1.SelectedEventCategoryFilter);
+        Assert.True(g1.ShowTrapItemEvents);
+
+        g1.SelectedEventRelevanceFilter = EventRelevanceFilter.ConcernsMe;
+        g1.SelectedEventCategoryFilter = EventCategoryFilter.Items;
+        g1.ShowProgressionItemEvents = false;
+
+        Assert.Equal(EventRelevanceFilter.ConcernsMe, dashboard.SelectedEventRelevanceFilter);
+        Assert.Equal(EventCategoryFilter.Chat, dashboard.SelectedEventCategoryFilter);
+        Assert.False(dashboard.ShowTrapItemEvents);
+        Assert.True(dashboard.ShowProgressionItemEvents);
+    }
 }
