@@ -31,6 +31,7 @@ public partial class App : Application
     {
         var services = new ServiceCollection();
 
+        services.AddSingleton<IDiagnosticLogger, DiagnosticLogger>();
         services.AddSingleton<IPersistenceService, PersistenceService>();
         services.AddSingleton<IProfileSyncStateStore, ProfileSyncStateStore>();
         services.AddSingleton<IMessageHistoryService, MessageHistoryService>();

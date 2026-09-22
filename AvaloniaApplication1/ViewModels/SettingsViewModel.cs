@@ -47,6 +47,21 @@ public partial class SettingsViewModel : ViewModelBase
     private string? _updateCheckStatusText;
 
     /// <summary>
+    /// Delegated the same way as <see cref="_checkForUpdatesAsync"/> - reads
+    /// <see cref="Services.IDiagnosticLogger"/>'s current contents via
+    /// <see cref="ViewModels.MainWindowViewModel.ReadDiagnosticLog"/>. The
+    /// actual "save to a file" step needs a real <c>Window</c> for its file
+    /// picker, so <see cref="Views.SettingsWindow"/>'s code-behind calls this
+    /// to get the text and writes it out itself, same division of labor as
+    /// that window's own Save/Cancel buttons.
+    /// </summary>
+    private Func<string>? _readDiagnosticLog;
+
+    /// <summary>Result of the last "Export diagnostic log..." click - cleared again whenever a fresh export starts.</summary>
+    [ObservableProperty]
+    private string? _exportStatusText;
+
+    /// <summary>
     /// Whether this is a manually downloaded/unzipped build rather than one
     /// installed via Velopack's own installer - see
     /// <see cref="MainWindowViewModel.ShowUnmanagedInstallHint"/>, which this
@@ -60,13 +75,28 @@ public partial class SettingsViewModel : ViewModelBase
     /// </summary>
     public bool ShowUnmanagedInstallHint { get; private init; }
 
-    public static SettingsViewModel FromSettings(AppSettings settings, Func<Task<string?>>? checkForUpdatesAsync = null, bool showUnmanagedInstallHint = false) => new()
+    public static SettingsViewModel FromSettings(AppSettings settings, Func<Task<string?>>? checkForUpdatesAsync = null, bool showUnmanagedInstallHint = false, Func<string>? readDiagnosticLog = null) => new()
     {
         DefaultAutoConnect = settings.DefaultAutoConnect,
         EventHistoryLimit = settings.EventHistoryLimit,
         _checkForUpdatesAsync = checkForUpdatesAsync,
-        ShowUnmanagedInstallHint = showUnmanagedInstallHint
+        ShowUnmanagedInstallHint = showUnmanagedInstallHint,
+        _readDiagnosticLog = readDiagnosticLog
     };
+
+    /// <summary>
+    /// The log text to write out, or null if there's nothing to export
+    /// (empty log, or this view model was constructed without a callback -
+    /// e.g. the design-time/parameterless path). <see cref="Views.SettingsWindow"/>'s
+    /// export button handler calls this rather than invoking the delegate
+    /// directly, so it doesn't need to duplicate the "empty means nothing to
+    /// do" check itself.
+    /// </summary>
+    public string? GetDiagnosticLogTextOrNull()
+    {
+        var text = _readDiagnosticLog?.Invoke();
+        return string.IsNullOrEmpty(text) ? null : text;
+    }
 
     /// <summary>
     /// Manual equivalent of the app's own startup check (see

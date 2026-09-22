@@ -56,6 +56,13 @@
         </StackPanel>
 
         <Grid ColumnDefinitions="*,Auto" Margin="0,8,0,0">
+            <TextBlock Grid.Column="0" Text="Diagnostic log" Opacity="0.5" VerticalAlignment="Center"/>
+            <Button Grid.Column="1" Content="Export..." Click="OnExportDiagnosticLogClick"/>
+        </Grid>
+        <TextBlock Text="{Binding ExportStatusText}" Opacity="0.7" FontSize="12"
+                   IsVisible="{Binding ExportStatusText, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"/>
+
+        <Grid ColumnDefinitions="*,Auto" Margin="0,8,0,0">
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
                 <Button Content="Cancel" Click="OnCancelClick"/>
                 <Button Content="Save" Click="OnSaveClick" IsDefault="True"/>

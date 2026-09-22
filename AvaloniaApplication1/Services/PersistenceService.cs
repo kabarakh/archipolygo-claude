@@ -47,9 +47,17 @@ public class PersistenceService : IPersistenceService
     private readonly string _syncStateDirectory;
     private readonly string _settingsFilePath;
     private readonly string _dataPackageCacheDirectory;
+    private readonly IDiagnosticLogger _diagnosticLogger;
 
-    public PersistenceService()
-        : this(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Archipolygo"))
+    /// <param name="diagnosticLogger">
+    /// Resolved via DI in the real app (the shared singleton - see
+    /// App.axaml.cs), so corrupted-file/failed-save catches below end up in
+    /// the same diagnostic log every other instrumented service writes to.
+    /// Defaults to <see cref="NullDiagnosticLogger"/> for design-time
+    /// construction, which doesn't go through DI.
+    /// </param>
+    public PersistenceService(IDiagnosticLogger? diagnosticLogger = null)
+        : this(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Archipolygo"), diagnosticLogger)
     {
     }
 
@@ -61,9 +69,10 @@ public class PersistenceService : IPersistenceService
     /// actual groups.json/sync-state/settings.json. The parameterless
     /// constructor above is what the real app always uses.
     /// </summary>
-    internal PersistenceService(string appDataDirectory)
+    internal PersistenceService(string appDataDirectory, IDiagnosticLogger? diagnosticLogger = null)
     {
         _appDataDirectory = appDataDirectory;
+        _diagnosticLogger = diagnosticLogger ?? NullDiagnosticLogger.Instance;
         _groupsFilePath = Path.Combine(_appDataDirectory, "groups.json");
         _legacyProfilesFilePath = Path.Combine(_appDataDirectory, "profiles.json");
         _syncStateDirectory = Path.Combine(_appDataDirectory, "sync-state");
@@ -100,9 +109,10 @@ public class PersistenceService : IPersistenceService
             AssignMissingColors(groups);
             return groups;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
             // Corrupted/incompatible file: prefer an empty list over a crash at startup.
+            _diagnosticLogger.Error($"Failed to load {_groupsFilePath}, starting with no groups", ex);
             return new List<ServerConnectionGroup>();
         }
     }
@@ -244,8 +254,9 @@ public class PersistenceService : IPersistenceService
             return JsonSerializer.Deserialize<ProfileSyncState>(json, JsonOptions)
                    ?? new ProfileSyncState { ProfileId = slotId };
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            _diagnosticLogger.Error($"Failed to load sync state {path} for slot {slotId}, treating as never synced", ex);
             return new ProfileSyncState { ProfileId = slotId };
         }
     }
@@ -269,8 +280,9 @@ public class PersistenceService : IPersistenceService
             var json = File.ReadAllText(_settingsFilePath);
             return JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            _diagnosticLogger.Error($"Failed to load {_settingsFilePath}, falling back to defaults", ex);
             return new AppSettings();
         }
     }
@@ -378,6 +390,7 @@ public class PersistenceService : IPersistenceService
         }
         catch (Exception)
         {
+            _diagnosticLogger.Warning($"Failed to read legacy {_legacyProfilesFilePath} for one-time migration, skipping it");
             legacyProfiles = null;
         }
 

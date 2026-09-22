@@ -27,6 +27,17 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly IUpdateService? _updateService;
 
     /// <summary>
+    /// Optional for the same reason as <see cref="_updateService"/> - falls
+    /// back to <see cref="NullDiagnosticLogger"/> so every existing test
+    /// construction site keeps compiling unchanged. Only read from, via
+    /// <see cref="ReadDiagnosticLog"/> for the Settings export button -
+    /// every write happens inside the services that actually do things
+    /// worth logging (<see cref="IPersistenceService"/>, <see cref="IConnectionManager"/>,
+    /// <see cref="IUpdateService"/>), not here.
+    /// </summary>
+    private readonly IDiagnosticLogger _diagnosticLogger;
+
+    /// <summary>
     /// Ensures only one password-prompt dialog round is ever shown at a
     /// time - see <see cref="HandlePasswordRequestedAsync"/>'s doc comment.
     /// Different groups' connects are NOT otherwise serialized against each
@@ -156,12 +167,13 @@ public partial class MainWindowViewModel : ViewModelBase
     /// Also directly usable by tests that need to substitute either
     /// dependency with a fake/mock.
     /// </summary>
-    public MainWindowViewModel(IPersistenceService persistenceService, IConnectionManager connectionManager, IMultiworldTrackerService multiworldTrackerService, IUpdateService? updateService = null)
+    public MainWindowViewModel(IPersistenceService persistenceService, IConnectionManager connectionManager, IMultiworldTrackerService multiworldTrackerService, IUpdateService? updateService = null, IDiagnosticLogger? diagnosticLogger = null)
     {
         _persistenceService = persistenceService;
         _connectionManager = connectionManager;
         _multiworldTrackerService = multiworldTrackerService;
         _updateService = updateService;
+        _diagnosticLogger = diagnosticLogger ?? NullDiagnosticLogger.Instance;
 
         // Keeps AutoConnect/PreferredLeaderSlotId changes made by
         // ConnectionManager itself (see IConnectionManager.GroupPersistNeeded)
@@ -696,6 +708,9 @@ public partial class MainWindowViewModel : ViewModelBase
     public AppSettings LoadSettings() => _persistenceService.LoadSettings();
 
     public void SaveSettings(AppSettings settings) => _persistenceService.SaveSettings(settings);
+
+    /// <summary>Full contents of the diagnostic log, for <see cref="Views.SettingsWindow"/>'s export button - see <see cref="IDiagnosticLogger"/>.</summary>
+    public string ReadDiagnosticLog() => _diagnosticLogger.ReadAll();
 
     /// <summary>
     /// Disconnects every server that currently has a leader; each disconnect

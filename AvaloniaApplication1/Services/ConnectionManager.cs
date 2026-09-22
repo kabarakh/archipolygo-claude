@@ -111,6 +111,14 @@ public class ConnectionManager : IConnectionManager
     /// </summary>
     private readonly IPersistenceService? _persistenceService;
 
+    /// <summary>
+    /// Optional, same "purely additive dependency" reasoning as
+    /// <see cref="_persistenceService"/> - falls back to
+    /// <see cref="NullDiagnosticLogger"/> so every existing test construction
+    /// site keeps compiling and doesn't write to a real diagnostic log.
+    /// </summary>
+    private readonly IDiagnosticLogger _diagnosticLogger;
+
     private readonly TimeSpan _dataPackageRequestTimeout;
 
     // Real delays above (constructor-overridable, defaulting to the same
@@ -218,7 +226,8 @@ public class ConnectionManager : IConnectionManager
         TimeSpan? itemBacklogGracePeriod = null,
         TimeSpan? transientConnectRetryDelay = null,
         IPersistenceService? persistenceService = null,
-        TimeSpan? dataPackageRequestTimeout = null)
+        TimeSpan? dataPackageRequestTimeout = null,
+        IDiagnosticLogger? diagnosticLogger = null)
     {
         _messageHistoryService = messageHistoryService;
         _hintService = hintService;
@@ -227,6 +236,7 @@ public class ConnectionManager : IConnectionManager
         _transientConnectRetryDelay = transientConnectRetryDelay ?? DefaultTransientConnectRetryDelay;
         _persistenceService = persistenceService;
         _dataPackageRequestTimeout = dataPackageRequestTimeout ?? DefaultDataPackageRequestTimeout;
+        _diagnosticLogger = diagnosticLogger ?? NullDiagnosticLogger.Instance;
     }
 
     public async Task SwitchLeaderAsync(GroupViewModel group, SlotProfile targetSlot)
@@ -325,6 +335,7 @@ public class ConnectionManager : IConnectionManager
                 if (previousSlot is not null)
                 {
                     _messageHistoryService.HandleDisconnected(group, previousSlot, "switched account");
+                    _diagnosticLogger.Info($"[{group.Group.Name}] Switched leader from {previousSlot.DisplayName} to {targetSlot.DisplayName}");
                 }
 
                 await TryCloseSocketAsync(group, previousSlot, oldSession);
@@ -372,6 +383,7 @@ public class ConnectionManager : IConnectionManager
             // doc comment for why the leader's own attempt was announced
             // separately, before this point.
             RaiseSlotSyncBatchStarting(siblingSlots.Count);
+            _diagnosticLogger.Info($"[{group.Group.Name}] Catch-up sweep starting for {siblingSlots.Count} sibling slot(s)");
 
             for (var i = 0; i < siblingSlots.Count; i++)
             {
@@ -396,6 +408,8 @@ public class ConnectionManager : IConnectionManager
                 var stillOnline = _leaderSlotByGroup.TryGetValue(groupId, out var stillLeaderId) && stillLeaderId == targetSlot.Id;
                 if (_autoReconnectSuppressed.ContainsKey(groupId) || !stillOnline)
                 {
+                    _diagnosticLogger.Warning($"[{group.Group.Name}] Catch-up sweep aborted after {i + 1}/{siblingSlots.Count} slot(s) - group no longer online");
+
                     // Every slot this loop never got to still needs its
                     // "processed" signal though, so the progress indicator
                     // this pass announced a size for isn't left stuck short
@@ -478,6 +492,7 @@ public class ConnectionManager : IConnectionManager
             if (leaderSlot is not null)
             {
                 _messageHistoryService.HandleDisconnected(group, leaderSlot, "disconnected by user");
+                _diagnosticLogger.Info($"[{group.Group.Name}] Disconnected by user (was leader: {leaderSlot.DisplayName})");
             }
 
             SetConnectionState(group, ConnectionState.Disconnected);
@@ -1154,6 +1169,7 @@ public class ConnectionManager : IConnectionManager
                 }
 
                 _messageHistoryService.HandleError(group, $"Could not create session for {slot.DisplayName}: {ex.Message}");
+                _diagnosticLogger.Error($"[{group.Group.Name}] Could not create session for {slot.DisplayName}", ex);
                 return null;
             }
 
@@ -1202,10 +1218,12 @@ public class ConnectionManager : IConnectionManager
                     // other packet are unaffected - so it's swallowed here
                     // instead of surfacing a raw Newtonsoft.Json exception a
                     // player has no way to make sense of.
+                    _diagnosticLogger.Warning($"[{group.Group.Name}] [{slot.DisplayName}] Rejected malformed Bounce packet: {ex.Message}");
                     return;
                 }
 
                 _messageHistoryService.HandleError(group, $"[{slot.DisplayName}] {message}");
+                _diagnosticLogger.Warning($"[{group.Group.Name}] [{slot.DisplayName}] {message}");
             };
 
             if (isLeaderSession)
@@ -1343,6 +1361,7 @@ public class ConnectionManager : IConnectionManager
                     }
 
                     _messageHistoryService.HandleError(group, $"Login failed for {slot.DisplayName}: {errorText}");
+                    _diagnosticLogger.Warning($"[{group.Group.Name}] Login rejected for {slot.DisplayName}: {errorText}");
                     await TryCloseSocketAsync(group, slot, session);
                     return null; // a real rejection, not a transient hiccup - never retried.
                 }
@@ -1365,6 +1384,7 @@ public class ConnectionManager : IConnectionManager
                 _messageHistoryService.HandleError(
                     group,
                     $"Connecting {slot.DisplayName} hit a transient error ({ex.GetType().Name}), retrying ({attempt}/{MaxTransientConnectRetries})...");
+                _diagnosticLogger.Warning($"[{group.Group.Name}] Transient connect error for {slot.DisplayName} ({ex.GetType().Name}), retrying ({attempt}/{MaxTransientConnectRetries})");
 
                 try
                 {
@@ -1387,6 +1407,7 @@ public class ConnectionManager : IConnectionManager
                 }
 
                 _messageHistoryService.HandleError(group, $"Connection failed for {slot.DisplayName}: {ex.Message}");
+                _diagnosticLogger.Error($"[{group.Group.Name}] Connection failed for {slot.DisplayName}", ex);
                 await TryCloseSocketAsync(group, slot, session);
                 return null;
             }
@@ -1486,6 +1507,7 @@ public class ConnectionManager : IConnectionManager
                 }
 
                 _messageHistoryService.HandleConnected(group, slot);
+                _diagnosticLogger.Info($"[{group.Group.Name}] Connected as leader: {slot.DisplayName}");
             }
 
             _ = Task.Delay(_itemBacklogGracePeriod)
@@ -1608,6 +1630,7 @@ public class ConnectionManager : IConnectionManager
             // connection problem) rather than swallowed without a trace.
             _messageHistoryService.HandleError(
                 group, $"[{slot?.DisplayName ?? "unknown slot"}] internal cleanup workaround (socket abort) failed: {ex.Message}");
+            _diagnosticLogger.Error($"[{group.Group.Name}] [{slot?.DisplayName ?? "unknown slot"}] Socket abort cleanup workaround failed - may leak the session", ex);
         }
 
         try
@@ -1619,6 +1642,7 @@ public class ConnectionManager : IConnectionManager
             // See above - same reasoning, other half of the workaround.
             _messageHistoryService.HandleError(
                 group, $"[{slot?.DisplayName ?? "unknown slot"}] internal cleanup workaround (send queue) failed: {ex.Message}");
+            _diagnosticLogger.Error($"[{group.Group.Name}] [{slot?.DisplayName ?? "unknown slot"}] Send queue cleanup workaround failed - may leak the session", ex);
         }
     }
 
@@ -1749,11 +1773,13 @@ public class ConnectionManager : IConnectionManager
 
         if (!_autoReconnectSuppressed.ContainsKey(groupId) && group.Group.AutoConnect)
         {
+            _diagnosticLogger.Warning($"[{group.Group.Name}] Leader {slot.DisplayName} dropped unexpectedly ({reason}), scheduling reconnect");
             SetConnectionState(group, ConnectionState.Reconnecting);
             _ = ScheduleReconnectAsync(group, slot);
         }
         else
         {
+            _diagnosticLogger.Info($"[{group.Group.Name}] Leader {slot.DisplayName} dropped ({reason}), not auto-reconnecting");
             SetConnectionState(group, ConnectionState.Disconnected);
         }
     }

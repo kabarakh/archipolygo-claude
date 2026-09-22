@@ -23,6 +23,7 @@ public class UpdateService : IUpdateService
     private const string RepoUrl = "https://github.com/kabarakh/archipolygo-claude";
 
     private readonly UpdateManager? _updateManager;
+    private readonly IDiagnosticLogger _diagnosticLogger;
     private UpdateInfo? _pendingUpdate;
 
     public bool IsManagedInstall => _updateManager?.IsInstalled ?? false;
@@ -33,8 +34,10 @@ public class UpdateService : IUpdateService
     // can't satisfy by cross-compiling from the Linux runner it uses).
     public bool SupportsManagedInstall => !OperatingSystem.IsMacOS();
 
-    public UpdateService()
+    public UpdateService(IDiagnosticLogger? diagnosticLogger = null)
     {
+        _diagnosticLogger = diagnosticLogger ?? NullDiagnosticLogger.Instance;
+
         try
         {
             // No access token (public repo, anonymous rate limits are fine
@@ -44,12 +47,13 @@ public class UpdateService : IUpdateService
             var source = new GithubSource(RepoUrl, accessToken: null, prerelease: false);
             _updateManager = new UpdateManager(source);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
             // Never let a construction-time failure here take the whole app
             // down with it - see this class's doc comment/CheckForUpdatesAsync's
             // "never throws" contract. _updateManager stays null; every
             // other member below already guards against that.
+            _diagnosticLogger.Warning($"Failed to construct UpdateManager, update checks disabled for this session: {ex.Message}");
             _updateManager = null;
         }
     }
@@ -69,14 +73,20 @@ public class UpdateService : IUpdateService
         try
         {
             _pendingUpdate = await _updateManager.CheckForUpdatesAsync();
+            if (_pendingUpdate is not null)
+            {
+                _diagnosticLogger.Info($"Update check found version {_pendingUpdate.TargetFullRelease.Version}");
+            }
+
             return _pendingUpdate?.TargetFullRelease.Version.ToString();
         }
-        catch (Exception)
+        catch (Exception ex)
         {
             // Offline, feed unreachable, malformed release, ... - silently
             // treated the same as "no update available" rather than
             // surfacing an error the user can't act on. See this method's
             // doc comment.
+            _diagnosticLogger.Warning($"Update check failed, treating as up to date: {ex.Message}");
             _pendingUpdate = null;
             return null;
         }
@@ -102,11 +112,12 @@ public class UpdateService : IUpdateService
             // restart path here at all.
             _updateManager.ApplyUpdatesAndRestart(_pendingUpdate.TargetFullRelease);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
             // Best-effort; a failed download/apply just leaves the app
             // running on its current version. Nothing left pending either
             // way - the next manual/startup check starts fresh.
+            _diagnosticLogger.Error($"Failed to download/apply update {_pendingUpdate.TargetFullRelease.Version}", ex);
             _pendingUpdate = null;
         }
     }
