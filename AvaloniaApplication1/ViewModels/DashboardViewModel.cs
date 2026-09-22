@@ -430,7 +430,11 @@ public partial class DashboardViewModel : ViewModelBase
                 rows = rows.Where(r => r.Event.SlotId is null || r.Event.SlotId == filterId);
             }
 
-            return rows;
+            // Each group's own Events list is already chronological, but the
+            // SelectMany above still yields one server's whole block before
+            // the next - sort purely by timestamp so the global list is a
+            // true cross-server merge, not "server, then time".
+            return rows.OrderBy(r => r.Event.Timestamp);
         }
     }
 
