@@ -38,6 +38,19 @@
         <TextBlock Text="A room link/id only works if the room is hosted via a webhost - a self-hosted server with no webhost still needs host:port typed directly."
                    Opacity="0.6" TextWrapping="Wrap" IsVisible="{Binding !IsServerReadOnly}"/>
 
+        <!-- Shown for NewGroup and EditGroup alike - the color is a
+             server-wide setting, same as AutoConnect/the tracker field below
+             (see ConnectionEditorViewModel.ShowColorPicker). "Reset" gives a
+             fresh automatic suggestion, not a restore of a previous value -
+             see ResetColorToAutomatic's own doc comment. -->
+        <StackPanel IsVisible="{Binding ShowColorPicker}" Spacing="4">
+            <TextBlock Text="Color"/>
+            <Grid ColumnDefinitions="*,Auto">
+                <ColorPicker Grid.Column="0" Color="{Binding SelectedColor, Mode=TwoWay}" HorizontalAlignment="Left"/>
+                <Button Grid.Column="1" Content="Reset to automatic" Command="{Binding ResetColorToAutomaticCommand}"/>
+            </Grid>
+        </StackPanel>
+
         <!-- When adding a slot to an existing server, the server is shown
              read-only above (for context) rather than hidden entirely, so
              the user can see which server they're adding to. -->

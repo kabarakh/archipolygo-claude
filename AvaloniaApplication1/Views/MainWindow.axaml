@@ -88,7 +88,14 @@
     </Design.DataContext>
 
     <DockPanel>
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="8" Spacing="8" VerticalAlignment="Center">
+        <!-- Grid, not just the StackPanel below, so the theme button can sit
+             at the very right edge of the WINDOW - appending it to the end
+             of the StackPanel would only put it right of the last toolbar
+             button, not at the window edge (explicit user expectation - "da
+             erwarten Leute sowas", see
+             Feature-Plaene/Theme-Umschalter-und-Server-Farbwaehler.md). -->
+        <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto">
+        <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="8" Spacing="8" VerticalAlignment="Center">
             <Image Source="/Assets/project-logo.png" Width="28" Height="28" VerticalAlignment="Center"/>
             <!-- Feature-Plaene/Archiv/Dashboard-Tab.md: toggles the whole main area
                  between the normal TabControl and DashboardView (see the
@@ -130,6 +137,16 @@
                 </FlyoutBase.AttachedFlyout>
             </Button>
         </StackPanel>
+
+        <!-- Cycles System -> Light -> Dark -> System -> ... on each click
+             (Services/ThemeService.Next) - plain Unicode glyph, same
+             convention as the rest of this app's dialogs rather than an
+             icon font dependency just for this one button. -->
+        <Button Grid.Column="1" Content="{Binding ThemeButtonGlyph}"
+                ToolTip.Tip="{Binding ThemeButtonTooltip}"
+                Command="{Binding CycleThemeCommand}"
+                FontSize="16" Margin="8" VerticalAlignment="Center"/>
+        </Grid>
 
         <!-- Startup-only progress indicator - visible while
              MainWindowViewModel.InitializeGroupsAsync is still working

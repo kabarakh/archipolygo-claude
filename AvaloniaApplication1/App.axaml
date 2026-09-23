@@ -27,5 +27,10 @@
              live here so they're made once and apply to every dialog that
              opts in - see the file's own header comment. -->
         <StyleInclude Source="avares://Archipolygo/Styles/DialogStyles.axaml"/>
+        <!-- Required for the ColorPicker control used by the Connection
+             Editor's server color picker - without this, ColorPicker/
+             ColorView render completely unstyled (see the
+             Avalonia.Controls.ColorPicker package reference in the .csproj). -->
+        <StyleInclude Source="avares://Avalonia.Controls.ColorPicker/Themes/Fluent/Fluent.xaml"/>
     </Application.Styles>
 </Application>

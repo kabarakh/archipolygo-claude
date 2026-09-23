@@ -301,6 +301,33 @@ public sealed class PersistenceServiceTests : IDisposable
         _service.DeleteDataPackageCacheForGroup(Guid.NewGuid());
     }
 
+    [Fact]
+    public void SaveThenLoadSettings_RoundTripsThemePreference()
+    {
+        var settings = new AppSettings { ThemePreference = "Dark" };
+
+        _service.SaveSettings(settings);
+        var loaded = _service.LoadSettings();
+
+        Assert.Equal("Dark", loaded.ThemePreference);
+    }
+
+    [Fact]
+    public void LoadSettings_FileFromBeforeThemePreferenceExisted_DefaultsToSystem()
+    {
+        // Simulates an upgrade from an older install: a settings.json
+        // written before ThemePreference existed at all, not just one where
+        // it happens to be unset.
+        Directory.CreateDirectory(_tempDirectory);
+        var path = Path.Combine(_tempDirectory, "settings.json");
+        File.WriteAllText(path, JsonSerializer.Serialize(new { DefaultAutoConnect = true, EventHistoryLimit = 500 }));
+
+        var loaded = _service.LoadSettings();
+
+        Assert.Equal("System", loaded.ThemePreference);
+        Assert.True(loaded.DefaultAutoConnect);
+    }
+
     private void WriteLegacyProfilesFile(object legacyProfiles)
     {
         Directory.CreateDirectory(_tempDirectory);

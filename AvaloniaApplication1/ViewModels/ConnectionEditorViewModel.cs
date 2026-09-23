@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Archipolygo.Models;
 using Archipolygo.Services;
+using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -86,6 +87,16 @@ public class ConnectionEditorResult
     /// removal too - not just every other field in this dialog.
     /// </summary>
     public IReadOnlyList<SlotProfile> SlotsToRemove { get; init; } = Array.Empty<SlotProfile>();
+
+    /// <summary>
+    /// <see cref="ConnectionEditorMode.NewGroup"/>/<see cref="ConnectionEditorMode.EditGroup"/>
+    /// only (see <see cref="ConnectionEditorViewModel.ShowColorPicker"/>) -
+    /// the server's color, as picked (or left at its suggested/existing
+    /// value) via the <c>ColorPicker</c> in the editor. Empty for
+    /// <see cref="ConnectionEditorMode.AddSlot"/>, where the server already
+    /// has a color that this dialog doesn't touch.
+    /// </summary>
+    public string Color { get; init; } = string.Empty;
 }
 
 /// <summary>
@@ -255,6 +266,29 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     /// <summary>Tier 2 of Feature-Plaene/Archiv/Fortschrittsanzeigen.md is a server-level setting too, same reasoning as <see cref="ShowAutoConnect"/> - not relevant when only adding slots to an existing server.</summary>
     public bool ShowMultiworldTracker => Mode != ConnectionEditorMode.AddSlot;
 
+    /// <summary>
+    /// The color picker is a server-level setting too, same reasoning as
+    /// <see cref="ShowAutoConnect"/>/<see cref="ShowMultiworldTracker"/> -
+    /// shown for both creating a new server and editing an existing one, not
+    /// for <see cref="ConnectionEditorMode.AddSlot"/> (the server it's adding
+    /// to already has a color). See
+    /// Feature-Plaene/Theme-Umschalter-und-Server-Farbwaehler.md.
+    /// </summary>
+    public bool ShowColorPicker => Mode != ConnectionEditorMode.AddSlot;
+
+    /// <summary>
+    /// The server's color, bound to the <c>ColorPicker</c> - see
+    /// <see cref="ShowColorPicker"/>. Initialized by <see cref="ForNewGroup"/>
+    /// (to the same auto-assignment suggestion
+    /// <see cref="MainWindowViewModel.AddNewGroup"/> used to compute after
+    /// the fact) or <see cref="ForEditGroup"/> (to the group's existing
+    /// color), and can be reset back to a fresh suggestion via
+    /// <see cref="ResetColorToAutomatic"/>. Unused (default) for
+    /// <see cref="ConnectionEditorMode.AddSlot"/>.
+    /// </summary>
+    [ObservableProperty]
+    private Color _selectedColor;
+
     public string DialogTitle => Mode switch
     {
         ConnectionEditorMode.NewGroup => "New Server",
@@ -289,14 +323,25 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         bool defaultAutoConnect = false,
         IReadOnlyList<ServerConnectionGroup>? existingGroups = null,
         Func<string, Task<string?>>? resolveTrackerId = null,
-        Func<string, Task<RoomConnectionInfo?>>? resolveRoomConnectionInfo = null) => new()
+        Func<string, Task<RoomConnectionInfo?>>? resolveRoomConnectionInfo = null)
     {
-        Mode = ConnectionEditorMode.NewGroup,
-        AutoConnect = defaultAutoConnect,
-        _existingGroups = existingGroups ?? Array.Empty<ServerConnectionGroup>(),
-        _resolveTrackerId = resolveTrackerId,
-        _resolveRoomConnectionInfo = resolveRoomConnectionInfo
-    };
+        var viewModel = new ConnectionEditorViewModel
+        {
+            Mode = ConnectionEditorMode.NewGroup,
+            AutoConnect = defaultAutoConnect,
+            _existingGroups = existingGroups ?? Array.Empty<ServerConnectionGroup>(),
+            _resolveTrackerId = resolveTrackerId,
+            _resolveRoomConnectionInfo = resolveRoomConnectionInfo
+        };
+
+        // Same suggestion MainWindowViewModel.AddNewGroup used to compute
+        // itself after the fact - now shown up front and adjustable via the
+        // color picker before Save, instead of being assigned invisibly in
+        // the background (see ShowColorPicker's doc comment).
+        viewModel.SelectedColor = ComputeSuggestedColor(viewModel._existingGroups, null);
+
+        return viewModel;
+    }
 
     /// <summary>
     /// <paramref name="availablePlayers"/> should already be filtered down to
@@ -353,7 +398,8 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             _existingGroups = existingGroups ?? Array.Empty<ServerConnectionGroup>(),
             _resolveTrackerId = resolveTrackerId,
             _resolveRoomConnectionInfo = resolveRoomConnectionInfo,
-            _resolvedTrackerId = group.TrackerId
+            _resolvedTrackerId = group.TrackerId,
+            SelectedColor = ParseColorOrFallback(group.Color)
         };
 
         // Default leader first, then alphabetical - same ordering rule as
@@ -378,6 +424,34 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         slots
             .OrderBy(s => s.Id == leaderSlotId ? 0 : 1)
             .ThenBy(s => s.SlotName, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// What <see cref="ResetColorToAutomatic"/> (and <see cref="ForNewGroup"/>,
+    /// for the initial suggestion) computes: the usual
+    /// <see cref="ServerColorPalette.AssignColor"/> suggestion, but counting
+    /// only every *other* configured group - <paramref name="existingGroups"/>
+    /// includes the group being edited itself (see how <see cref="ForEditGroup"/>
+    /// is called with <c>MainWindowViewModel.GetAllGroups()</c>), and that
+    /// group's own current color must not count against itself, or the
+    /// suggestion would be skewed by a color that's about to be replaced
+    /// anyway. <paramref name="targetGroup"/> is null for
+    /// <see cref="ConnectionEditorMode.NewGroup"/>, where there's no "self"
+    /// to exclude in the first place.
+    /// </summary>
+    private static Color ComputeSuggestedColor(IReadOnlyList<ServerConnectionGroup> existingGroups, ServerConnectionGroup? targetGroup) =>
+        ParseColorOrFallback(ServerColorPalette.AssignColor(
+            existingGroups.Where(g => g != targetGroup).Select(g => g.Color)));
+
+    /// <summary>
+    /// Avalonia 12.0.4's <see cref="Color"/> (unlike <see cref="Avalonia.Media.Brush"/>,
+    /// which only offers a throwing <c>Parse</c> - see
+    /// <see cref="GroupViewModel.ColorBrush"/>'s own doc comment) has a real
+    /// <c>TryParse</c>, verified against that exact tag's source rather than
+    /// assumed (see CLAUDE.md). Falls back to the palette's first color for
+    /// the same "never throw into the view" reasoning as <c>ColorBrush</c>.
+    /// </summary>
+    private static Color ParseColorOrFallback(string colorString) =>
+        Color.TryParse(colorString, out var color) ? color : Color.Parse(ServerColorPalette.Colors[0]);
 
     private void OnSlotRowPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -488,6 +562,20 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         {
             PreferredLeaderSlotId = null;
         }
+    }
+
+    /// <summary>
+    /// Re-suggests <see cref="SelectedColor"/> via
+    /// <see cref="ComputeSuggestedColor"/> - "reset" in the sense of "give me
+    /// a fresh automatic suggestion again", not "restore whatever the exact
+    /// previous automatic value was" (nothing keeps that history once
+    /// overwritten - <see cref="ServerConnectionGroup.Color"/> is just a
+    /// free string, see Feature-Plaene/Archiv/Server-Farben.md).
+    /// </summary>
+    [RelayCommand]
+    private void ResetColorToAutomatic()
+    {
+        SelectedColor = ComputeSuggestedColor(_existingGroups, _targetGroup);
     }
 
     /// <summary>
@@ -757,7 +845,8 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             PreferredLeaderSlotId = PreferredLeaderSlotId,
             SlotsToRemove = _slotsToRemove,
             TrackerReferenceInput = ShowMultiworldTracker ? TrackerReferenceInput.Trim() : null,
-            TrackerId = ShowMultiworldTracker ? _resolvedTrackerId : null
+            TrackerId = ShowMultiworldTracker ? _resolvedTrackerId : null,
+            Color = ShowColorPicker ? SelectedColor.ToString() : string.Empty
         };
         return true;
     }

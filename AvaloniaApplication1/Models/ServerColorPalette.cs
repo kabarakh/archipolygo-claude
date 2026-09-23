@@ -29,6 +29,58 @@ public static class ServerColorPalette
     };
 
     /// <summary>
+    /// Same order/index as <see cref="Colors"/> - Light-theme counterparts,
+    /// same hue but hand-derived (lightness lowered until WCAG contrast
+    /// against white reaches at least 4.5:1, computed rather than guessed)
+    /// since every <see cref="Colors"/> entry already tests well against a
+    /// dark background but poorly against a light one - see
+    /// Feature-Plaene/Theme-Umschalter-und-Server-Farbwaehler.md's "Konkrete
+    /// Farbwerte" table. Only used via <see cref="ResolveDisplayColor"/>.
+    /// </summary>
+    private static readonly IReadOnlyList<string> LightColors = new[]
+    {
+        "#0074E6",
+        "#2D8654",
+        "#E72300",
+        "#8B7500",
+        "#C633C1",
+        "#168579",
+        "#DB3B00",
+        "#3071E7",
+        "#61811F",
+        "#E70074"
+    };
+
+    /// <summary>
+    /// What a group's stored <see cref="ServerConnectionGroup.Color"/> should
+    /// actually be rendered as right now - unchanged for Dark (that's what
+    /// <see cref="Colors"/> already contains), swapped for its
+    /// <see cref="LightColors"/> counterpart for Light *only* when
+    /// <paramref name="storedColor"/> is still exactly one of the automatic
+    /// <see cref="Colors"/> values. A manually picked color (see the
+    /// Connection Editor's color picker) is a deliberate, free RGB choice
+    /// with no known "light variant" to derive - passed through unchanged
+    /// either way, since there's nothing meaningful to substitute it with.
+    /// </summary>
+    public static string ResolveDisplayColor(string storedColor, bool isLightTheme)
+    {
+        if (!isLightTheme)
+        {
+            return storedColor;
+        }
+
+        for (var i = 0; i < Colors.Count; i++)
+        {
+            if (Colors[i] == storedColor)
+            {
+                return LightColors[i];
+            }
+        }
+
+        return storedColor;
+    }
+
+    /// <summary>
     /// Picks the next color for a newly created/still-colorless group, given
     /// the colors every other currently-configured group already has (see
     /// Server-Farben.md's "Zuweisungsalgorithmus"). Counts how many groups

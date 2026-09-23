@@ -7,7 +7,9 @@ using System.Linq;
 using System.Threading.Tasks;
 using Archipolygo.Models;
 using Archipolygo.Services;
+using Avalonia;
 using Avalonia.Media;
+using Avalonia.Styling;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -358,27 +360,34 @@ public partial class GroupViewModel : ViewModelBase
 
     /// <summary>
     /// <see cref="ServerConnectionGroup.Color"/> parsed to a brush, for the
-    /// tab header/Dashboard bindings (see Feature-Plaene/Server-Farben.md).
-    /// Falls back to the palette's first color rather than throwing if
-    /// <see cref="ServerConnectionGroup.Color"/> is ever empty/unparseable -
-    /// in practice that only happens in the brief window before assignment
-    /// runs (see <see cref="Services.PersistenceService"/>/
+    /// tab header/Dashboard bindings (see
+    /// Feature-Plaene/Archiv/Server-Farben.md). Falls back to the palette's
+    /// first color rather than throwing if <see cref="ServerConnectionGroup.Color"/>
+    /// is ever empty/unparseable - in practice that only happens in the
+    /// brief window before assignment runs (see
+    /// <see cref="Services.PersistenceService"/>/
     /// <c>MainWindowViewModel.AddNewGroup</c>), never on an already-wrapped
-    /// group. Unlike <see cref="HeaderText"/>, nothing re-raises this when
-    /// <see cref="Group"/> changes - the color is assigned once, before a
-    /// <see cref="GroupViewModel"/> ever reads it, and (per that same plan's
-    /// decision) never reassigned afterward, so there's nothing to react to.
+    /// group. Re-raised on both a <see cref="Group"/> color change (the
+    /// Connection Editor's color picker, see
+    /// Feature-Plaene/Theme-Umschalter-und-Server-Farbwaehler.md - unlike
+    /// before that feature, the color CAN change after this view model
+    /// already read it) and a live theme switch (see the constructor's
+    /// <c>ActualThemeVariantChanged</c> subscription) - the resolved display
+    /// color depends on both.
     /// </summary>
     public IBrush ColorBrush
     {
         get
         {
+            var isLightTheme = Application.Current?.ActualThemeVariant == ThemeVariant.Light;
+            var displayColor = ServerColorPalette.ResolveDisplayColor(Group.Color, isLightTheme);
+
             // Avalonia 12.0.4's Brush only offers a throwing Parse(string),
             // no TryParse - verified against that exact tag's source rather
             // than assuming a newer Avalonia version's API (see CLAUDE.md).
             try
             {
-                return Brush.Parse(Group.Color);
+                return Brush.Parse(displayColor);
             }
             catch (Exception)
             {
@@ -422,6 +431,15 @@ public partial class GroupViewModel : ViewModelBase
         Hints.CollectionChanged += OnHintsCollectionChanged;
         ReceivedItems.CollectionChanged += (_, _) => OnPropertyChanged(nameof(VisibleReceivedItems));
         Group.PropertyChanged += OnGroupPropertyChanged;
+
+        // Keeps ColorBrush current across a live theme switch - never
+        // unsubscribed, same "lives as long as the app in practice" reasoning
+        // as the Group.PropertyChanged subscription above (a GroupViewModel
+        // is only ever torn down by removing its server entirely).
+        if (Application.Current is not null)
+        {
+            Application.Current.ActualThemeVariantChanged += (_, _) => OnPropertyChanged(nameof(ColorBrush));
+        }
 
         RefreshSlotOrder();
 
@@ -1028,6 +1046,11 @@ public partial class GroupViewModel : ViewModelBase
         if (e.PropertyName == nameof(ServerConnectionGroup.Name))
         {
             OnPropertyChanged(nameof(HeaderText));
+        }
+
+        if (e.PropertyName == nameof(ServerConnectionGroup.Color))
+        {
+            OnPropertyChanged(nameof(ColorBrush));
         }
 
         if (e.PropertyName == nameof(ServerConnectionGroup.TrackerId))

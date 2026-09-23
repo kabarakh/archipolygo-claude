@@ -240,6 +240,40 @@ public partial class MainWindowViewModel : ViewModelBase
         // (see MainWindow.axaml) either quietly appears once this resolves,
         // or it doesn't.
         _ = CheckForUpdatesAsync();
+
+        // App.axaml.cs already applied this same preference to
+        // RequestedThemeVariant before this view model even exists - this
+        // just mirrors the persisted value for the theme button's own
+        // glyph/tooltip, not a second place that applies the theme itself.
+        ThemePreference = _persistenceService.LoadSettings().ThemePreference;
+    }
+
+    /// <summary>"System"/"Light"/"Dark" - see <see cref="Services.ThemeService"/>. Drives the theme button's glyph/tooltip in MainWindow.axaml; the actually-applied theme lives on <see cref="Avalonia.Application.RequestedThemeVariant"/>, set alongside this by <see cref="CycleTheme"/> (and once at startup by <see cref="App"/>).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ThemeButtonGlyph))]
+    [NotifyPropertyChangedFor(nameof(ThemeButtonTooltip))]
+    private string _themePreference = "System";
+
+    /// <summary>Plain Unicode glyphs, same convention as the rest of this app's dialogs (e.g. ConnectionEditorWindow.axaml's "✕"/"🔒") rather than an icon font dependency just for this one button.</summary>
+    public string ThemeButtonGlyph => ThemePreference switch
+    {
+        "Light" => "☀",
+        "Dark" => "🌙",
+        _ => "◐"
+    };
+
+    public string ThemeButtonTooltip => $"Theme: {ThemePreference} (click to switch)";
+
+    /// <summary>Advances to the next theme (see <see cref="Services.ThemeService.Next"/>), persists it, and applies it immediately.</summary>
+    [RelayCommand]
+    private void CycleTheme()
+    {
+        var settings = LoadSettings();
+        settings.ThemePreference = ThemeService.Next(settings.ThemePreference);
+        SaveSettings(settings);
+
+        ThemePreference = settings.ThemePreference;
+        ThemeService.Apply(ThemePreference);
     }
 
     /// <summary>Whether a new version is available - drives the small dot next to the "Settings..." button in MainWindow.axaml.</summary>
@@ -477,7 +511,19 @@ public partial class MainWindowViewModel : ViewModelBase
     /// controls whether this group reconnects automatically at the *next*
     /// app start (or after an unexpected drop) - see <see cref="ServerConnectionGroup.AutoConnect"/>.
     /// </summary>
-    public void AddNewGroup(string name, string host, int port, string password, string slotName, bool autoConnect, string? trackerReferenceInput = null, string? trackerId = null)
+    /// <param name="color">
+    /// Normally already resolved by <see cref="ConnectionEditorViewModel"/>
+    /// before this is called (its own <c>SelectedColor</c>, pre-filled with
+    /// the same <see cref="ServerColorPalette.AssignColor"/> suggestion this
+    /// method used to compute itself right here - see
+    /// Feature-Plaene/Theme-Umschalter-und-Server-Farbwaehler.md) - the user
+    /// could have adjusted it via the color picker before saving, so this
+    /// method just takes whatever came back instead of recomputing it. Null/
+    /// empty (every call site that predates the color picker, e.g.
+    /// TestHarness and most tests) falls back to that same auto-assignment,
+    /// unchanged from before.
+    /// </param>
+    public void AddNewGroup(string name, string host, int port, string password, string slotName, bool autoConnect, string? color = null, string? trackerReferenceInput = null, string? trackerId = null)
     {
         var group = new ServerConnectionGroup
         {
@@ -488,7 +534,7 @@ public partial class MainWindowViewModel : ViewModelBase
             AutoConnect = autoConnect,
             TrackerReferenceInput = trackerReferenceInput,
             TrackerId = trackerId,
-            Color = ServerColorPalette.AssignColor(Groups.Select(g => g.Group.Color))
+            Color = string.IsNullOrEmpty(color) ? ServerColorPalette.AssignColor(Groups.Select(g => g.Group.Color)) : color
         };
 
         var slot = new SlotProfile { GroupId = group.Id, SlotName = slotName };
@@ -605,7 +651,7 @@ public partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     public async Task UpdateGroup(
         GroupViewModel groupViewModel, string name, string host, int port, string password, bool autoConnect,
-        Guid? preferredLeaderSlotId, IReadOnlyList<SlotProfile>? slotsToRemove = null,
+        Guid? preferredLeaderSlotId, string? color = null, IReadOnlyList<SlotProfile>? slotsToRemove = null,
         string? trackerReferenceInput = null, string? trackerId = null)
     {
         groupViewModel.Group.Name = name;
@@ -616,6 +662,14 @@ public partial class MainWindowViewModel : ViewModelBase
         groupViewModel.Group.PreferredLeaderSlotId = preferredLeaderSlotId;
         groupViewModel.Group.TrackerReferenceInput = trackerReferenceInput;
         groupViewModel.Group.TrackerId = trackerId;
+
+        // Null/empty only for call sites that predate the color picker
+        // (e.g. tests exercising slot removal that don't care about color) -
+        // leaves the group's existing color untouched rather than clearing it.
+        if (!string.IsNullOrEmpty(color))
+        {
+            groupViewModel.Group.Color = color;
+        }
 
         if (slotsToRemove is { Count: > 0 })
         {

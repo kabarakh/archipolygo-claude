@@ -45,6 +45,11 @@
         <PackageReference Include="Avalonia.Desktop" Version="12.0.4"/>
         <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.4"/>
         <PackageReference Include="Avalonia.Fonts.Inter" Version="12.0.4"/>
+        <!-- ColorPicker/ColorView aren't part of the main Avalonia packages
+             above (kept out for resource-constrained targets) - needs its
+             own package, matching the same Avalonia version, plus a
+             StyleInclude in App.axaml (see Feature-Plaene/Theme-Umschalter-und-Server-Farbwaehler.md). -->
+        <PackageReference Include="Avalonia.Controls.ColorPicker" Version="12.0.4"/>
         <PackageReference Include="AvaloniaUI.DiagnosticsSupport" Version="2.2.1">
             <IncludeAssets Condition="'$(Configuration)' != 'Debug'">None</IncludeAssets>
             <PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
