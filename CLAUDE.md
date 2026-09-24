@@ -90,7 +90,16 @@ consistently explain reasoning, not just mechanics).
 If you're asked to change connection/leader/reconnect behavior, start in
 `ConnectionManager.cs` - it's one file (grown well past its original ~800
 lines as more of this doc's own behavior got added to it), and every method
-has a doc comment explaining what it's for and why it's shaped that way.
+has a short doc comment explaining what it's for. As of 2026-09-24, the
+*extended* why-rationale for its trickier corners (locking order, the
+transient-retry/password-retry flow, the socket-cleanup reflection
+workaround, the sibling catch-up sweep's abort conditions, ...) no longer
+lives inline - it moved to Umsetzungsplan.md's "ConnectionManager: Locking,
+Nebenläufigkeit und Workarounds im Detail" section (the file had grown to
+~2100 lines, roughly half of it comment). Each affected comment in the code
+still points at the matching subsection by name - follow that pointer before
+changing behavior it explains, and update the Umsetzungsplan.md section
+(not just the one-line pointer) if the reasoning itself changes.
 
 ## Where things live
 
@@ -99,13 +108,24 @@ has a doc comment explaining what it's for and why it's shaped that way.
   helper records like `StagedSlot`/`ConfiguredSlotRow`/`PlayerChoice` used
   only by the connection editor dialog).
 - `Services/ConnectionManager.cs` - owns all `IArchipelagoSession` instances
-  (the interface `ArchipelagoSession` already implements). Talks to
-  `Archipelago.MultiClient.Net` only through `ISessionFactory`
-  (`Services/ISessionFactory.cs`/`ArchipelagoSessionFactoryAdapter.cs`) -
+  (the interface `ArchipelagoSession` already implements) and all
+  connection/leader/locking state (`_sessions`, `_leaderSlotByGroup`,
+  `_groupLocks`, ...). Talks to `Archipelago.MultiClient.Net` only through
+  `ISessionFactory` (`Services/ISessionFactory.cs`/`ArchipelagoSessionFactoryAdapter.cs`) -
   that seam exists purely so `AvaloniaApplication1.Tests` can substitute a
   `FakeArchipelagoSession`/`FakeSessionFactory` (Kategorie B, see
   `Test-Umsetzungsplan.md`) to exercise this class's real locking/ordering
-  logic without a real server; no behavior difference for the real app.
+  logic without a real server; no behavior difference for the real app. Two
+  pieces that needed almost none of that state were split into their own
+  classes (both instantiated once by `ConnectionManager` itself, not
+  separately registered in DI): `Services/SocketCleanup.cs` (closing a
+  session's socket and the reflection-based memory-leak workaround) and
+  `Services/SessionEventTranslator.cs` (turning raw session events - chat,
+  item receipts, hint updates, location progress - into
+  `IMessageHistoryService`/`IHintService` calls; also owns the Hint
+  picker's missing-locations cache). `ConnectionManager` still does the
+  session-event *subscribing* (inside `ConnectSlotSessionAsync`) and calls
+  into `SessionEventTranslator`'s methods from those subscriptions.
 - `Services/MessageHistoryService.cs` / `HintService.cs` - turn raw session
   data into `EventEntry`/`HintEntry` and append them to a `GroupViewModel`'s
   collections; also own the per-slot "what have I already shown"
@@ -288,6 +308,10 @@ way first - each was a real bug with a specific root cause.
 
 - Doc comments explain *why*, not just *what* - match that style; a comment
   that only restates the method signature isn't pulling its weight here.
+  Exception: `ConnectionManager.cs` keeps only a short *what*/one-line *why*
+  inline and points to Umsetzungsplan.md for the extended rationale (see
+  that file's own note above) - don't grow its inline comments back into
+  multi-paragraph explanations; extend the Umsetzungsplan.md section instead.
 - Slot name comparisons are `StringComparison.OrdinalIgnoreCase`
   throughout (dedup checks, roster matching) - stay consistent.
 - New UI text lives in English (the whole codebase and README are English),
