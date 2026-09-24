@@ -1,0 +1,34 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Archipolygo.ViewModels"
+        xmlns:views="using:Archipolygo.Views"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="550"
+        x:Class="Archipolygo.Views.DetachedGroupWindow"
+        x:DataType="vm:GroupViewModel"
+        Width="900" Height="550"
+        Icon="/Assets/archipolyo-icon.ico"
+        Title="{Binding HeaderText}">
+
+    <DockPanel>
+        <!-- "Dock to main window" button re-docks the group (see
+             MainWindowViewModel.RedockGroup, invoked via the redockRequested
+             callback passed to Create below) - originally a drag-back
+             gesture, replaced with a plain button because dragging a tab
+             out into (and back from) a brand-new native window turned out
+             unreliable in practice (Feature-Plaene/Tab-Eigenes-Fenster.md).
+             Plain window-close (the "X" button/Alt+F4) still re-docks too,
+             via MainWindow's own Closed subscription on this window - this
+             class doesn't need to know about that either. -->
+        <Border DockPanel.Dock="Top" Padding="8,6">
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Grid.Column="0" Text="{Binding HeaderText}" FontWeight="Bold"
+                           Foreground="{Binding ColorBrush}" VerticalAlignment="Center"/>
+                <Button Grid.Column="1" Content="Dock to main window" Click="OnDockToMainWindowClick"/>
+            </Grid>
+        </Border>
+
+        <views:GroupDetailView/>
+    </DockPanel>
+</Window>

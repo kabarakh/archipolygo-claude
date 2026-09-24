@@ -36,6 +36,15 @@ public partial class DashboardView : UserControl
     public event EventHandler<GroupViewModel>? RemoveServerRequested;
 
     /// <summary>
+    /// Per-row "Open in new window" context-menu item clicked (Feature-Plaene/
+    /// Tab-Eigenes-Fenster.md) - see <see cref="AddSlotRequested"/>'s doc
+    /// comment for why this bubbles up rather than acting here directly
+    /// (detaching needs <see cref="MainWindowViewModel.DetachGroup"/>, which
+    /// this view has no reference to).
+    /// </summary>
+    public event EventHandler<GroupViewModel>? OpenInNewWindowRequested;
+
+    /// <summary>
     /// Every per-row icon button's own <c>DataContext</c> is already the
     /// row's <see cref="GroupViewModel"/> (inherited from the enclosing
     /// <c>DataTemplate</c>), so no <c>CommandParameter</c>/<c>RelativeSource</c>
@@ -67,6 +76,14 @@ public partial class DashboardView : UserControl
         }
     }
 
+    private void OnOpenInNewWindowMenuClick(object? sender, RoutedEventArgs e)
+    {
+        if (GroupOf(sender) is { } group)
+        {
+            OpenInNewWindowRequested?.Invoke(this, group);
+        }
+    }
+
     /// <summary>
     /// Overview row clicked - selects that server's tab and leaves the
     /// dashboard (see <see cref="DashboardViewModel.SelectGroupAndLeaveDashboard"/>).
@@ -89,6 +106,26 @@ public partial class DashboardView : UserControl
 
         OverviewListBox.SelectedItem = null;
         ViewModel.SelectGroupAndLeaveDashboard(group);
+    }
+
+    /// <summary>
+    /// A right-click should only open the row's "Open in new window"
+    /// context menu (Feature-Plaene/Tab-Eigenes-Fenster.md), not also select
+    /// the row - without this, Avalonia's ListBox selects a row (and so
+    /// fires <see cref="OnOverviewRowSelected"/>'s navigate-away-from-
+    /// Dashboard logic) on ANY pointer button press, not just the left one,
+    /// so right-clicking a row both opened the menu AND switched to that
+    /// server's tab (dev feedback). Marking PointerPressed itself Handled
+    /// stops the ListBoxItem's own press-driven selection without affecting
+    /// the context menu's opening at all - that's driven by a separate,
+    /// unrelated mechanism, not gated on this event.
+    /// </summary>
+    private void OnOverviewRowPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (sender is Visual visual && e.GetCurrentPoint(visual).Properties.IsRightButtonPressed)
+        {
+            e.Handled = true;
+        }
     }
 
     // ── Overview row: manual drag-reordering (Feature-Plaene/Tab-Reihenfolge.md) ──

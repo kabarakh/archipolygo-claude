@@ -30,15 +30,26 @@ internal sealed class SessionEventTranslator
     private readonly IMessageHistoryService _messageHistoryService;
     private readonly IHintService _hintService;
 
+    /// <summary>
+    /// Optional - see <see cref="HintService"/>'s own doc comment on its
+    /// matching field for the "purely additive dependency" reasoning. Both
+    /// item-related trigger points for Feature-Plaene/Tab-Eigenes-Fenster.md's
+    /// window flash (a slot's own live receipt, and a sibling's passively
+    /// observed one) live in this class, not <see cref="IMessageHistoryService"/> -
+    /// see <see cref="OnItemReceived"/>/<see cref="OnLeaderMessageReceived"/>.
+    /// </summary>
+    private readonly IWindowAttentionService? _windowAttentionService;
+
     // Keyed by SlotProfile.Id; that slot's most recently learned "missing
     // locations" for the Hint picker's Location mode. See Umsetzungsplan.md,
     // section "_missingLocationsBySlot: bewusst nur im Speicher".
     private readonly ConcurrentDictionary<Guid, IReadOnlyList<HintableLocation>> _missingLocationsBySlot = new();
 
-    public SessionEventTranslator(IMessageHistoryService messageHistoryService, IHintService hintService)
+    public SessionEventTranslator(IMessageHistoryService messageHistoryService, IHintService hintService, IWindowAttentionService? windowAttentionService = null)
     {
         _messageHistoryService = messageHistoryService;
         _hintService = hintService;
+        _windowAttentionService = windowAttentionService;
     }
 
     /// <summary>
@@ -159,6 +170,16 @@ internal sealed class SessionEventTranslator
                 group, targetSlot,
                 itemSend.Item.ItemDisplayName, itemSend.Item.LocationDisplayName, itemSend.Item.Flags,
                 senderName, senderKind);
+
+            // Feature-Plaene/Tab-Eigenes-Fenster.md, Phase 2: a sibling slot's
+            // item is only ever observed here while the room's chat is live
+            // (no backlog concept for passive coverage), so no separate
+            // "isLive" gate is needed - see OnItemReceived's own gate for the
+            // directly-connected-slot equivalent.
+            if (EventSegmentBuilder.ClassifyItemFlags(itemSend.Item.Flags) == EventTextSegmentKind.ItemProgression)
+            {
+                _windowAttentionService?.RequestAttention(group.Group.Id);
+            }
         }
     }
 
@@ -189,6 +210,17 @@ internal sealed class SessionEventTranslator
             var roster = BuildSlotRoster(session, group.Group);
             var siblingIds = SiblingIdsExcludingOwn(roster, session.ConnectionInfo.Slot);
             senderKind = EventSegmentBuilder.ClassifyPlayerSlot(latest.Player, session.ConnectionInfo.Slot, siblingIds);
+
+            // Feature-Plaene/Tab-Eigenes-Fenster.md, Phase 2: gated on isLive,
+            // not just "is this a progression item" - a catch-up sync
+            // (isLive false) always treats its whole backlog as "the latest
+            // item" too, and flashing for every item a slot missed while the
+            // app was closed would be exactly the noisy-at-startup behavior
+            // this feature's own trigger set was chosen to avoid.
+            if (isLive && EventSegmentBuilder.ClassifyItemFlags(latest.Flags) == EventTextSegmentKind.ItemProgression)
+            {
+                _windowAttentionService?.RequestAttention(group.Group.Id);
+            }
         }
 
         _messageHistoryService.TrackReceivedItem(group, slot, helper.AllItemsReceived, senderName, senderKind);

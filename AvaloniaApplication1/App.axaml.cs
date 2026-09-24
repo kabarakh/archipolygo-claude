@@ -37,6 +37,13 @@ public partial class App : Application
         services.AddSingleton<IMessageHistoryService, MessageHistoryService>();
         services.AddSingleton<IHintService, HintService>();
         services.AddSingleton<ISessionFactory, ArchipelagoSessionFactoryAdapter>();
+        // Feature-Plaene/Tab-Eigenes-Fenster.md: shared foundation for both
+        // detached-window support and the window flash - registered before
+        // IConnectionManager, which consumes IWindowAttentionService (via
+        // HintService/its own DeathLink handling/its internal
+        // SessionEventTranslator) as an optional constructor parameter.
+        services.AddSingleton<IGroupWindowLocator, GroupWindowLocator>();
+        services.AddSingleton<IWindowAttentionService, WindowAttentionService>();
         services.AddSingleton<IConnectionManager, ConnectionManager>();
         services.AddSingleton<IMultiworldTrackerService, MultiworldTrackerService>();
         services.AddSingleton<IUpdateService, UpdateService>();
@@ -57,6 +64,22 @@ public partial class App : Application
             {
                 DataContext = mainWindowViewModel,
             };
+
+            // Feature-Plaene/Tab-Eigenes-Fenster.md: every group defaults to
+            // the main window until/unless it's detached - see
+            // IGroupWindowLocator's own doc comment for why this
+            // registration happens here rather than inside MainWindow or
+            // MainWindowViewModel themselves.
+            var groupWindowLocator = Services.GetRequiredService<IGroupWindowLocator>();
+            groupWindowLocator.RegisterMainWindow(mainWindow);
+            mainWindow.GroupWindowLocator = groupWindowLocator;
+
+            // Same wiring style as ShowPasswordPromptDialogAsync/
+            // ShowConfirmationDialogAsync above - MainWindow is the one
+            // place with an actual Window to open/close a
+            // DetachedGroupWindow from.
+            mainWindowViewModel.OpenDetachedWindow = mainWindow.OpenDetachedGroupWindow;
+            mainWindowViewModel.CloseDetachedWindow = mainWindow.CloseDetachedGroupWindowIfOpen;
 
             // Feature-Plaene/Passwort-Speicherung.md: the only place with an
             // actual Window to own a PasswordPromptWindow - see

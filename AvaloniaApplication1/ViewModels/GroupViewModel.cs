@@ -91,6 +91,19 @@ public partial class GroupViewModel : ViewModelBase
     private bool _isSelected;
 
     /// <summary>
+    /// Whether this group currently lives in its own detached window rather
+    /// than the main TabControl (see Feature-Plaene/Tab-Eigenes-Fenster.md).
+    /// Purely runtime state, never persisted - every group starts docked at
+    /// each app launch regardless of this value at last shutdown (that
+    /// plan's decided scope). Only <see cref="MainWindowViewModel"/>'s
+    /// DetachGroup/RedockGroup ever set this. Observable so the Dashboard's
+    /// Overview row can grey out its own "Open in new window" context-menu
+    /// item once a group already has one (see DashboardView.axaml).
+    /// </summary>
+    [ObservableProperty]
+    private bool _isDetached;
+
+    /// <summary>
     /// Where a manual tab-reorder drag (Feature-Plaene/Tab-Reihenfolge.md)
     /// is currently hovering relative to this group's tab header or
     /// Dashboard Overview row - purely a UI hint (drives a thin

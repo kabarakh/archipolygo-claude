@@ -197,9 +197,22 @@
                             <Border Background="Transparent"
                                     Tag="OverviewRow"
                                     DragDrop.AllowDrop="True"
+                                    PointerPressed="OnOverviewRowPointerPressed"
                                     DragDrop.DragOver="OnOverviewRowDragOver"
                                     DragDrop.DragLeave="OnOverviewRowDragLeave"
                                     DragDrop.Drop="OnOverviewRowDrop">
+                            <!-- Right-click to open in its own window
+                                 (Feature-Plaene/Tab-Eigenes-Fenster.md) -
+                                 greyed out once it already has one; see
+                                 MainWindow.axaml's tab header for the same
+                                 menu item, reused here since it's the one
+                                 other place a server is picked out
+                                 individually. -->
+                            <Border.ContextMenu>
+                                <ContextMenu>
+                                    <MenuItem Header="Open in new window" Click="OnOpenInNewWindowMenuClick" IsEnabled="{Binding !IsDetached}"/>
+                                </ContextMenu>
+                            </Border.ContextMenu>
                             <!-- Grid, not the StackPanel directly as the Border's child -
                                  lets the two insertion-line Rectangles further below sit
                                  layered on top of the row content instead of pushed beside

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
@@ -5,14 +6,27 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
-using Avalonia.VisualTree;
 using Archipolygo.Models;
+using Archipolygo.Services;
 using Archipolygo.ViewModels;
 
 namespace Archipolygo.Views;
 
 public partial class MainWindow : Window
 {
+    /// <summary>
+    /// Set by <see cref="App"/> right after construction, same wiring style
+    /// as <see cref="MainWindowViewModel.ShowPasswordPromptDialogAsync"/> -
+    /// needed by <see cref="OpenDetachedGroupWindow"/>/
+    /// <see cref="CloseDetachedGroupWindowIfOpen"/> below (Feature-Plaene/
+    /// Tab-Eigenes-Fenster.md). Null only in a test construction site that
+    /// never exercises detach/re-dock.
+    /// </summary>
+    public IGroupWindowLocator? GroupWindowLocator { get; set; }
+
+    /// <summary>Every currently-open detached window, keyed by the group it shows - see <see cref="OpenDetachedGroupWindow"/>.</summary>
+    private readonly Dictionary<GroupViewModel, DetachedGroupWindow> _detachedWindows = new();
+
     public MainWindow()
     {
         InitializeComponent();
@@ -27,9 +41,81 @@ public partial class MainWindow : Window
         DashboardViewControl.AddSlotRequested += (_, group) => _ = AddSlotToGroupAsync(group);
         DashboardViewControl.EditServerRequested += (_, group) => _ = EditServerAsync(group);
         DashboardViewControl.RemoveServerRequested += (_, group) => _ = ViewModel.RemoveGroupAsync(group);
+
+        // Feature-Plaene/Tab-Eigenes-Fenster.md: the Dashboard's own
+        // "Open in new window" row context-menu item - same detach, just
+        // triggered from the Overview instead of a tab header (see
+        // OnDetachTabMenuClick). A no-op if the group is already detached
+        // (DetachGroup's own guard) - the Dashboard row's menu item is
+        // greyed out for that case, but this stays safe regardless.
+        DashboardViewControl.OpenInNewWindowRequested += (_, group) => ViewModel.DetachGroup(group);
+
+        // Feature-Plaene/Tab-Eigenes-Fenster.md: no detached window's own
+        // state is persisted, so there's nothing to save here - closing the
+        // main window ends the whole app (the Avalonia default), and every
+        // still-open detached window just needs to be closed explicitly
+        // first rather than relying on that shutdown to do it silently.
+        Closing += (_, _) =>
+        {
+            foreach (var window in _detachedWindows.Values.ToList())
+            {
+                window.Close();
+            }
+        };
     }
 
     private MainWindowViewModel ViewModel => (MainWindowViewModel)DataContext!;
+
+    /// <summary>
+    /// <see cref="MainWindowViewModel.OpenDetachedWindow"/>'s real
+    /// implementation - creates and shows a <see cref="DetachedGroupWindow"/>
+    /// for <paramref name="group"/>, tracked so <see cref="CloseDetachedGroupWindowIfOpen"/>
+    /// can find it again (from its own "Dock to main window" button) and so
+    /// <see cref="Closing"/> above can sweep it up on app exit. Its own
+    /// <see cref="Window.Closed"/> re-docks the group as a fallback for a
+    /// plain user close (the "X" button/Alt+F4, as opposed to the "Dock to
+    /// main window" button, which already called
+    /// <see cref="MainWindowViewModel.RedockGroup"/> itself before this ever
+    /// runs) - safe to call unconditionally either way, since both
+    /// <see cref="MainWindowViewModel.RedockGroup"/> and the dictionary
+    /// removal below are no-ops once already applied.
+    /// </summary>
+    public void OpenDetachedGroupWindow(GroupViewModel group)
+    {
+        if (GroupWindowLocator is null)
+        {
+            return;
+        }
+
+        var window = DetachedGroupWindow.Create(group, GroupWindowLocator, ViewModel.RedockGroup);
+        _detachedWindows[group] = window;
+
+        window.Closed += (_, _) =>
+        {
+            _detachedWindows.Remove(group);
+            ViewModel.RedockGroup(group);
+        };
+
+        window.Show();
+    }
+
+    /// <summary>
+    /// <see cref="MainWindowViewModel.CloseDetachedWindow"/>'s real
+    /// implementation - closes a group's already-open detached window (its
+    /// own "Dock to main window" button, or the server being removed
+    /// entirely while detached). No-op if none is tracked - either it was
+    /// never open, or its own <see cref="Window.Closed"/> handler (see
+    /// <see cref="OpenDetachedGroupWindow"/>) already removed it from
+    /// <see cref="_detachedWindows"/> for a plain user close that's what
+    /// triggered this call in the first place.
+    /// </summary>
+    public void CloseDetachedGroupWindowIfOpen(GroupViewModel group)
+    {
+        if (_detachedWindows.Remove(group, out var window))
+        {
+            window.Close();
+        }
+    }
 
     private async void OnAddServerClick(object? sender, RoutedEventArgs e)
     {
@@ -114,206 +200,6 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>
-    /// Copies every selected event's text (without the timestamp), one per
-    /// line, to the clipboard on Ctrl+C (Windows/Linux) or Cmd+C (macOS,
-    /// where the physical key reports as <see cref="KeyModifiers.Meta"/>).
-    /// The Events ListBox uses <c>SelectionMode="Multiple"</c> so several
-    /// lines can be selected (ctrl/shift-click) before copying.
-    /// </summary>
-    private async void OnEventsListKeyDown(object? sender, KeyEventArgs e)
-    {
-        if (!ClipboardCopyHelper.IsCopyShortcut(e) || sender is not ListBox listBox)
-        {
-            return;
-        }
-
-        if (await ClipboardCopyHelper.CopySelectedLinesAsync<EventEntry>(this, listBox, entry => entry.Text))
-        {
-            e.Handled = true;
-        }
-    }
-
-    /// <summary>
-    /// Same mechanism as <see cref="OnEventsListKeyDown"/>, for the Hints
-    /// list instead - its own selection and clipboard content, unrelated to
-    /// the Events list's. Each copied line reproduces what's shown for that
-    /// hint (item, finder/receiver, location) as a single line of text.
-    /// </summary>
-    private async void OnHintsListKeyDown(object? sender, KeyEventArgs e)
-    {
-        if (!ClipboardCopyHelper.IsCopyShortcut(e) || sender is not ListBox listBox)
-        {
-            return;
-        }
-
-        var copied = await ClipboardCopyHelper.CopySelectedLinesAsync<HintEntry>(this, listBox,
-            hint => $"{hint.ItemName}: {hint.FindingPlayerName} -> {hint.ReceivingPlayerName} : {hint.LocationName}");
-        if (copied)
-        {
-            e.Handled = true;
-        }
-    }
-
-    /// <summary>
-    /// Finds a same-named descendant control starting from another element in
-    /// the same, already-instantiated template - the Events/Hints/Items UI
-    /// lives inside <c>TabControl.ContentTemplate</c> (see CLAUDE.md's
-    /// lazy-materialization gotcha for that same template), so each open tab
-    /// gets its own instance of e.g. "EventsListBox"; a plain compiled x:Name
-    /// field would be ambiguous across tabs, and Avalonia doesn't generate one
-    /// for elements inside a template for exactly that reason. Walking up from
-    /// any element that's definitely in the same instance (e.g. the button
-    /// that was just clicked) and searching each ancestor's descendants finds
-    /// the right one without needing a global/static lookup.
-    /// </summary>
-    private static T? FindInSameTemplateInstance<T>(Visual anchor, string name) where T : Control
-    {
-        for (var ancestor = anchor.GetVisualParent(); ancestor is not null; ancestor = ancestor.GetVisualParent())
-        {
-            var match = ancestor.GetVisualDescendants().OfType<T>().FirstOrDefault(c => c.Name == name);
-            if (match is not null)
-            {
-                return match;
-            }
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// "Copy from here" for the Events list - copies the earliest selected
-    /// event and everything after it in the current filtered view (see
-    /// <see cref="ClipboardCopyHelper.CopyFromSelectedOnwardsAsync{T}"/>),
-    /// same per-line text as <see cref="OnEventsListKeyDown"/>.
-    /// </summary>
-    private async void OnCopyEventsFromHereClick(object? sender, RoutedEventArgs e)
-    {
-        if (sender is not Visual anchor || FindInSameTemplateInstance<ListBox>(anchor, "EventsListBox") is not { } eventsListBox)
-        {
-            return;
-        }
-
-        await ClipboardCopyHelper.CopyFromSelectedOnwardsAsync<EventEntry>(this, eventsListBox, entry => entry.Text);
-    }
-
-    /// <summary>
-    /// Same mechanism as <see cref="OnCopyEventsFromHereClick"/>, for the
-    /// Hints list - same per-line text as <see cref="OnHintsListKeyDown"/>.
-    /// </summary>
-    private async void OnCopyHintsFromHereClick(object? sender, RoutedEventArgs e)
-    {
-        if (sender is not Visual anchor || FindInSameTemplateInstance<ListBox>(anchor, "HintsListBox") is not { } hintsListBox)
-        {
-            return;
-        }
-
-        await ClipboardCopyHelper.CopyFromSelectedOnwardsAsync<HintEntry>(this, hintsListBox,
-            hint => $"{hint.ItemName}: {hint.FindingPlayerName} -> {hint.ReceivingPlayerName} : {hint.LocationName}");
-    }
-
-    /// <summary>
-    /// Toggles the Events column's "Copy from here" button's enabled state
-    /// with the Events list's selection - the button needs an anchor row, so
-    /// it stays disabled (rather than silently no-op on click) until one is
-    /// selected. Code-behind-driven rather than a bound view-model property,
-    /// matching this list's existing selection handling (see
-    /// <see cref="OnEventsListKeyDown"/>).
-    /// </summary>
-    private void OnEventsListSelectionChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        if (sender is not ListBox listBox || FindInSameTemplateInstance<Button>(listBox, "CopyEventsFromHereButton") is not { } button)
-        {
-            return;
-        }
-
-        button.IsEnabled = listBox.SelectedItems is { Count: > 0 };
-    }
-
-    /// <summary>Same mechanism as <see cref="OnEventsListSelectionChanged"/>, for the Hints list.</summary>
-    private void OnHintsListSelectionChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        if (sender is not ListBox listBox || FindInSameTemplateInstance<Button>(listBox, "CopyHintsFromHereButton") is not { } button)
-        {
-            return;
-        }
-
-        button.IsEnabled = listBox.SelectedItems is { Count: > 0 };
-    }
-
-    /// <summary>
-    /// Up/Down-arrow recall for the message TextBox, mirroring a terminal's
-    /// command history - Up steps back through <see cref="GroupViewModel"/>'s
-    /// recently sent messages, Down steps forward again (and eventually
-    /// restores whatever was being typed before the first Up-press). Mainly
-    /// useful for resending the same !hint text for an item several times in
-    /// a row without retyping it. A single-line TextBox has no native use for
-    /// Up/Down, so intercepting them here doesn't take anything away.
-    /// </summary>
-    private void OnMessageTextBoxKeyDown(object? sender, KeyEventArgs e)
-    {
-        if (sender is not TextBox { DataContext: GroupViewModel group } textBox)
-        {
-            return;
-        }
-
-        switch (e.Key)
-        {
-            case Key.Up:
-                group.RecallPreviousMessage();
-                break;
-            case Key.Down:
-                group.RecallNextMessage();
-                break;
-            default:
-                return;
-        }
-
-        textBox.CaretIndex = textBox.Text?.Length ?? 0;
-        e.Handled = true;
-    }
-
-    /// <summary>
-    /// Forces the "Chat as:" ComboBox to display the view model's actual
-    /// current <see cref="GroupViewModel.SelectedChatSlot"/> once this
-    /// particular ComboBox instance has finished loading.
-    ///
-    /// A tab that was never the active one when the app started has this
-    /// whole content template - this ComboBox included - materialized for
-    /// the very first time only when the user actually clicks that tab,
-    /// long after <see cref="GroupViewModel.SelectedChatSlot"/> was already
-    /// set correctly (the leader connected back at startup). A brand-new
-    /// ComboBox reconciling its initial SelectedItem against its ItemsSource
-    /// can come up with no visible selection despite the bound value being
-    /// perfectly fine, the same kind of rebinding artifact already handled
-    /// at the view-model level in <c>GroupViewModel.OnSelectedChatSlotChanged</c>
-    /// - this just also re-asserts it on the view once, so the dropdown
-    /// itself shows the right thing without the user having to reselect it
-    /// by hand.
-    /// </summary>
-    private void OnChatSlotComboBoxLoaded(object? sender, RoutedEventArgs e)
-    {
-        if (sender is ComboBox { DataContext: GroupViewModel group } comboBox)
-        {
-            comboBox.SelectedItem = group.SelectedChatSlot;
-        }
-    }
-
-    /// <summary>
-    /// Opens the "Hint..." picker as a real dialog (see
-    /// <see cref="HintPickerWindow"/>) - the button's own DataContext (from
-    /// this tab's DataTemplate) is the <see cref="GroupViewModel"/>, same
-    /// situation as <see cref="OnAddSlotClick"/>/<see cref="OnEditServerClick"/>
-    /// elsewhere in this file.
-    /// </summary>
-    private void OnHintButtonClick(object? sender, RoutedEventArgs e)
-    {
-        if (sender is Button { DataContext: GroupViewModel group })
-        {
-            HintPickerWindow.Show(this, group.HintPicker);
-        }
-    }
-
     // ── Manual tab-reordering (Feature-Plaene/Tab-Reihenfolge.md) ──
     //
     // A plain tab click must keep working exactly as before (TabControl
@@ -332,6 +218,22 @@ public partial class MainWindow : Window
     {
         if (sender is not Control control || control.DataContext is not GroupViewModel group)
         {
+            return;
+        }
+
+        // A right-click should only open the "Open in new window" context
+        // menu (Feature-Plaene/Tab-Eigenes-Fenster.md), never arm the
+        // reorder-drag gesture below - without this, right-clicking a tab
+        // both opened the menu AND started tracking a drag (dev feedback:
+        // the drag-drop cursor showed up), since this handler used to arm
+        // unconditionally regardless of which button was pressed. Marking
+        // it Handled here also stops it from reaching TabControl's own
+        // press-selects-tab behavior, so a right-click never switches the
+        // active tab either - see DashboardView.OnOverviewRowPointerPressed
+        // for the same fix applied to the Dashboard's row context menu.
+        if (e.GetCurrentPoint(control).Properties.IsRightButtonPressed)
+        {
+            e.Handled = true;
             return;
         }
 
@@ -421,6 +323,24 @@ public partial class MainWindow : Window
         if (GroupReorderDragDrop.TryGetSource(e.DataTransfer) is { } source)
         {
             ViewModel.ReorderGroup(source, target, insertAfter);
+        }
+    }
+
+    /// <summary>
+    /// Feature-Plaene/Tab-Eigenes-Fenster.md's "Open in new window" tab
+    /// context-menu item - detaching used to be a drag gesture (drop outside
+    /// the tab strip), replaced by this menu item because dragging a tab
+    /// clean out of the TabControl into a brand-new native window turned out
+    /// unreliable in practice (dev feedback: couldn't pull a tab out at
+    /// all). <see cref="MainWindowViewModel.RedockGroup"/>'s own trigger
+    /// (dragging a <see cref="DetachedGroupWindow"/> back) was replaced the
+    /// same way, by that window's own "Dock to main window" button.
+    /// </summary>
+    private void OnDetachTabMenuClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is MenuItem { DataContext: GroupViewModel group })
+        {
+            ViewModel.DetachGroup(group);
         }
     }
 }

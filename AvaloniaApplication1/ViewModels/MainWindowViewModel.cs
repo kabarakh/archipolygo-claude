@@ -76,6 +76,51 @@ public partial class MainWindowViewModel : ViewModelBase
 
     public ObservableCollection<GroupViewModel> Groups { get; } = new();
 
+    /// <summary>
+    /// The subset of <see cref="Groups"/> currently shown in the main
+    /// TabControl - every group except one that's been detached into its
+    /// own window (see Feature-Plaene/Tab-Eigenes-Fenster.md). A separately
+    /// maintained collection rather than a passthrough to <see cref="Groups"/>
+    /// (same "don't reintroduce a plain passthrough" reasoning as
+    /// <see cref="GroupViewModel.Slots"/>'s own doc comment) - <see cref="Groups"/>
+    /// stays the single source of truth for "which groups exist, in what
+    /// order" (persistence/Dashboard read that one directly), and every
+    /// mutation site that touches <see cref="Groups"/>' membership or order
+    /// (<see cref="AddNewGroup"/>, <see cref="RemoveGroupAsync"/>,
+    /// <see cref="ReorderGroup"/>, and the startup loop below) mirrors the
+    /// same change here too rather than this being rebuilt from scratch on
+    /// every change. Detached-ness is never persisted (that plan's decided
+    /// scope) - every group starts docked here on every construction,
+    /// regardless of what <see cref="GroupViewModel.IsDetached"/> was at
+    /// last shutdown (which is itself never saved either).
+    /// </summary>
+    public ObservableCollection<GroupViewModel> DockedGroups { get; } = new();
+
+    /// <summary>
+    /// Set by <see cref="Views.MainWindow"/> to actually open a
+    /// <see cref="Views.DetachedGroupWindow"/> for a just-detached group -
+    /// same "view models expose data/commands, views own actual Window
+    /// instances" separation as <see cref="ShowPasswordPromptDialogAsync"/>'s
+    /// own doc comment. Null in every existing test construction site, in
+    /// which case <see cref="DetachGroup"/> still moves the group out of
+    /// <see cref="DockedGroups"/> but no window actually appears - matches
+    /// this app's usual "no dialog wiring means the dialog silently doesn't
+    /// show" convention for these Func/Action seams.
+    /// </summary>
+    public Action<GroupViewModel>? OpenDetachedWindow { get; set; }
+
+    /// <summary>
+    /// Set by <see cref="Views.MainWindow"/> to close a group's already-open
+    /// detached window - called from <see cref="RedockGroup"/> (a drag back
+    /// onto the main tab strip) and from <see cref="RemoveGroupAsync"/> (the
+    /// server was removed entirely while detached). Never called for a
+    /// group that closed its own detached window directly (that path
+    /// re-docks first, then finds nothing left to close) - see
+    /// <see cref="Views.MainWindow"/>'s own wiring for how both directions
+    /// stay idempotent regardless of which one ran first.
+    /// </summary>
+    public Action<GroupViewModel>? CloseDetachedWindow { get; set; }
+
     [ObservableProperty]
     private GroupViewModel? _selectedGroup;
 
@@ -213,7 +258,9 @@ public partial class MainWindowViewModel : ViewModelBase
 
         foreach (var group in _persistenceService.LoadGroups())
         {
-            Groups.Add(new GroupViewModel(group, _connectionManager, _multiworldTrackerService));
+            var groupViewModel = new GroupViewModel(group, _connectionManager, _multiworldTrackerService);
+            Groups.Add(groupViewModel);
+            DockedGroups.Add(groupViewModel);
         }
 
         Dashboard = new DashboardViewModel(Groups, group =>
@@ -547,6 +594,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         var groupViewModel = new GroupViewModel(group, _connectionManager, _multiworldTrackerService);
         Groups.Add(groupViewModel);
+        DockedGroups.Add(groupViewModel);
         SelectedGroup = groupViewModel;
         PersistGroups();
 
@@ -822,12 +870,26 @@ public partial class MainWindowViewModel : ViewModelBase
             await _connectionManager.DisconnectGroupAsync(groupToRemove);
         }
 
-        var index = Groups.IndexOf(groupToRemove);
+        // Index captured against DockedGroups, not Groups: SelectedGroup
+        // only ever points at a docked group (it drives the TabControl's
+        // own SelectedItem, bound to DockedGroups - see DetachGroup/
+        // RedockGroup), so its replacement must come from there too.
+        var dockedIndex = DockedGroups.IndexOf(groupToRemove);
         Groups.Remove(groupToRemove);
+        DockedGroups.Remove(groupToRemove);
+
+        // A detached group being removed entirely leaves its own window
+        // with nothing left to show - close it rather than orphaning it.
+        if (groupToRemove.IsDetached)
+        {
+            CloseDetachedWindow?.Invoke(groupToRemove);
+        }
 
         if (SelectedGroup == groupToRemove)
         {
-            SelectedGroup = Groups.Count > 0 ? Groups[Math.Min(index, Groups.Count - 1)] : null;
+            SelectedGroup = DockedGroups.Count > 0
+                ? DockedGroups[Math.Min(Math.Max(dockedIndex, 0), DockedGroups.Count - 1)]
+                : null;
         }
 
         // Feature-Plaene/Archiv/Hint-Eingabefeld.md's per-group DataPackage
@@ -857,8 +919,30 @@ public partial class MainWindowViewModel : ViewModelBase
     /// property, since <see cref="GetAllGroups"/> (and so
     /// <c>groups.json</c>) reads <see cref="Groups"/>' order directly.
     /// No-ops if source and target are the same group, or either one isn't
-    /// currently in <see cref="Groups"/> (e.g. removed mid-drag).
+    /// currently in <see cref="Groups"/> (e.g. removed mid-drag). The actual
+    /// index math (applied identically to <see cref="DockedGroups"/>) lives
+    /// in <see cref="MoveWithinCollection"/> now, see its own remarks.
     /// </summary>
+    public void ReorderGroup(GroupViewModel source, GroupViewModel target, bool insertAfter)
+    {
+        if (ReferenceEquals(source, target))
+        {
+            return;
+        }
+
+        // Groups is what persistence/Dashboard order read directly (see
+        // GetAllGroups); DockedGroups needs the identical Move so the
+        // TabControl visually reflects the same drag - see Feature-Plaene/
+        // Tab-Eigenes-Fenster.md. A no-op on DockedGroups (index -1) when
+        // either side isn't currently docked - e.g. reordering via the
+        // Dashboard's Overview rows, which show every group including a
+        // detached one - simply leaves nothing to visually reorder there,
+        // which is the correct outcome.
+        MoveWithinCollection(Groups, source, target, insertAfter);
+        MoveWithinCollection(DockedGroups, source, target, insertAfter);
+        PersistGroups();
+    }
+
     /// <remarks>
     /// Index math: the desired final position (in the *original*,
     /// pre-removal index space) is <c>target's index, or +1 if
@@ -873,15 +957,10 @@ public partial class MainWindowViewModel : ViewModelBase
     /// first principles alone - see <c>GroupReorderTests</c> for those exact
     /// cases.
     /// </remarks>
-    public void ReorderGroup(GroupViewModel source, GroupViewModel target, bool insertAfter)
+    private static void MoveWithinCollection(ObservableCollection<GroupViewModel> collection, GroupViewModel source, GroupViewModel target, bool insertAfter)
     {
-        if (ReferenceEquals(source, target))
-        {
-            return;
-        }
-
-        var oldIndex = Groups.IndexOf(source);
-        var targetIndex = Groups.IndexOf(target);
+        var oldIndex = collection.IndexOf(source);
+        var targetIndex = collection.IndexOf(target);
         if (oldIndex < 0 || targetIndex < 0)
         {
             return;
@@ -890,8 +969,88 @@ public partial class MainWindowViewModel : ViewModelBase
         var desiredIndex = insertAfter ? targetIndex + 1 : targetIndex;
         var newIndex = oldIndex < desiredIndex ? desiredIndex - 1 : desiredIndex;
 
-        Groups.Move(oldIndex, newIndex);
-        PersistGroups();
+        collection.Move(oldIndex, newIndex);
+    }
+
+    /// <summary>
+    /// Pulls <paramref name="group"/> out of the main tab strip into its own
+    /// window (Feature-Plaene/Tab-Eigenes-Fenster.md) - dragged out of the
+    /// <see cref="Views.MainWindow"/> tab strip's bounds (see
+    /// <see cref="Views.MainWindow"/>'s own drop handling). <paramref name="group"/>
+    /// stays in <see cref="Groups"/> throughout (it still exists, still gets
+    /// persisted, still shows on the Dashboard) - only <see cref="DockedGroups"/>
+    /// (what the TabControl actually renders) loses it. No-op if it's
+    /// already detached (e.g. a stale/duplicate drag).
+    /// </summary>
+    public void DetachGroup(GroupViewModel group)
+    {
+        if (group.IsDetached || !DockedGroups.Remove(group))
+        {
+            return;
+        }
+
+        group.IsDetached = true;
+
+        // The detached tab can no longer be the active TabControl selection -
+        // fall back to whichever docked tab now sits at the same position,
+        // same reasoning as RemoveGroupAsync's own SelectedGroup fallback.
+        if (SelectedGroup == group)
+        {
+            var fallbackIndex = Math.Min(DockedGroups.Count - 1, Groups.IndexOf(group));
+            SelectedGroup = DockedGroups.Count > 0 ? DockedGroups[Math.Max(fallbackIndex, 0)] : null;
+        }
+
+        // Detaching the very last docked tab would otherwise leave the
+        // TabControl empty with no tab left to look at - switch to the
+        // Dashboard automatically instead, since that's still a perfectly
+        // good (indeed server-spanning) view even with zero docked tabs.
+        // RedockGroup mirrors this back once a tab returns to an
+        // empty DockedGroups.
+        if (DockedGroups.Count == 0)
+        {
+            IsDashboardVisible = true;
+        }
+
+        OpenDetachedWindow?.Invoke(group);
+    }
+
+    /// <summary>
+    /// The reverse of <see cref="DetachGroup"/> - dragged back onto the main
+    /// tab strip, or the detached window itself was simply closed (see
+    /// <see cref="Views.MainWindow"/>'s wiring for why both paths funnel
+    /// through here and stay idempotent regardless of which one ran first).
+    /// Re-appended at the end of <see cref="DockedGroups"/> rather than
+    /// restored to its original position - no state remembers what that
+    /// was, and re-detaching mid-session is rare enough that this isn't
+    /// worth tracking for. Selects it, so the user sees where it landed.
+    /// </summary>
+    public void RedockGroup(GroupViewModel group)
+    {
+        if (!group.IsDetached)
+        {
+            return;
+        }
+
+        // Only relevant for DetachGroup's own auto-switch-to-Dashboard
+        // mirror below - captured before DockedGroups actually changes.
+        var wasShowingNoTabs = DockedGroups.Count == 0;
+
+        group.IsDetached = false;
+        DockedGroups.Add(group);
+        SelectedGroup = group;
+
+        // Mirrors DetachGroup's own switch: only flip back to Tab View if
+        // the Dashboard was showing *because there was nothing left to dock*
+        // (the exact case DetachGroup's own auto-switch handles) - never
+        // otherwise, so a user deliberately viewing the Dashboard while
+        // other tabs stay docked isn't yanked away from it by an unrelated
+        // window closing.
+        if (wasShowingNoTabs)
+        {
+            IsDashboardVisible = false;
+        }
+
+        CloseDetachedWindow?.Invoke(group);
     }
 
     private void PersistGroups() => _persistenceService.SaveGroups(GetAllGroups());

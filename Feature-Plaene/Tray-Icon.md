@@ -8,8 +8,8 @@ running minimized, with an unread-events badge") übernommen.
 
 ## Offene Kernfrage (2026-09-13 aufgeworfen)
 
-Seit die Idee ["Taskbar-button / title-bar flash"](Fenster-Blinken.md) das
-"Desktop notifications"-Bedürfnis abdeckt: hat ein Tray-Icon noch
+Seit ["Taskbar-button / title-bar flash"](Archiv/Tab-Eigenes-Fenster.md) das
+"Desktop notifications"-Bedürfnis abdeckt (inzwischen umgesetzt): hat ein Tray-Icon noch
 eigenständigen Mehrwert, oder war es nur ein anderer Weg zum selben Ziel
 ("mich benachrichtigen")?
 

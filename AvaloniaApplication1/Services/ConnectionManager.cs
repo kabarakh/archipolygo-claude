@@ -132,6 +132,13 @@ public class ConnectionManager : IConnectionManager
     /// <inheritdoc/>
     public Func<GroupViewModel, SlotProfile, bool, CancellationToken, Task<bool>>? PasswordRequested { get; set; }
 
+    // Optional - see HintService's own doc comment on its matching field for
+    // the "purely additive dependency" reasoning. Used directly here only
+    // for DeathLink (no per-item classification needed); the item/hint
+    // trigger points live in SessionEventTranslator/HintService instead,
+    // both constructed with this same instance below.
+    private readonly IWindowAttentionService? _windowAttentionService;
+
     public ConnectionManager(
         IMessageHistoryService messageHistoryService,
         IHintService hintService,
@@ -140,7 +147,8 @@ public class ConnectionManager : IConnectionManager
         TimeSpan? transientConnectRetryDelay = null,
         IPersistenceService? persistenceService = null,
         TimeSpan? dataPackageRequestTimeout = null,
-        IDiagnosticLogger? diagnosticLogger = null)
+        IDiagnosticLogger? diagnosticLogger = null,
+        IWindowAttentionService? windowAttentionService = null)
     {
         _messageHistoryService = messageHistoryService;
         _hintService = hintService;
@@ -150,7 +158,8 @@ public class ConnectionManager : IConnectionManager
         _persistenceService = persistenceService;
         _dataPackageRequestTimeout = dataPackageRequestTimeout ?? DefaultDataPackageRequestTimeout;
         _diagnosticLogger = diagnosticLogger ?? NullDiagnosticLogger.Instance;
-        _sessionEvents = new SessionEventTranslator(_messageHistoryService, _hintService);
+        _windowAttentionService = windowAttentionService;
+        _sessionEvents = new SessionEventTranslator(_messageHistoryService, _hintService, _windowAttentionService);
         _socketCleanup = new SocketCleanup(_messageHistoryService, _diagnosticLogger);
     }
 
@@ -1103,7 +1112,16 @@ public class ConnectionManager : IConnectionManager
                 if (deathLinkService is not null)
                 {
                     deathLinkService.EnableDeathLink();
-                    deathLinkService.OnDeathLinkReceived += deathLink => _messageHistoryService.HandleDeathLinkReceived(group, deathLink);
+                    deathLinkService.OnDeathLinkReceived += deathLink =>
+                    {
+                        _messageHistoryService.HandleDeathLinkReceived(group, deathLink);
+
+                        // Feature-Plaene/Tab-Eigenes-Fenster.md, Phase 2: no
+                        // classification needed here, unlike items/hints -
+                        // every DeathLink is one of this feature's decided
+                        // trigger conditions.
+                        _windowAttentionService?.RequestAttention(group.Group.Id);
+                    };
                 }
             }
 

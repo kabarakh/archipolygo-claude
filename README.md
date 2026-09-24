@@ -24,6 +24,8 @@ The other configured slots on that server aren't just sitting idle, though:
 - **Edit server...** changes a server's name/host/port/password/auto-connect, and manages its already-configured slots in one place - pick which slot should be the default leader, or remove a slot entirely (both listed alphabetically, with the default leader always shown first). This is also where you set an optional **multiworld tracker** (a room id or tracker URL) for the combined progress bar below.
 - **Chat as** (the account dropdown on each server's message bar) switches which configured slot is currently live - see "How connections work" above.
 - **Reordering tabs** - drag a server's tab and drop it before or after another one (a thin blue line shows exactly where it'll land); the new order is remembered across restarts.
+- **Popping a tab into its own window** - right-click a server's tab (or its row in the Dashboard's Overview) and choose "Open in new window", e.g. for a second monitor; that window's own "Dock to main window" button brings it back, or just close the window. Detached windows aren't remembered across restarts - every server starts back in the main window each time. Detaching your only remaining tab switches the main window to the Dashboard automatically, since there'd otherwise be nothing left to show as a tab.
+- **Taskbar/title-bar flash** - a server's window (main or detached) flashes when it's not focused and a hint arrives, a DeathLink comes in, or you receive a progression item.
 - **Hint...** opens a dedicated picker window for that server's leader: browse the full item list for the game (not just items already seen) and send a `!hint`/`!hint_location` request without typing it by hand, with a checkbox to exclude items you've already received/hinted.
 - **Progress bar** in each tab's status row splits into up to four colored segments - your own done/remaining checks, and (once a multiworld tracker is configured) everyone else's done/remaining checks in the room. Hover it for the exact numbers; no tracker configured just shows your own two segments and a hint on how to add one.
 - **DeathLink** events from other players in the room (for games that support it) show up in the event log as "DeathLink: ...". Archipolygo only ever displays these - it never sends one on your behalf and never reacts to one (no pausing, no simulated death), so there's nothing to turn on or off.
@@ -60,9 +62,9 @@ section on how the build differed from the plan. Highlights of what's
 still just an idea, not built:
 
 - **Better item/trap icons** - game-specific icons instead of just color and text (see `Item-Trap-Icons.md` in that directory).
-- **Taskbar-button / title-bar flash / tray icon / log export** - visibility options for running the app in the background, deliberately dropped early on and worth revisiting (see `Fenster-Blinken.md`, `Tray-Icon.md`, `Log-Export.md`).
+- **Tray icon / log export** - visibility options for running the app in the background, deliberately dropped early on and worth revisiting (see `Tray-Icon.md`, `Log-Export.md`).
 - **Config export/import** - no backup/restore flow for `groups.json` yet (see `Config-Export-Import.md`).
-- **Keyboard shortcuts** and **popping a tab into its own window** for multi-monitor setups (see `Tastenkuerzel.md`, `Tab-Eigenes-Fenster.md`).
+- **Keyboard shortcuts** (see `Tastenkuerzel.md`).
 
 ## Tech stack
 

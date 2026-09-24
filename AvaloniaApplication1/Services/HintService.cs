@@ -9,9 +9,19 @@ public class HintService : IHintService
 {
     private readonly IProfileSyncStateStore _syncStateStore;
 
-    public HintService(IProfileSyncStateStore syncStateStore)
+    /// <summary>
+    /// Optional - null in every existing test construction site that
+    /// doesn't care about Feature-Plaene/Tab-Eigenes-Fenster.md's window
+    /// flash, same "purely additive dependency" reasoning as this app's
+    /// other optional services (e.g. <see cref="ViewModels.MainWindowViewModel"/>'s
+    /// own <c>IUpdateService?</c>).
+    /// </summary>
+    private readonly IWindowAttentionService? _windowAttentionService;
+
+    public HintService(IProfileSyncStateStore syncStateStore, IWindowAttentionService? windowAttentionService = null)
     {
         _syncStateStore = syncStateStore;
+        _windowAttentionService = windowAttentionService;
     }
 
     public void SyncHints(GroupViewModel group, IReadOnlyList<HintSnapshot> hints)
@@ -100,6 +110,12 @@ public class HintService : IHintService
                         ConcernsOwnSlot = snapshot.ReceivingPlayerKind is EventTextSegmentKind.OwnSlotName or EventTextSegmentKind.ConnectedSlotName ||
                                           snapshot.FindingPlayerKind is EventTextSegmentKind.OwnSlotName or EventTextSegmentKind.ConnectedSlotName
                     });
+
+                    // Feature-Plaene/Tab-Eigenes-Fenster.md, Phase 2: a genuinely
+                    // new, still-unfound hint is exactly the condition already
+                    // guarding the event-log entry above - reuse it rather than
+                    // re-deriving "is this worth flashing for" separately.
+                    _windowAttentionService?.RequestAttention(group.Group.Id);
                 }
 
                 if (syncState.SeenHintIds.Add(snapshot.Key))
