@@ -51,8 +51,12 @@ public sealed class WindowAttentionService : IWindowAttentionService
 
 /// <summary>
 /// Windows: <c>FlashWindowEx</c> (user32.dll) - flashes the taskbar button
-/// until the window receives focus (<c>FLASHW_TIMERNOFG</c>), matching this
-/// feature's decided stop condition (see Feature-Plaene/Tab-Eigenes-Fenster.md).
+/// and caption <see cref="FlashCount"/> times, after which Windows itself
+/// leaves the taskbar button highlighted until the window is activated (the
+/// Discord-style "blink briefly, then stay marked" behavior). Replaced the
+/// original endless <c>FLASHW_TIMERNOFG</c> flash, which kept blinking for as
+/// long as the window stayed unfocused - see the feature-plan archive's
+/// <c>Tab-Eigenes-Fenster.md</c> status section.
 /// </summary>
 internal static class WindowsWindowAttention
 {
@@ -66,10 +70,11 @@ internal static class WindowsWindowAttention
         public uint dwTimeout;
     }
 
-    private const uint FlashwTray = 0x00000002;
+    /// <summary>FLASHW_CAPTION | FLASHW_TRAY - flash both the title bar and the taskbar button.</summary>
+    private const uint FlashwAll = 0x00000003;
 
-    /// <summary>Flash until the window comes to the foreground - combines FLASHW_TIMER with FLASHW_CAPTION per the Win32 docs' own definition of this constant.</summary>
-    private const uint FlashwTimerNoFg = 0x0000000C;
+    /// <summary>Default cap on how often a single attention request blinks; becomes a user setting later (see the feature-plan directory's <c>Benachrichtigungen.md</c>).</summary>
+    private const uint FlashCount = 4;
 
     [DllImport("user32.dll")]
     private static extern bool FlashWindowEx(ref FLASHWINFO pwfi);
@@ -85,8 +90,8 @@ internal static class WindowsWindowAttention
         var info = new FLASHWINFO
         {
             hwnd = handle.Handle,
-            dwFlags = FlashwTray | FlashwTimerNoFg,
-            uCount = uint.MaxValue,
+            dwFlags = FlashwAll,
+            uCount = FlashCount,
             dwTimeout = 0
         };
         info.cbSize = (uint)Marshal.SizeOf<FLASHWINFO>();
@@ -101,13 +106,15 @@ internal static class WindowsWindowAttention
 /// <c>NSApplication.requestUserAttention:</c>, called through the
 /// Objective-C runtime directly (no AppKit binding is otherwise referenced
 /// by this cross-platform Avalonia app - see Feature-Plaene/Tab-Eigenes-Fenster.md).
-/// <c>NSCriticalRequest</c> (0) bounces continuously until the app is
-/// activated, matching this feature's decided stop condition; the milder
-/// <c>NSInformationalRequest</c> (10) would only bounce once.
+/// <c>NSInformationalRequest</c> (10) bounces once - AppKit offers no
+/// "bounce N times" equivalent of Windows' flash count, so this is the
+/// closest match to the capped Windows flash. The original
+/// <c>NSCriticalRequest</c> (0) bounced continuously until the app was
+/// activated.
 /// </summary>
 internal static class MacWindowAttention
 {
-    private const long NsCriticalRequest = 0;
+    private const long NsInformationalRequest = 10;
 
     [DllImport("/usr/lib/libobjc.dylib")]
     private static extern IntPtr objc_getClass(string className);
@@ -125,7 +132,7 @@ internal static class MacWindowAttention
     {
         var nsApplicationClass = objc_getClass("NSApplication");
         var sharedApplication = objc_msgSend_get(nsApplicationClass, sel_registerName("sharedApplication"));
-        objc_msgSend_long(sharedApplication, sel_registerName("requestUserAttention:"), (IntPtr)NsCriticalRequest);
+        objc_msgSend_long(sharedApplication, sel_registerName("requestUserAttention:"), (IntPtr)NsInformationalRequest);
     }
 }
 

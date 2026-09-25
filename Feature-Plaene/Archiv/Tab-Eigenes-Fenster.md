@@ -48,6 +48,16 @@ Weicht an einigen Stellen vom Plantext unten ab:
   lassen (im Plan selbst noch offen als "Wie wird ein losgelöstes Fenster
   wieder eingedockt... oder ist das gar nicht vorgesehen") - vermeidet einen
   Zustand ohne jede sichtbare UI für eine noch konfigurierte Gruppe.
+- **Blink-Ende nachträglich geändert (2026-09-26):** statt "blinkt, bis das
+  Fenster den Fokus bekommt" blinkt Windows jetzt fest 4-mal
+  (`FlashWindowEx` mit `FLASHW_CAPTION | FLASHW_TRAY`, `uCount = 4`) und
+  lässt den Taskleisten-Button danach nur noch hervorgehoben, bis das
+  Fenster aktiviert wird - Dauerblinken war auf Dauer zu aufdringlich.
+  macOS entsprechend auf `NSInformationalRequest` (einmal hüpfen) statt
+  `NSCriticalRequest` (Dauer-Hüpfen) umgestellt; Linux unverändert (der
+  Window-Manager entscheidet dort ohnehin selbst). Nutzer-Einstellbarkeit
+  und weitere Benachrichtigungswege (Badge, Titel-Zähler, ...) siehe
+  `Benachrichtigungen.md` im Feature-Plan-Verzeichnis.
 - **`IWindowAttentionService.RequestAttention(Guid groupId)`** ist synchron
   (`void`), nicht `Task FlashGroupAsync(Guid)` wie im Plan skizziert - keine
   der drei Plattform-Implementierungen tut tatsächlich etwas Awaitbares.
