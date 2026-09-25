@@ -52,10 +52,12 @@ public partial class App : Application
         Services = services.BuildServiceProvider();
 
         // Applied before the main window is created, so it never briefly
-        // flashes the wrong variant at startup - see
-        // Feature-Plaene/Theme-Umschalter-und-Server-Farbwaehler.md.
+        // flashes the wrong variant (or re-lays out from the wrong density)
+        // at startup - see Feature-Plaene/Theme-Umschalter-und-Server-Farbwaehler.md
+        // and Kompakteres-Layout.md.
         var persistedSettings = Services.GetRequiredService<IPersistenceService>().LoadSettings();
         ThemeService.Apply(persistedSettings.ThemePreference);
+        DensityService.Apply(persistedSettings.UiDensity);
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {

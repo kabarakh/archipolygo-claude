@@ -26,4 +26,12 @@ public interface IHintService
     /// slot.
     /// </summary>
     void SyncHints(GroupViewModel group, IReadOnlyList<HintSnapshot> hints);
+
+    /// <summary>
+    /// Adds a single hint announced by a "[Hint]: ..." chat line to
+    /// <see cref="GroupViewModel.Hints"/>, unless that hint (same key, or
+    /// same finder + location) is already there. Adds no event-log entry
+    /// itself - the chat line is already in the log.
+    /// </summary>
+    void AddHintFromChat(GroupViewModel group, HintSnapshot snapshot);
 }

@@ -47,38 +47,10 @@
             <Setter Property="Padding" Value="0"/>
         </Style>
 
-        <!-- The log filter buttons (Events relevance/category, Hints) each
-             get an "active" class bound to whether they represent the
-             currently selected filter value (see Classes.active on each
-             Button below); this highlights the active one so it's
-             unmistakable at a glance, independently of which Command
-             actually changed the filter. -->
-        <Style Selector="Button.filter-toggle.active">
-            <!-- A plain named brush rather than a theme accent resource, to
-                 avoid relying on exactly which accent-related resource key
-                 the installed Fluent theme version exposes (some are Color,
-                 not IBrush, and aren't all guaranteed DynamicResource-safe
-                 the same way across versions). -->
-            <Setter Property="Background" Value="DodgerBlue"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="FontWeight" Value="Bold"/>
-        </Style>
-
-        <!-- Every filter-toggle button/checkbox row lives in a WrapPanel
-             rather than a horizontal StackPanel, so a narrow Events or
-             Hints/Items column (see the draggable GridSplitter below) makes
-             a row wrap onto another line instead of overflowing sideways
-             past its column - StackPanel content isn't clipped by its cell,
-             so it used to visually bleed into/over the neighboring column
-             instead. WrapPanel has no Spacing property of its own, so the
-             per-item gap that Spacing="8" used to provide on those
-             StackPanels is replicated here instead. -->
-        <Style Selector="Button.filter-toggle">
-            <Setter Property="Margin" Value="0,0,8,4"/>
-        </Style>
-        <Style Selector="CheckBox">
-            <Setter Property="Margin" Value="0,0,8,4"/>
-        </Style>
+        <!-- Button.filter-toggle / .active live in Styles/FilterStyles.axaml
+             (included app-wide from App.axaml) since Kompakteres-Layout.md -
+             they used to be declared here, which left DetachedGroupWindow's
+             copy of the same filter buttons unstyled. -->
 
     </Window.Styles>
 

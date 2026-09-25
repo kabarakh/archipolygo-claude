@@ -54,7 +54,9 @@ public class HintServiceFilterTests
         ReceivingPlayerName = "Bob",
         FindingPlayerName = "Alice",
         ItemName = "Sword",
-        LocationName = "Chest",
+        // Per-key location: finder + location identifies a hint (see
+        // HintService.AddOrUpdate), so two distinct test hints must not share both.
+        LocationName = $"Chest ({key})",
         Found = found,
         ItemFlags = ItemFlags.None,
         ReceivingPlayerKind = receivingKind,

@@ -18,6 +18,10 @@
     <StackPanel Margin="16" Spacing="8">
         <CheckBox Content="Auto-connect new profiles by default" IsChecked="{Binding DefaultAutoConnect}"/>
 
+        <!-- Kompakteres-Layout.md, Teil A - applied as soon as
+             Save is clicked (see MainWindowViewModel.SaveSettings), no restart. -->
+        <CheckBox Content="Compact layout (denser lists and controls)" IsChecked="{Binding CompactDensity}"/>
+
         <TextBlock Text="Event history limit per tab"/>
         <NumericUpDown Value="{Binding EventHistoryLimit}" Minimum="1" Maximum="100000" FormatString="0"/>
 

@@ -17,6 +17,8 @@
                      comment for which views reuse this instead of each
                      re-implementing it. -->
                 <ResourceInclude Source="avares://Archipolygo/Views/SharedTemplates.axaml"/>
+                <!-- CollapsibleFilterBar's ControlTheme (Kompakteres-Layout.md Teil D). -->
+                <ResourceInclude Source="avares://Archipolygo/Views/CollapsibleFilterBar.axaml"/>
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </Application.Resources>
@@ -27,6 +29,9 @@
              live here so they're made once and apply to every dialog that
              opts in - see the file's own header comment. -->
         <StyleInclude Source="avares://Archipolygo/Styles/DialogStyles.axaml"/>
+        <!-- Filter-row buttons (Button.filter-toggle/.active) - see the file's
+             own header comment for why these are app-wide. -->
+        <StyleInclude Source="avares://Archipolygo/Styles/FilterStyles.axaml"/>
         <!-- Required for the ColorPicker control used by the Connection
              Editor's server color picker - without this, ColorPicker/
              ColorView render completely unstyled (see the

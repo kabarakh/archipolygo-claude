@@ -9,4 +9,6 @@ namespace Archipolygo.TestSupport;
 public sealed class NoOpHintService : IHintService
 {
     public void SyncHints(GroupViewModel group, IReadOnlyList<HintSnapshot> hints) { }
+
+    public void AddHintFromChat(GroupViewModel group, HintSnapshot snapshot) { }
 }

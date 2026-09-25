@@ -128,8 +128,8 @@
         </Style>
     </UserControl.Styles>
 
-    <Grid Margin="16" RowDefinitions="Auto,*">
-        <TextBlock Grid.Row="0" Text="{Binding SummaryText}" Opacity="0.7" Margin="0,0,0,10"/>
+    <Grid Margin="12" RowDefinitions="Auto,*">
+        <TextBlock Grid.Row="0" Text="{Binding SummaryText}" Opacity="0.7" Margin="0,0,0,6"/>
 
         <!-- Column widths/ratio mirror MainWindow.axaml's own Events|Hints
              split exactly (2*/8/1*, MinWidth on both outer columns) - see
@@ -146,21 +146,78 @@
                  CLAUDE.md for whichever panel isn't the default. Hints
                  (right column) is untouched by this - it stays visible
                  regardless of which of these two is selected. -->
-            <Grid Grid.Column="0" MinWidth="220" RowDefinitions="Auto,Auto,*">
-                <TextBlock Grid.Row="0" Text="Overview" FontWeight="Bold" Margin="0,0,0,4"
-                           IsVisible="{Binding SelectedLeftPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Overview}"/>
-                <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="4" Margin="0,0,0,4"
-                            IsVisible="{Binding SelectedLeftPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Events}">
-                    <TextBlock Text="Events" FontWeight="Bold" VerticalAlignment="Center"/>
-                    <TextBlock Text="· all servers, all activity" Opacity="0.6" FontSize="12" VerticalAlignment="Center"/>
-                </StackPanel>
-
-                <WrapPanel Grid.Row="1" Margin="0,0,0,4">
-                    <Button Content="Overview" Classes="filter-toggle" Command="{Binding ShowOverviewPanelCommand}"
-                            Classes.active="{Binding SelectedLeftPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Overview}"/>
-                    <Button Content="Events" Classes="filter-toggle" Command="{Binding ShowEventsPanelCommand}"
-                            Classes.active="{Binding SelectedLeftPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Events}"/>
-                </WrapPanel>
+            <Grid Grid.Column="0" MinWidth="220" RowDefinitions="Auto,*">
+                <!-- One row for everything above the list
+                     (Kompakteres-Layout.md Teil B/C/D): the
+                     Overview/Events switch, then - only while Events is
+                     selected - that panel's own filters. Used to be a heading
+                     row ("Overview" / "Events · all servers, all activity"),
+                     the switch row, then three more Events-only rows
+                     (buttons, item-class checkboxes, server/slot filter). The
+                     switch sits outside the collapsible bar: it's navigation,
+                     not a filter, so it never folds away. -->
+                <Grid Grid.Row="0" ColumnDefinitions="Auto,*">
+                    <WrapPanel Grid.Column="0" Classes="filter-row" VerticalAlignment="Top">
+                        <Button Content="Overview" Classes="filter-toggle" Command="{Binding ShowOverviewPanelCommand}"
+                                Classes.active="{Binding SelectedLeftPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Overview}"/>
+                        <Button Content="Events" Classes="filter-toggle" Command="{Binding ShowEventsPanelCommand}"
+                                Classes.active="{Binding SelectedLeftPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Events}"/>
+                        <Border Classes="filter-separator" IsVisible="{Binding SelectedLeftPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Events}"/>
+                    </WrapPanel>
+                    <views:CollapsibleFilterBar Grid.Column="1" IsVisible="{Binding SelectedLeftPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Events}"
+                                                IsExpanded="{Binding FilterLayout.DashboardEventsFiltersExpanded}"
+                                                Summary="{Binding EventFilterSummaryText}">
+                        <WrapPanel Classes="filter-row">
+                            <!-- Events filters - own, independent filter state
+                                 (DashboardViewModel.SelectedEventRelevanceFilter/
+                                 SelectedEventCategoryFilter/Show*ItemEvents/EventsFilter),
+                                 never the same instance as any tab's own GroupViewModel
+                                 filters - see Feature-Plaene/Dashboard-Event-Filter.md. -->
+                            <Button Content="All" Classes="filter-toggle" Command="{Binding ShowAllEventsRelevanceCommand}"
+                                    Classes.active="{Binding SelectedEventRelevanceFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=All}"/>
+                            <Button Content="Concerns me" Classes="filter-toggle" Command="{Binding ShowOwnEventsOnlyCommand}"
+                                    Classes.active="{Binding SelectedEventRelevanceFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ConcernsMe}"/>
+                            <Border Classes="filter-separator"/>
+                            <Button Content="All" Classes="filter-toggle" Command="{Binding ShowAllEventCategoriesCommand}"
+                                    Classes.active="{Binding SelectedEventCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=All}"/>
+                            <Button Content="Hints" Classes="filter-toggle" Command="{Binding ShowHintEventsOnlyCommand}"
+                                    Classes.active="{Binding SelectedEventCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Hints}"/>
+                            <Button Content="Items" Classes="filter-toggle" Command="{Binding ShowItemEventsOnlyCommand}"
+                                    Classes.active="{Binding SelectedEventCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Items}"/>
+                            <Button Content="Chat" Classes="filter-toggle" Command="{Binding ShowChatEventsOnlyCommand}"
+                                    Classes.active="{Binding SelectedEventCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Chat}"/>
+                            <Border Classes="filter-separator"/>
+                            <!-- Same shared item-class flyout as a server tab's own Events filter row. -->
+                            <views:ItemClassFilterButton/>
+                            <!-- Server + slot display filter: fixed-width ComboBoxes,
+                                 same as the Hints column's. -->
+                            <ComboBox Name="DashboardEventsServerComboBox" Width="130"
+                                      ItemsSource="{Binding EventsFilter.ServerOptions}" SelectedItem="{Binding EventsFilter.SelectedServer}">
+                                <ComboBox.ItemTemplate>
+                                    <!-- Deliberately untyped - see the identical Hints server dropdown's comment. -->
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Converter={StaticResource DashboardServerFilterDisplayConverter}}"
+                                                   MaxWidth="110" TextTrimming="CharacterEllipsis"/>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <!-- A pure display filter now, same as the Hints
+                                 slot dropdown - no longer bound to
+                                 SelectedChatSlot/Slots (that live, real-leader-
+                                 switch control moved down to the send row). -->
+                            <ComboBox Name="DashboardEventsSlotComboBox" Width="130"
+                                      ItemsSource="{Binding EventsFilter.SlotOptions}" SelectedItem="{Binding EventsFilter.SelectedSlot}"
+                                      IsEnabled="{Binding EventsFilter.SelectedServer, Converter={x:Static avconv:ObjectConverters.IsNotNull}}">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Converter={StaticResource SlotFilterDisplayConverter}}"
+                                                   MaxWidth="110" TextTrimming="CharacterEllipsis"/>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                        </WrapPanel>
+                    </views:CollapsibleFilterBar>
+                </Grid>
 
                 <!-- SelectionChanged (not a Command per row) - same "click a
                      row to navigate" idiom as everywhere else the app reacts
@@ -175,7 +232,7 @@
                      press-vs-drag ambiguity for the row itself to resolve -
                      a plain click anywhere else just selects/navigates,
                      exactly like before this feature existed. -->
-                <ListBox Name="OverviewListBox" Grid.Row="2" ItemsSource="{Binding Groups}"
+                <ListBox Name="OverviewListBox" Grid.Row="1" ItemsSource="{Binding Groups}"
                          IsVisible="{Binding SelectedLeftPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Overview}"
                          SelectionChanged="OnOverviewRowSelected">
                     <ListBox.ItemTemplate>
@@ -419,80 +476,14 @@
                      box (dev's explicit call to decouple the two - see
                      DashboardViewModel's doc comments on
                      SelectedEventsServerFilter/SelectedSendServerGroup). -->
-                <Grid Grid.Row="2" RowDefinitions="Auto,Auto,Auto,*,Auto,Auto"
+                <Grid Grid.Row="1" RowDefinitions="*,Auto,Auto"
                       IsVisible="{Binding SelectedLeftPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Events}">
-                    <!-- Relevance + category toggle buttons - own, independent
-                         filter state (DashboardViewModel.SelectedEventRelevanceFilter/
-                         SelectedEventCategoryFilter), never the same instance as any
-                         tab's own GroupViewModel filters - see Feature-Plaene/Dashboard-Event-Filter.md.
-                         Same Button.filter-toggle Window-level style/classes as the
-                         identical row in MainWindow.axaml's own Events panel. -->
-                    <WrapPanel Grid.Row="0" Margin="0,0,0,4">
-                        <Button Content="All" Classes="filter-toggle" Command="{Binding ShowAllEventsRelevanceCommand}"
-                                Classes.active="{Binding SelectedEventRelevanceFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=All}"/>
-                        <Button Content="Concerns me" Classes="filter-toggle" Command="{Binding ShowOwnEventsOnlyCommand}"
-                                Classes.active="{Binding SelectedEventRelevanceFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ConcernsMe}"/>
-                        <Border Width="1" Background="Gray" Opacity="0.5" Margin="2,0"/>
-                        <Button Content="All" Classes="filter-toggle" Command="{Binding ShowAllEventCategoriesCommand}"
-                                Classes.active="{Binding SelectedEventCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=All}"/>
-                        <Button Content="Hints" Classes="filter-toggle" Command="{Binding ShowHintEventsOnlyCommand}"
-                                Classes.active="{Binding SelectedEventCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Hints}"/>
-                        <Button Content="Items" Classes="filter-toggle" Command="{Binding ShowItemEventsOnlyCommand}"
-                                Classes.active="{Binding SelectedEventCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Items}"/>
-                        <Button Content="Chat" Classes="filter-toggle" Command="{Binding ShowChatEventsOnlyCommand}"
-                                Classes.active="{Binding SelectedEventCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Chat}"/>
-                    </WrapPanel>
-
-                    <!-- Independent item-category checkboxes (not mutually exclusive
-                         with each other or with the filter-toggle buttons above) -
-                         own DashboardViewModel properties, same semantics as
-                         GroupViewModel.VisibleEvents' identical row. -->
-                    <WrapPanel Grid.Row="1" Margin="0,0,0,4">
-                        <CheckBox Content="Progression" IsChecked="{Binding ShowProgressionItemEvents}"/>
-                        <CheckBox Content="Useful" IsChecked="{Binding ShowUsefulItemEvents}"/>
-                        <CheckBox Content="Filler" IsChecked="{Binding ShowFillerItemEvents}"/>
-                        <CheckBox Content="Trap" IsChecked="{Binding ShowTrapItemEvents}"/>
-                    </WrapPanel>
-
-                    <!-- Filter row: fixed-width ComboBoxes in a StackPanel,
-                         not a Grid of equal Star columns - "*,*" stretched
-                         each box to half the column's width, leaving them
-                         looking far apart with dead space in between (dev
-                         feedback). Same fix applied to the Hints filter row
-                         below. -->
-                    <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" Margin="0,0,0,4">
-                        <ComboBox Name="DashboardEventsServerComboBox" Width="130"
-                                  ItemsSource="{Binding EventsFilter.ServerOptions}" SelectedItem="{Binding EventsFilter.SelectedServer}">
-                            <ComboBox.ItemTemplate>
-                                <!-- Deliberately untyped - see the identical Hints server dropdown's comment. -->
-                                <DataTemplate>
-                                    <TextBlock Text="{Binding Converter={StaticResource DashboardServerFilterDisplayConverter}}"
-                                               MaxWidth="110" TextTrimming="CharacterEllipsis"/>
-                                </DataTemplate>
-                            </ComboBox.ItemTemplate>
-                        </ComboBox>
-                        <!-- A pure display filter now, same as the Hints
-                             slot dropdown - no longer bound to
-                             SelectedChatSlot/Slots (that live, real-leader-
-                             switch control moved down to the send row). -->
-                        <ComboBox Name="DashboardEventsSlotComboBox" Width="130"
-                                  ItemsSource="{Binding EventsFilter.SlotOptions}" SelectedItem="{Binding EventsFilter.SelectedSlot}"
-                                  IsEnabled="{Binding EventsFilter.SelectedServer, Converter={x:Static avconv:ObjectConverters.IsNotNull}}">
-                            <ComboBox.ItemTemplate>
-                                <DataTemplate>
-                                    <TextBlock Text="{Binding Converter={StaticResource SlotFilterDisplayConverter}}"
-                                               MaxWidth="110" TextTrimming="CharacterEllipsis"/>
-                                </DataTemplate>
-                            </ComboBox.ItemTemplate>
-                        </ComboBox>
-                    </StackPanel>
-
                     <!-- Grid rather than the ListBox alone, so the "jump to
                          newest" button (below) can float over the bottom-right
                          corner of the list instead of taking its own row -
                          same overlay pattern as a server tab's own Events
                          list (see MainWindow.axaml and JumpToNewestButton). -->
-                    <Grid Grid.Row="3">
+                    <Grid Grid.Row="0">
                         <!-- SelectionMode="Multiple" + KeyDown copy shortcut -
                              same behavior as a server tab's own Events list
                              (see MainWindow.axaml's EventsListBox/OnEventsListKeyDown),
@@ -534,7 +525,7 @@
                          since it binds straight to
                          SelectedSendServerGroup.Slots/.SelectedChatSlot -
                          the group's own live state, not a Dashboard copy. -->
-                    <StackPanel Grid.Row="4" Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
+                    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
                         <TextBlock Text="Send as:" Opacity="0.7" VerticalAlignment="Center"/>
                         <ComboBox Name="DashboardSendServerComboBox" Width="130"
                                   ItemsSource="{Binding Groups}" SelectedItem="{Binding SelectedSendServerGroup}">
@@ -564,7 +555,7 @@
                          that property's own doc comment for why the nested
                          version doesn't reliably gray out with nothing
                          selected. -->
-                    <Grid Grid.Row="5" ColumnDefinitions="*,Auto" Margin="0,4,0,0">
+                    <Grid Grid.Row="2" ColumnDefinitions="*,Auto" Margin="0,4,0,0">
                         <TextBox Grid.Column="0" Text="{Binding SelectedSendServerGroup.MessageToSend}" PlaceholderText="Message..."
                                  IsEnabled="{Binding CanSendMessage}">
                             <TextBox.KeyBindings>
@@ -581,64 +572,62 @@
                           Background="Gray" Opacity="0.3" ResizeDirection="Columns"/>
 
             <!-- ── Hints (right): shared, server-spanning, open-only ── -->
-            <Grid Grid.Column="2" MinWidth="150" RowDefinitions="Auto,Auto,Auto,*">
-                <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="4" Margin="0,0,0,4">
-                    <TextBlock Text="Hints" FontWeight="Bold" VerticalAlignment="Center"/>
-                    <TextBlock Text="· unfound only" Opacity="0.6" FontSize="12" VerticalAlignment="Center"/>
-                </StackPanel>
+            <Grid Grid.Column="2" MinWidth="150" RowDefinitions="Auto,*">
+                <!-- Server/slot filter and item-category buttons in one
+                     WrapPanel (Kompakteres-Layout.md Teil
+                     B/C) - used to be a "Hints · unfound only" heading plus
+                     two separate rows; collapsible since Teil D. "Unfound
+                     only" now lives in this bar's tooltip (on the filters rather than the list, so it
+                     doesn't pop up over the click-to-navigate hint rows). The slot dropdown is disabled (not just
+                     visually inert) while "All servers" is selected, so it's
+                     clear the slot filter only applies once a concrete
+                     server is picked. Same single-select filter-toggle-button
+                     pattern as every other item-category filter row. -->
+                <views:CollapsibleFilterBar Grid.Row="0" ToolTip.Tip="Showing unfound hints only, across all servers"
+                                            IsExpanded="{Binding FilterLayout.DashboardHintsFiltersExpanded}"
+                                            Summary="{Binding HintFilterSummaryText}">
+                    <WrapPanel Classes="filter-row">
+                        <ComboBox Width="130"
+                                  ItemsSource="{Binding HintFilter.ServerOptions}" SelectedItem="{Binding HintFilter.SelectedServer}">
+                            <ComboBox.ItemTemplate>
+                                <!-- Deliberately untyped (no x:DataType): the leading entry is a
+                                     null placeholder for "All servers" (see HintServerFilterOptions),
+                                     and a compiled binding typed to GroupViewModel wouldn't match it. -->
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Converter={StaticResource DashboardServerFilterDisplayConverter}}"
+                                               MaxWidth="110" TextTrimming="CharacterEllipsis"/>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                        <!-- Disabled (not just visually inert) while "All servers"
+                             is selected, so it's clear the slot filter only
+                             applies once a concrete server is picked - see the
+                             plan's UI section. -->
+                        <ComboBox Width="130"
+                                  ItemsSource="{Binding HintFilter.SlotOptions}" SelectedItem="{Binding HintFilter.SelectedSlot}"
+                                  IsEnabled="{Binding HintFilter.SelectedServer, Converter={x:Static avconv:ObjectConverters.IsNotNull}}">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Converter={StaticResource SlotFilterDisplayConverter}}"
+                                               MaxWidth="110" TextTrimming="CharacterEllipsis"/>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                        <Border Classes="filter-separator"/>
+                        <Button Content="All" Classes="filter-toggle" Command="{Binding ShowAllHintItemCategoriesCommand}"
+                                Classes.active="{Binding SelectedHintItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=All}"/>
+                        <Button Content="Progression" Classes="filter-toggle" Command="{Binding ShowProgressHintItemsCommand}"
+                                Classes.active="{Binding SelectedHintItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Progress}"/>
+                        <Button Content="Useful" Classes="filter-toggle" Command="{Binding ShowUsefulHintItemsCommand}"
+                                Classes.active="{Binding SelectedHintItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Useful}"/>
+                        <Button Content="Normal" Classes="filter-toggle" Command="{Binding ShowNormalHintItemsCommand}"
+                                Classes.active="{Binding SelectedHintItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Normal}"/>
+                        <Button Content="Trap" Classes="filter-toggle" Command="{Binding ShowTrapHintItemsCommand}"
+                                Classes.active="{Binding SelectedHintItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Trap}"/>
+                    </WrapPanel>
+                </views:CollapsibleFilterBar>
 
-                <!-- Fixed-width ComboBoxes in a StackPanel, not a Grid of
-                     equal Star columns - "*,*" stretched each box to half
-                     the column's width, leaving them looking far apart with
-                     dead space in between (dev feedback). -->
-                <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="0,0,0,4">
-                    <ComboBox Width="130"
-                              ItemsSource="{Binding HintFilter.ServerOptions}" SelectedItem="{Binding HintFilter.SelectedServer}">
-                        <ComboBox.ItemTemplate>
-                            <!-- Deliberately untyped (no x:DataType): the leading entry is a
-                                 null placeholder for "All servers" (see HintServerFilterOptions),
-                                 and a compiled binding typed to GroupViewModel wouldn't match it. -->
-                            <DataTemplate>
-                                <TextBlock Text="{Binding Converter={StaticResource DashboardServerFilterDisplayConverter}}"
-                                           MaxWidth="110" TextTrimming="CharacterEllipsis"/>
-                            </DataTemplate>
-                        </ComboBox.ItemTemplate>
-                    </ComboBox>
-                    <!-- Disabled (not just visually inert) while "All servers"
-                         is selected, so it's clear the slot filter only
-                         applies once a concrete server is picked - see the
-                         plan's UI section. -->
-                    <ComboBox Width="130"
-                              ItemsSource="{Binding HintFilter.SlotOptions}" SelectedItem="{Binding HintFilter.SelectedSlot}"
-                              IsEnabled="{Binding HintFilter.SelectedServer, Converter={x:Static avconv:ObjectConverters.IsNotNull}}">
-                        <ComboBox.ItemTemplate>
-                            <DataTemplate>
-                                <TextBlock Text="{Binding Converter={StaticResource SlotFilterDisplayConverter}}"
-                                           MaxWidth="110" TextTrimming="CharacterEllipsis"/>
-                            </DataTemplate>
-                        </ComboBox.ItemTemplate>
-                    </ComboBox>
-                </StackPanel>
-
-                <!-- Same single-select filter-toggle-button pattern/classes as
-                     every other item-category filter row in this app (see
-                     MainWindow.axaml) - Button.filter-toggle/active are
-                     Window-level styles that cascade down to this view since
-                     it's hosted inside MainWindow's visual tree. -->
-                <WrapPanel Grid.Row="2" Margin="0,0,0,4">
-                    <Button Content="All" Classes="filter-toggle" Command="{Binding ShowAllHintItemCategoriesCommand}"
-                            Classes.active="{Binding SelectedHintItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=All}"/>
-                    <Button Content="Progression" Classes="filter-toggle" Command="{Binding ShowProgressHintItemsCommand}"
-                            Classes.active="{Binding SelectedHintItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Progress}"/>
-                    <Button Content="Useful" Classes="filter-toggle" Command="{Binding ShowUsefulHintItemsCommand}"
-                            Classes.active="{Binding SelectedHintItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Useful}"/>
-                    <Button Content="Normal" Classes="filter-toggle" Command="{Binding ShowNormalHintItemsCommand}"
-                            Classes.active="{Binding SelectedHintItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Normal}"/>
-                    <Button Content="Trap" Classes="filter-toggle" Command="{Binding ShowTrapHintItemsCommand}"
-                            Classes.active="{Binding SelectedHintItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Trap}"/>
-                </WrapPanel>
-
-                <ListBox Name="DashboardHintsListBox" Grid.Row="3" ItemsSource="{Binding VisibleHints}"
+                <ListBox Name="DashboardHintsListBox" Grid.Row="1" ItemsSource="{Binding VisibleHints}"
                          SelectionChanged="OnHintRowSelected">
                     <ListBox.ItemTemplate>
                         <DataTemplate DataType="m:DashboardHintRow">

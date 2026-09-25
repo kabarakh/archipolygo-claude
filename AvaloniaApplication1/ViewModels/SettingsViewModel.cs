@@ -26,8 +26,22 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty]
     private int _eventHistoryLimit = 500;
 
+    /// <summary>Checkbox form of <see cref="AppSettings.UiDensity"/> - only two values exist, so a bool reads simpler in the dialog than a two-item dropdown.</summary>
+    [ObservableProperty]
+    private bool _compactDensity = true;
+
     [ObservableProperty]
     private string? _validationError;
+
+    /// <summary>
+    /// The settings this dialog was opened with. <see cref="TryBuildSettings"/>
+    /// starts from a copy of these, so every field this dialog doesn't edit
+    /// itself (the theme, set by MainWindow's theme button; the filter bars'
+    /// expanded state, ...) is carried through unchanged. Without this, saving
+    /// the dialog built a fresh <see cref="AppSettings"/> and silently reset
+    /// the theme back to "System" on disk.
+    /// </summary>
+    private AppSettings _originalSettings = new();
 
     /// <summary>
     /// Delegated to whoever opened this dialog (see <see cref="FromSettings"/>) -
@@ -79,6 +93,8 @@ public partial class SettingsViewModel : ViewModelBase
     {
         DefaultAutoConnect = settings.DefaultAutoConnect,
         EventHistoryLimit = settings.EventHistoryLimit,
+        CompactDensity = settings.UiDensity != DensityService.Normal,
+        _originalSettings = settings.Clone(),
         _checkForUpdatesAsync = checkForUpdatesAsync,
         ShowUnmanagedInstallHint = showUnmanagedInstallHint,
         _readDiagnosticLog = readDiagnosticLog
@@ -141,11 +157,10 @@ public partial class SettingsViewModel : ViewModelBase
         }
 
         ValidationError = null;
-        settings = new AppSettings
-        {
-            DefaultAutoConnect = DefaultAutoConnect,
-            EventHistoryLimit = EventHistoryLimit
-        };
+        settings = _originalSettings.Clone();
+        settings.DefaultAutoConnect = DefaultAutoConnect;
+        settings.EventHistoryLimit = EventHistoryLimit;
+        settings.UiDensity = CompactDensity ? DensityService.Compact : DensityService.Normal;
         return true;
     }
 }

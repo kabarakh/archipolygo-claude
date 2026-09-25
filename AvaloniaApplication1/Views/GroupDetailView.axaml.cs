@@ -87,22 +87,22 @@ public partial class GroupDetailView : UserControl
     }
 
     /// <summary>
-    /// Toggles the Events column's "Copy from here" button's enabled state
-    /// with the Events list's selection - the button needs an anchor row, so
-    /// it stays disabled (rather than silently no-op on click) until one is
-    /// selected. Code-behind-driven rather than a bound view-model property,
+    /// Shows the Events list's floating "Copy from here" button only while a
+    /// row is selected - it needs an anchor row, and hiding it otherwise keeps
+    /// it from covering the list for nothing (Kompakteres-Layout.md Teil C;
+    /// it used to be a permanently visible, mostly disabled button). Code-behind-driven rather than a bound view-model property,
     /// matching this list's existing selection handling (see
     /// <see cref="OnEventsListKeyDown"/>).
     /// </summary>
     private void OnEventsListSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        CopyEventsFromHereButton.IsEnabled = EventsListBox.SelectedItems is { Count: > 0 };
+        CopyEventsFromHereButton.IsVisible = EventsListBox.SelectedItems is { Count: > 0 };
     }
 
     /// <summary>Same mechanism as <see cref="OnEventsListSelectionChanged"/>, for the Hints list.</summary>
     private void OnHintsListSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        CopyHintsFromHereButton.IsEnabled = HintsListBox.SelectedItems is { Count: > 0 };
+        CopyHintsFromHereButton.IsVisible = HintsListBox.SelectedItems is { Count: > 0 };
     }
 
     /// <summary>

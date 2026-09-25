@@ -680,7 +680,12 @@ public class DashboardTabTests
         ClickButton(window, dashboardView.GetVisualDescendants().OfType<Button>().Single(b => Equals(b.Content, "Events")));
         Dispatcher.UIThread.RunJobs();
 
-        var trapCheckbox = dashboardView.GetVisualDescendants().OfType<CheckBox>().Single(c => Equals(c.Content, "Trap"));
+        // The checkboxes live in ItemClassFilterButton's flyout since
+        // Kompakteres-Layout.md - open it the way a user would first.
+        var classesButton = dashboardView.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "ClassesButton");
+        ClickButton(window, classesButton);
+        Dispatcher.UIThread.RunJobs();
+        var trapCheckbox = ((StackPanel)((Flyout)classesButton.Flyout!).Content!).Children.OfType<CheckBox>().Single(c => Equals(c.Content, "Trap"));
         Assert.True(trapCheckbox.IsChecked);
         Assert.Single(viewModel.Dashboard.VisibleEvents);
 
@@ -689,6 +694,8 @@ public class DashboardTabTests
 
         Assert.False(viewModel.Dashboard.ShowTrapItemEvents);
         Assert.Empty(viewModel.Dashboard.VisibleEvents);
+        Assert.Equal("Classes 3/4", viewModel.Dashboard.EventItemClassFilterButtonText);
+        Assert.Contains("active", classesButton.Classes);
     }
 
     /// <summary>The Dashboard's Events filters must never be shared with (or affected by) any individual tab's own <see cref="GroupViewModel"/> filter state - see Feature-Plaene/Dashboard-Event-Filter.md.</summary>

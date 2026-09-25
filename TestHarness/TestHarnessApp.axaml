@@ -9,5 +9,6 @@
              dialog built here should look like the real dialog it's
              previewing, not drift from it. -->
         <StyleInclude Source="avares://Archipolygo/Styles/DialogStyles.axaml"/>
+        <StyleInclude Source="avares://Archipolygo/Styles/FilterStyles.axaml"/>
     </Application.Styles>
 </Application>

@@ -18,8 +18,8 @@ namespace AvaloniaApplication1.Tests;
 
 /// <summary>
 /// Kategorie C (Test-Umsetzungsplan.md): the "Copy from here" buttons
-/// (Feature-Plaene/Log-Export.md) - enabled state tracking the list's
-/// selection, and the actual clipboard content after a click. Real
+/// (Feature-Plaene/Log-Export.md) - visibility tracking the list's
+/// selection (floating over the list since Kompakteres-Layout.md), and the actual clipboard content after a click. Real
 /// <see cref="MainWindow"/>, same setup style as <see cref="EventsListAutoScrollTests"/>.
 /// </summary>
 public class CopyFromHereTests
@@ -54,22 +54,22 @@ public class CopyFromHereTests
     }
 
     [AvaloniaFact]
-    public void EventsCopyFromHereButton_DisabledUntilARowIsSelected()
+    public void EventsCopyFromHereButton_HiddenUntilARowIsSelected()
     {
         var (_, group, listBox, copyButton) = SetUp("EventsListBox", "CopyEventsFromHereButton");
         group.Events.Add(new EventEntry { Text = "Event 0", Type = EventType.Chat });
         group.Events.Add(new EventEntry { Text = "Event 1", Type = EventType.Chat });
         Dispatcher.UIThread.RunJobs();
 
-        Assert.False(copyButton.IsEnabled, "expected no selection yet");
+        Assert.False(copyButton.IsVisible, "expected no selection yet");
 
         listBox.SelectedIndex = 0;
         Dispatcher.UIThread.RunJobs();
-        Assert.True(copyButton.IsEnabled);
+        Assert.True(copyButton.IsVisible);
 
         listBox.SelectedIndex = -1;
         Dispatcher.UIThread.RunJobs();
-        Assert.False(copyButton.IsEnabled, "expected disabled again once the selection is cleared");
+        Assert.False(copyButton.IsVisible, "expected hidden again once the selection is cleared");
     }
 
     [AvaloniaFact]

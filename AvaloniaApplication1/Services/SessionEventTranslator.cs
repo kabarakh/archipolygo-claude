@@ -154,8 +154,25 @@ internal sealed class SessionEventTranslator
 
         var segments = EventSegmentBuilder.BuildChatSegments(logMessage, siblingIds);
         var slotId = ResolvePrimarySlotId(logMessage, roster);
-        var eventType = logMessage is ItemSendLogMessage ? EventType.ItemReceived : EventType.Chat;
+        // HintItemSendLogMessage derives from ItemSendLogMessage (checked
+        // against Archipelago.MultiClient.Net 6.7.1's source), so it has to
+        // be matched first - otherwise every "[Hint]: ..." line counted as an
+        // item send.
+        var eventType = logMessage switch
+        {
+            HintItemSendLogMessage => EventType.HintReceived,
+            ItemSendLogMessage => EventType.ItemReceived,
+            _ => EventType.Chat
+        };
         _messageHistoryService.HandleChatMessage(group, logMessage.ToString(), segments, slotId, eventType);
+
+        if (logMessage is HintItemSendLogMessage hintMessage)
+        {
+            // A hint is not a received item - never mirror it into a sibling
+            // slot's received-items panel below; it only feeds the Hints panel.
+            AddChatHint(group, session, roster, siblingIds, hintMessage);
+            return;
+        }
 
         // ItemSendLogMessage exposes the receiving side as .Receiver (a
         // PlayerInfo), not .Receiving - confirmed against the installed
@@ -181,6 +198,54 @@ internal sealed class SessionEventTranslator
                 _windowAttentionService?.RequestAttention(group.Group.Id);
             }
         }
+    }
+
+    /// <summary>
+    /// Turns a "[Hint]: ..." chat line into a <see cref="HintSnapshot"/> for
+    /// the Hints panel - same key format and slot resolution as
+    /// <see cref="OnHintsUpdated"/>, so whichever of the two sources reports a
+    /// hint first is the one entry that stays (see
+    /// <see cref="IHintService.AddHintFromChat"/>). The server replays every
+    /// hint concerning a player on connect, so most of these are duplicates
+    /// that get dropped there.
+    /// </summary>
+    private void AddChatHint(GroupViewModel group, IArchipelagoSession session, Dictionary<int, SlotProfile> roster,
+                             HashSet<int> siblingIds, HintItemSendLogMessage hintMessage)
+    {
+        var receivingPlayer = hintMessage.Receiver.Slot;
+        var findingPlayer = hintMessage.Item.Player.Slot;
+
+        Guid? slotId = null;
+        if (roster.TryGetValue(receivingPlayer, out var receivingSlot))
+        {
+            slotId = receivingSlot.Id;
+        }
+        else if (roster.TryGetValue(findingPlayer, out var findingSlot))
+        {
+            slotId = findingSlot.Id;
+        }
+
+        if (slotId is null)
+        {
+            return;
+        }
+
+        var ownSlotNumeric = session.ConnectionInfo.Slot;
+        _hintService.AddHintFromChat(group, new HintSnapshot
+        {
+            Key = $"{receivingPlayer}:{findingPlayer}:{hintMessage.Item.ItemId}:{hintMessage.Item.LocationId}",
+            SlotId = slotId.Value,
+            ReceivingPlayer = receivingPlayer,
+            FindingPlayer = findingPlayer,
+            ReceivingPlayerName = session.Players.GetPlayerAlias(receivingPlayer),
+            FindingPlayerName = session.Players.GetPlayerAlias(findingPlayer),
+            ItemName = hintMessage.Item.ItemDisplayName,
+            LocationName = hintMessage.Item.LocationDisplayName,
+            Found = hintMessage.IsFound,
+            ItemFlags = hintMessage.Item.Flags,
+            ReceivingPlayerKind = EventSegmentBuilder.ClassifyPlayerSlot(receivingPlayer, ownSlotNumeric, siblingIds),
+            FindingPlayerKind = EventSegmentBuilder.ClassifyPlayerSlot(findingPlayer, ownSlotNumeric, siblingIds)
+        });
     }
 
     public void OnItemReceived(GroupViewModel group, SlotProfile slot, IArchipelagoSession session, ReceivedItemsHelper helper, bool isLeaderSession, bool hasAnnouncedConnection)

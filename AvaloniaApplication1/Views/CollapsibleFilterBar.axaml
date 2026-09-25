@@ -1,0 +1,33 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:views="using:Archipolygo.Views">
+    <!-- Template for CollapsibleFilterBar (see its class doc comment).
+         Merged app-wide from App.axaml so it applies in MainWindow and
+         DetachedGroupWindow alike. Visual states (chevron/summary look,
+         :filtering highlight) live in Styles/FilterStyles.axaml with the
+         rest of the filter-row styling. -->
+    <ControlTheme x:Key="{x:Type views:CollapsibleFilterBar}" TargetType="views:CollapsibleFilterBar">
+        <Setter Property="Template">
+            <ControlTemplate>
+                <DockPanel>
+                    <Button Name="PART_ToggleButton" DockPanel.Dock="Left" Classes="filter-chevron"
+                            VerticalAlignment="Top" ToolTip.Tip="Show or hide filters">
+                        <Panel>
+                            <TextBlock Text="▾" IsVisible="{TemplateBinding IsExpanded}"/>
+                            <TextBlock Text="▸" IsVisible="{TemplateBinding IsExpanded, Converter={x:Static BoolConverters.Not}}"/>
+                        </Panel>
+                    </Button>
+                    <Panel>
+                        <ContentPresenter Name="PART_ContentPresenter" Content="{TemplateBinding Content}"
+                                          IsVisible="{TemplateBinding IsExpanded}"/>
+                        <Button Name="PART_SummaryButton" Classes="filter-summary" HorizontalAlignment="Left"
+                                IsVisible="{TemplateBinding IsExpanded, Converter={x:Static BoolConverters.Not}}"
+                                ToolTip.Tip="Show filters">
+                            <TextBlock Text="{TemplateBinding SummaryDisplayText}" TextTrimming="CharacterEllipsis"/>
+                        </Button>
+                    </Panel>
+                </DockPanel>
+            </ControlTemplate>
+        </Setter>
+    </ControlTheme>
+</ResourceDictionary>

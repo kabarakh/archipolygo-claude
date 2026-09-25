@@ -1,0 +1,31 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Archipolygo.ViewModels"
+             x:Class="Archipolygo.Views.ItemClassFilterButton"
+             x:DataType="vm:IEventItemClassFilter">
+    <!-- The four independent item-class checkboxes (Progression/Useful/
+         Filler/Trap) for an Events list, folded into one "Classes ▾" button
+         with a flyout so they no longer take a whole filter row of their own
+         (Kompakteres-Layout.md, Teil C). Shared by
+         GroupDetailView and DashboardView via IEventItemClassFilter; the
+         DataContext is simply inherited from the host view. Highlighted like
+         any other active filter button while at least one class is hidden,
+         so a narrowed list is still obvious with the flyout closed. -->
+    <Button Name="ClassesButton" Classes="filter-toggle"
+            Classes.active="{Binding IsEventItemClassFilterActive}">
+        <StackPanel Orientation="Horizontal" Spacing="4">
+            <TextBlock Text="{Binding EventItemClassFilterButtonText}" VerticalAlignment="Center"/>
+            <TextBlock Text="▾" Opacity="0.7" VerticalAlignment="Center"/>
+        </StackPanel>
+        <Button.Flyout>
+            <Flyout Placement="BottomEdgeAlignedLeft">
+                <StackPanel Spacing="2">
+                    <CheckBox Content="Progression" IsChecked="{Binding ShowProgressionItemEvents}"/>
+                    <CheckBox Content="Useful" IsChecked="{Binding ShowUsefulItemEvents}"/>
+                    <CheckBox Content="Filler" IsChecked="{Binding ShowFillerItemEvents}"/>
+                    <CheckBox Content="Trap" IsChecked="{Binding ShowTrapItemEvents}"/>
+                </StackPanel>
+            </Flyout>
+        </Button.Flyout>
+    </Button>
+</UserControl>

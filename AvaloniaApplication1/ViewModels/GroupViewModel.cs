@@ -25,7 +25,7 @@ namespace Archipolygo.ViewModels;
 /// filter dropdown can narrow the view down to one slot. Actual connection
 /// handling is delegated to <see cref="IConnectionManager"/>.
 /// </summary>
-public partial class GroupViewModel : ViewModelBase
+public partial class GroupViewModel : ViewModelBase, IEventItemClassFilter
 {
     private readonly IConnectionManager _connectionManager;
 
@@ -433,9 +433,61 @@ public partial class GroupViewModel : ViewModelBase
     /// </summary>
     public HintPickerViewModel HintPicker { get; }
 
-    public GroupViewModel(ServerConnectionGroup group, IConnectionManager connectionManager, IMultiworldTrackerService? multiworldTrackerService = null)
+    /// <summary>
+    /// Which filter bars are expanded - shared across every tab and the
+    /// Dashboard (see <see cref="FilterBarLayoutState"/>). A fresh, unshared
+    /// instance when constructed without one (tests, design time).
+    /// </summary>
+    public FilterBarLayoutState FilterLayout { get; }
+
+    /// <summary>One-line summary of the Events filters for their collapsed bar - see <see cref="FilterSummaryText"/>. Empty while nothing narrows the list.</summary>
+    public string EventFilterSummaryText => FilterSummaryText.Join(
+        FilterSummaryText.Relevance(SelectedEventRelevanceFilter),
+        FilterSummaryText.Category(SelectedEventCategoryFilter),
+        FilterSummaryText.ItemClasses(this),
+        FilterSummaryText.Slot(SelectedEventsSlotFilter));
+
+    /// <summary>Same as <see cref="EventFilterSummaryText"/>, for whichever of the Hints/Items panels is showing.</summary>
+    public string RightPanelFilterSummaryText => SelectedRightPanel == RightPanelView.Hints
+        ? FilterSummaryText.Join(
+            FilterSummaryText.HintFound(SelectedHintFilter),
+            FilterSummaryText.HintRole(SelectedHintRoleFilter),
+            FilterSummaryText.ItemCategory(SelectedHintItemCategoryFilter),
+            FilterSummaryText.Slot(SelectedHintsSlotFilter),
+            FilterSummaryText.Search(ItemSearchText))
+        : FilterSummaryText.Join(
+            FilterSummaryText.ItemCategory(SelectedItemCategoryFilter),
+            FilterSummaryText.Slot(SelectedItemsSlotFilter),
+            FilterSummaryText.Search(ItemSearchText));
+
+    /// <summary>
+    /// Every filter change already raises <see cref="VisibleEvents"/>/
+    /// <see cref="VisibleHints"/>/<see cref="VisibleReceivedItems"/> - piggyback
+    /// the summary texts on those rather than adding a second notification to
+    /// each of the many individual filter-changed hooks.
+    /// </summary>
+    protected override void OnPropertyChanged(PropertyChangedEventArgs e)
+    {
+        base.OnPropertyChanged(e);
+
+        switch (e.PropertyName)
+        {
+            case nameof(VisibleEvents):
+                base.OnPropertyChanged(new PropertyChangedEventArgs(nameof(EventFilterSummaryText)));
+                break;
+            case nameof(VisibleHints):
+            case nameof(VisibleReceivedItems):
+            case nameof(SelectedRightPanel):
+                base.OnPropertyChanged(new PropertyChangedEventArgs(nameof(RightPanelFilterSummaryText)));
+                break;
+        }
+    }
+
+    public GroupViewModel(ServerConnectionGroup group, IConnectionManager connectionManager, IMultiworldTrackerService? multiworldTrackerService = null,
+        FilterBarLayoutState? filterLayout = null)
     {
         _group = group;
+        FilterLayout = filterLayout ?? new FilterBarLayoutState();
         _connectionManager = connectionManager;
         _multiworldTrackerService = multiworldTrackerService;
         HintPicker = new HintPickerViewModel(this, connectionManager);
@@ -1001,13 +1053,26 @@ public partial class GroupViewModel : ViewModelBase
 
     partial void OnSelectedEventCategoryFilterChanged(EventCategoryFilter value) => OnPropertyChanged(nameof(VisibleEvents));
 
-    partial void OnShowProgressionItemEventsChanged(bool value) => OnPropertyChanged(nameof(VisibleEvents));
+    partial void OnShowProgressionItemEventsChanged(bool value) => OnEventItemClassFilterChanged();
 
-    partial void OnShowUsefulItemEventsChanged(bool value) => OnPropertyChanged(nameof(VisibleEvents));
+    partial void OnShowUsefulItemEventsChanged(bool value) => OnEventItemClassFilterChanged();
 
-    partial void OnShowFillerItemEventsChanged(bool value) => OnPropertyChanged(nameof(VisibleEvents));
+    partial void OnShowFillerItemEventsChanged(bool value) => OnEventItemClassFilterChanged();
 
-    partial void OnShowTrapItemEventsChanged(bool value) => OnPropertyChanged(nameof(VisibleEvents));
+    partial void OnShowTrapItemEventsChanged(bool value) => OnEventItemClassFilterChanged();
+
+    private void OnEventItemClassFilterChanged()
+    {
+        OnPropertyChanged(nameof(VisibleEvents));
+        OnPropertyChanged(nameof(EventItemClassFilterButtonText));
+        OnPropertyChanged(nameof(IsEventItemClassFilterActive));
+    }
+
+    /// <inheritdoc/>
+    public string EventItemClassFilterButtonText => EventItemClassFilterText.ButtonText(this);
+
+    /// <inheritdoc/>
+    public bool IsEventItemClassFilterActive => EventItemClassFilterText.IsActive(this);
 
     private void OnEventsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {

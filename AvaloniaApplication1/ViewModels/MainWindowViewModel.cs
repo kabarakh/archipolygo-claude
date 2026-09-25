@@ -256,9 +256,12 @@ public partial class MainWindowViewModel : ViewModelBase
         // comment for what this covers.
         _connectionManager.PasswordRequested = HandlePasswordRequestedAsync;
 
+        FilterLayout = LoadFilterLayout(_persistenceService.LoadSettings());
+        FilterLayout.PropertyChanged += (_, _) => SaveFilterLayout();
+
         foreach (var group in _persistenceService.LoadGroups())
         {
-            var groupViewModel = new GroupViewModel(group, _connectionManager, _multiworldTrackerService);
+            var groupViewModel = new GroupViewModel(group, _connectionManager, _multiworldTrackerService, FilterLayout);
             Groups.Add(groupViewModel);
             DockedGroups.Add(groupViewModel);
         }
@@ -267,7 +270,7 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             SelectedGroup = group;
             IsDashboardVisible = false;
-        }, ReorderGroup);
+        }, ReorderGroup, FilterLayout);
 
         SelectedGroup = Groups.Count > 0 ? Groups[0] : null;
 
@@ -592,7 +595,7 @@ public partial class MainWindowViewModel : ViewModelBase
             group.PreferredLeaderSlotId = slot.Id;
         }
 
-        var groupViewModel = new GroupViewModel(group, _connectionManager, _multiworldTrackerService);
+        var groupViewModel = new GroupViewModel(group, _connectionManager, _multiworldTrackerService, FilterLayout);
         Groups.Add(groupViewModel);
         DockedGroups.Add(groupViewModel);
         SelectedGroup = groupViewModel;
@@ -807,9 +810,36 @@ public partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     public IReadOnlyList<ServerConnectionGroup> GetAllGroups() => Groups.Select(g => g.Group).ToList();
 
+    /// <summary>Filter bars' expanded state, shared by every tab and the Dashboard - see <see cref="FilterBarLayoutState"/>.</summary>
+    public FilterBarLayoutState FilterLayout { get; }
+
+    private static FilterBarLayoutState LoadFilterLayout(AppSettings settings) => new()
+    {
+        EventsFiltersExpanded = settings.EventsFiltersExpanded,
+        RightPanelFiltersExpanded = settings.RightPanelFiltersExpanded,
+        DashboardEventsFiltersExpanded = settings.DashboardEventsFiltersExpanded,
+        DashboardHintsFiltersExpanded = settings.DashboardHintsFiltersExpanded
+    };
+
+    /// <summary>Persists <see cref="FilterLayout"/> on every toggle (decision 5 in Kompakteres-Layout.md: collapsed filters stay collapsed across restarts).</summary>
+    private void SaveFilterLayout()
+    {
+        var settings = _persistenceService.LoadSettings();
+        settings.EventsFiltersExpanded = FilterLayout.EventsFiltersExpanded;
+        settings.RightPanelFiltersExpanded = FilterLayout.RightPanelFiltersExpanded;
+        settings.DashboardEventsFiltersExpanded = FilterLayout.DashboardEventsFiltersExpanded;
+        settings.DashboardHintsFiltersExpanded = FilterLayout.DashboardHintsFiltersExpanded;
+        _persistenceService.SaveSettings(settings);
+    }
+
     public AppSettings LoadSettings() => _persistenceService.LoadSettings();
 
-    public void SaveSettings(AppSettings settings) => _persistenceService.SaveSettings(settings);
+    /// <summary>Persists the Settings dialog's result and applies its density right away - no restart needed (see <see cref="DensityService"/>).</summary>
+    public void SaveSettings(AppSettings settings)
+    {
+        _persistenceService.SaveSettings(settings);
+        DensityService.Apply(settings.UiDensity);
+    }
 
     /// <summary>Full contents of the diagnostic log, for <see cref="Views.SettingsWindow"/>'s export button - see <see cref="IDiagnosticLogger"/>.</summary>
     public string ReadDiagnosticLog() => _diagnosticLogger.ReadAll();

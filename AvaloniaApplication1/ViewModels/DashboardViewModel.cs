@@ -20,7 +20,7 @@ namespace Archipolygo.ViewModels;
 /// class stays free of a hard reference to <see cref="MainWindowViewModel"/>
 /// itself - same callback-based decoupling as <see cref="ConnectionEditorViewModel"/>.
 /// </summary>
-public partial class DashboardViewModel : ViewModelBase
+public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
 {
     private readonly ObservableCollection<GroupViewModel> _groups;
     private readonly Action<GroupViewModel> _selectGroupAndLeaveDashboard;
@@ -40,10 +40,44 @@ public partial class DashboardViewModel : ViewModelBase
     /// <summary>Server+slot display filter for <see cref="VisibleEvents"/> - see <see cref="DashboardServerSlotFilter"/>.</summary>
     public DashboardServerSlotFilter EventsFilter { get; }
 
+    /// <summary>Shared filter-bar expanded state - see <see cref="GroupViewModel.FilterLayout"/>.</summary>
+    public FilterBarLayoutState FilterLayout { get; }
+
+    /// <summary>Collapsed-bar summary of the Events panel filters - see <see cref="FilterSummaryText"/>.</summary>
+    public string EventFilterSummaryText => FilterSummaryText.Join(
+        FilterSummaryText.Relevance(SelectedEventRelevanceFilter),
+        FilterSummaryText.Category(SelectedEventCategoryFilter),
+        FilterSummaryText.ItemClasses(this),
+        EventsFilter.SelectedServer?.HeaderText,
+        FilterSummaryText.Slot(EventsFilter.SelectedSlot));
+
+    /// <summary>Collapsed-bar summary of the Hints column filters.</summary>
+    public string HintFilterSummaryText => FilterSummaryText.Join(
+        HintFilter.SelectedServer?.HeaderText,
+        FilterSummaryText.Slot(HintFilter.SelectedSlot),
+        FilterSummaryText.ItemCategory(SelectedHintItemCategoryFilter));
+
+    /// <summary>Same piggyback-on-VisibleX approach as <see cref="GroupViewModel"/>'s own override.</summary>
+    protected override void OnPropertyChanged(PropertyChangedEventArgs e)
+    {
+        base.OnPropertyChanged(e);
+
+        switch (e.PropertyName)
+        {
+            case nameof(VisibleEvents):
+                base.OnPropertyChanged(new PropertyChangedEventArgs(nameof(EventFilterSummaryText)));
+                break;
+            case nameof(VisibleHints):
+                base.OnPropertyChanged(new PropertyChangedEventArgs(nameof(HintFilterSummaryText)));
+                break;
+        }
+    }
+
     public DashboardViewModel(ObservableCollection<GroupViewModel> groups, Action<GroupViewModel> selectGroupAndLeaveDashboard,
-        Action<GroupViewModel, GroupViewModel, bool> reorderGroups)
+        Action<GroupViewModel, GroupViewModel, bool> reorderGroups, FilterBarLayoutState? filterLayout = null)
     {
         _groups = groups;
+        FilterLayout = filterLayout ?? new FilterBarLayoutState();
         _selectGroupAndLeaveDashboard = selectGroupAndLeaveDashboard;
         _reorderGroups = reorderGroups;
 
@@ -355,13 +389,26 @@ public partial class DashboardViewModel : ViewModelBase
 
     partial void OnSelectedEventCategoryFilterChanged(EventCategoryFilter value) => OnPropertyChanged(nameof(VisibleEvents));
 
-    partial void OnShowProgressionItemEventsChanged(bool value) => OnPropertyChanged(nameof(VisibleEvents));
+    partial void OnShowProgressionItemEventsChanged(bool value) => OnEventItemClassFilterChanged();
 
-    partial void OnShowUsefulItemEventsChanged(bool value) => OnPropertyChanged(nameof(VisibleEvents));
+    partial void OnShowUsefulItemEventsChanged(bool value) => OnEventItemClassFilterChanged();
 
-    partial void OnShowFillerItemEventsChanged(bool value) => OnPropertyChanged(nameof(VisibleEvents));
+    partial void OnShowFillerItemEventsChanged(bool value) => OnEventItemClassFilterChanged();
 
-    partial void OnShowTrapItemEventsChanged(bool value) => OnPropertyChanged(nameof(VisibleEvents));
+    partial void OnShowTrapItemEventsChanged(bool value) => OnEventItemClassFilterChanged();
+
+    private void OnEventItemClassFilterChanged()
+    {
+        OnPropertyChanged(nameof(VisibleEvents));
+        OnPropertyChanged(nameof(EventItemClassFilterButtonText));
+        OnPropertyChanged(nameof(IsEventItemClassFilterActive));
+    }
+
+    /// <inheritdoc/>
+    public string EventItemClassFilterButtonText => EventItemClassFilterText.ButtonText(this);
+
+    /// <inheritdoc/>
+    public bool IsEventItemClassFilterActive => EventItemClassFilterText.IsActive(this);
 
     [RelayCommand]
     private void ShowAllEventsRelevance() => SelectedEventRelevanceFilter = EventRelevanceFilter.All;

@@ -31,7 +31,7 @@
         <conv:CountToStarWidthConverter x:Key="CountToStarWidthConverter"/>
     </UserControl.Resources>
 
-    <Grid Margin="16" RowDefinitions="Auto,*,Auto">
+    <Grid Margin="12" RowDefinitions="Auto,*,Auto">
         <!-- Connection status and the one action that affects it
              (Disconnect) - the account dropdown that actually
              switches the live connection lives down by the message
@@ -161,15 +161,12 @@
         </StackPanel>
 
         <!-- RowDefinitions: header row (Auto) + content row (*).
-             The header row just holds the "Events" label and
-             the Hints/Items panel selector side-by-side; each
-             column's own "Show:" slot-filter dropdown lives
-             further down instead (see the Grid.Row="1"/"2"
-             skeletons below). The Events column has one extra
-             row of its own (the item-category checkboxes),
-             so its "Show:" dropdown no longer lines up with
-             the Hints/Items column's - that's fine, they're
-             visually independent blocks.
+             The header row holds the Events column's whole filter bar (one
+             WrapPanel, see below) and the Hints/Items panel selector
+             side-by-side - the Events filters sit where a plain "Events"
+             heading used to be (Kompakteres-Layout.md, Teil
+             B/C: the filter buttons already say what the list is, so the
+             heading only cost a row).
 
              Column 1 (the gap between Events and Hints/Items)
              holds a GridSplitter instead of a plain spacer, so
@@ -185,30 +182,28 @@
                 <ColumnDefinition Width="1*" MinWidth="150"/>
             </Grid.ColumnDefinitions>
 
-            <!-- ── Header row ── -->
-            <TextBlock Grid.Row="0" Grid.Column="0" Text="Events" FontWeight="Bold" Margin="0,0,0,4"/>
-            <GridSplitter Grid.Column="1" Grid.RowSpan="2"
-                          Width="8" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                          Background="Gray" Opacity="0.3" ResizeDirection="Columns"/>
-            <WrapPanel Grid.Row="0" Grid.Column="2" Margin="0,0,0,4">
-                <Button Content="{Binding HintsPanelButtonText}" Classes="filter-toggle" Command="{Binding ShowHintsPanelCommand}"
-                        Classes.active="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Hints}"/>
-                <Button Content="Items" Classes="filter-toggle" Command="{Binding ShowReceivedItemsPanelCommand}"
-                        Classes.active="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ReceivedItems}"/>
-            </WrapPanel>
-
-            <!-- ── Content row: Events ──
-                 Four-row skeleton: filter-toggle buttons /
-                 item-category checkboxes / slot filter / list. -->
-            <Grid Grid.Row="1" Grid.Column="0" RowDefinitions="Auto,Auto,Auto,*">
-                <WrapPanel Grid.Row="0" Margin="0,0,0,4">
+            <!-- ── Header row ──
+                 Events filter bar: relevance | category | item classes |
+                 slot, all in one WrapPanel (Kompakteres-Layout.md Teil C -
+                 used to be three separate rows: buttons, item-class
+                 checkboxes, "Show:" slot filter + "Copy from here"). Still
+                 wraps onto a second line in a narrow column rather than
+                 overflowing. The item-class checkboxes now live in
+                 ItemClassFilterButton's flyout; "Copy from here" floats over
+                 the list instead (see the content row below). -->
+            <!-- Collapsible to a one-line summary (Kompakteres-Layout.md Teil D);
+                 expanded state shared by every tab, see FilterBarLayoutState. -->
+            <views:CollapsibleFilterBar Grid.Row="0" Grid.Column="0"
+                                        IsExpanded="{Binding FilterLayout.EventsFiltersExpanded}"
+                                        Summary="{Binding EventFilterSummaryText}">
+                <WrapPanel Classes="filter-row">
                     <Button Content="All" Classes="filter-toggle" Command="{Binding ShowAllEventsRelevanceCommand}"
                             Classes.active="{Binding SelectedEventRelevanceFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=All}"/>
                     <Button Content="Concerns me" Classes="filter-toggle" Command="{Binding ShowOwnEventsOnlyCommand}"
                             Classes.active="{Binding SelectedEventRelevanceFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ConcernsMe}"/>
                     <Button Content="Found by me" Classes="filter-toggle" Command="{Binding ShowFoundByMeEventsCommand}"
                             Classes.active="{Binding SelectedEventRelevanceFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=FoundByMe}"/>
-                    <Border Width="1" Background="Gray" Opacity="0.5" Margin="2,0"/>
+                    <Border Classes="filter-separator"/>
                     <Button Content="All" Classes="filter-toggle" Command="{Binding ShowAllEventCategoriesCommand}"
                             Classes.active="{Binding SelectedEventCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=All}"/>
                     <Button Content="Hints" Classes="filter-toggle" Command="{Binding ShowHintEventsOnlyCommand}"
@@ -217,27 +212,18 @@
                             Classes.active="{Binding SelectedEventCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Items}"/>
                     <Button Content="Chat" Classes="filter-toggle" Command="{Binding ShowChatEventsOnlyCommand}"
                             Classes.active="{Binding SelectedEventCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Chat}"/>
-                </WrapPanel>
-
-                <!-- Independent item-category checkboxes (not mutually exclusive
-                     with each other or with the filter-toggle buttons above) -
-                     narrows item/hint entries down by category; entries with no
-                     item category (connect/disconnect/chat/error) always stay
-                     visible regardless of these. See GroupViewModel.VisibleEvents. -->
-                <WrapPanel Grid.Row="1" Margin="0,0,0,4">
-                    <CheckBox Content="Progression" IsChecked="{Binding ShowProgressionItemEvents}"/>
-                    <CheckBox Content="Useful" IsChecked="{Binding ShowUsefulItemEvents}"/>
-                    <CheckBox Content="Filler" IsChecked="{Binding ShowFillerItemEvents}"/>
-                    <CheckBox Content="Trap" IsChecked="{Binding ShowTrapItemEvents}"/>
-                </WrapPanel>
-
-                <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" Margin="0,0,0,4">
-                    <TextBlock Text="Show:" Opacity="0.7" VerticalAlignment="Center"/>
-                    <!-- Width fixed (not MinWidth) so this box doesn't
-                         visibly resize (and shift "Search..." next to it)
-                         depending on which slot's name+alias happens to
-                         be selected - see the "Chat as" ComboBox's own,
-                         more detailed doc comment further down. -->
+                    <Border Classes="filter-separator"/>
+                    <!-- Independent item-category checkboxes (not mutually exclusive
+                         with each other or with the filter-toggle buttons) - narrows
+                         item/hint entries down by category; entries with no item
+                         category (connect/disconnect/chat/error) always stay visible
+                         regardless of these. See GroupViewModel.VisibleEvents. -->
+                    <views:ItemClassFilterButton/>
+                    <!-- Width fixed (not MinWidth) so this box doesn't visibly
+                         resize (and reflow the rest of the row) depending on which
+                         slot's name+alias happens to be selected - see the
+                         "Chat as" ComboBox's own, more detailed doc comment further
+                         down. -->
                     <ComboBox Name="EventsSlotFilterComboBox" ItemsSource="{Binding SlotFilterOptions}" SelectedItem="{Binding SelectedEventsSlotFilter}" Width="130">
                         <ComboBox.ItemTemplate>
                             <!-- Deliberately untyped (no x:DataType): this list's
@@ -252,221 +238,256 @@
                                      growing wider as a longer item scrolled into view and
                                      got measured for the first time (Avalonia only
                                      realizes/measures virtualized popup items on demand). -->
-                <TextBlock Text="{Binding Converter={StaticResource SlotFilterDisplayConverter}}"
+                                <TextBlock Text="{Binding Converter={StaticResource SlotFilterDisplayConverter}}"
                                            MaxWidth="110" TextTrimming="CharacterEllipsis"/>
                             </DataTemplate>
                         </ComboBox.ItemTemplate>
                     </ComboBox>
-                    <!-- Copies the selected (earliest, if several) event and every
-                         one after it in the current filtered view - see
-                         ClipboardCopyHelper.CopyFromSelectedOnwardsAsync and
-                         OnEventsListSelectionChanged for the enabled-state toggle. -->
-                    <Button Name="CopyEventsFromHereButton" Content="Copy from here"
-                            Click="OnCopyEventsFromHereClick" IsEnabled="False"/>
-                </StackPanel>
+                </WrapPanel>
+            </views:CollapsibleFilterBar>
+            <GridSplitter Grid.Column="1" Grid.RowSpan="2"
+                          Width="8" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                          Background="Gray" Opacity="0.3" ResizeDirection="Columns"/>
+            <WrapPanel Grid.Row="0" Grid.Column="2" Classes="filter-row">
+                <Button Content="{Binding HintsPanelButtonText}" Classes="filter-toggle" Command="{Binding ShowHintsPanelCommand}"
+                        Classes.active="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Hints}"/>
+                <Button Content="Items" Classes="filter-toggle" Command="{Binding ShowReceivedItemsPanelCommand}"
+                        Classes.active="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ReceivedItems}"/>
+            </WrapPanel>
 
-                <!-- Grid rather than the ListBox alone, so the "jump to
-                     newest" button (below) can float over the bottom-right
-                     corner of the list instead of taking its own row - see
-                     JumpToNewestButton for why the button exists at all: once
-                     a row has ever been selected, Avalonia's own ListBox/
-                     virtualizing panel keeps re-scrolling to keep it in view
-                     on every new event, fighting the auto-scroll-to-end below
-                     no matter how that's scheduled - clearing the selection is
-                     what actually stops it, so the button does that plus a
-                     final ScrollToEnd(). -->
-                <Grid Grid.Row="3">
-                    <!-- SelectionMode="Multiple" (ctrl/shift-click, like Explorer)
-                         so several lines can be selected and copied at once - see
-                         OnEventsListKeyDown. -->
-                    <ListBox Name="EventsListBox" ItemsSource="{Binding VisibleEvents}" SelectionMode="Multiple"
-                             KeyDown="OnEventsListKeyDown" SelectionChanged="OnEventsListSelectionChanged">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate DataType="m:EventEntry">
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <TextBlock Text="{Binding Timestamp, StringFormat='HH:mm:ss'}" Opacity="0.6"/>
-                                    <TextBlock Text="NEW" FontWeight="Bold" Foreground="OrangeRed"
-                                               IsVisible="{Binding IsNewSinceLastSession}"/>
-                                    <TextBlock Text="{Binding Type}" Opacity="0.6"/>
-                                    <!-- ItemTemplate: shared EventTextSegmentTemplate (see
-                                         App.axaml/Views/SharedTemplates.axaml) - the exact same
-                                         per-segment colored TextBlock DashboardView.axaml's own
-                                         Events list uses, not a re-implemented copy. -->
-                                    <ItemsControl ItemsSource="{Binding EffectiveSegments}"
-                                                  ItemTemplate="{StaticResource EventTextSegmentTemplate}">
-                                        <ItemsControl.ItemsPanel>
-                                            <ItemsPanelTemplate>
-                                                <WrapPanel/>
-                                            </ItemsPanelTemplate>
-                                        </ItemsControl.ItemsPanel>
-                                    </ItemsControl>
-                                </StackPanel>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
+            <!-- ── Content row: Events ── just the list; its filters moved up
+                 into the header row (see above). -->
+            <!-- Grid rather than the ListBox alone, so the "jump to
+                 newest" button (below) can float over the bottom-right
+                 corner of the list instead of taking its own row - see
+                 JumpToNewestButton for why the button exists at all: once
+                 a row has ever been selected, Avalonia's own ListBox/
+                 virtualizing panel keeps re-scrolling to keep it in view
+                 on every new event, fighting the auto-scroll-to-end below
+                 no matter how that's scheduled - clearing the selection is
+                 what actually stops it, so the button does that plus a
+                 final ScrollToEnd(). -->
+            <Grid Grid.Row="1" Grid.Column="0">
+                <!-- SelectionMode="Multiple" (ctrl/shift-click, like Explorer)
+                     so several lines can be selected and copied at once - see
+                     OnEventsListKeyDown. -->
+                <ListBox Name="EventsListBox" ItemsSource="{Binding VisibleEvents}" SelectionMode="Multiple"
+                         KeyDown="OnEventsListKeyDown" SelectionChanged="OnEventsListSelectionChanged">
+                    <ListBox.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Copy from here" Click="OnCopyEventsFromHereClick"/>
+                        </ContextMenu>
+                    </ListBox.ContextMenu>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate DataType="m:EventEntry">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="{Binding Timestamp, StringFormat='HH:mm:ss'}" Opacity="0.6"/>
+                                <TextBlock Text="NEW" FontWeight="Bold" Foreground="OrangeRed"
+                                           IsVisible="{Binding IsNewSinceLastSession}"/>
+                                <TextBlock Text="{Binding Type}" Opacity="0.6"/>
+                                <!-- ItemTemplate: shared EventTextSegmentTemplate (see
+                                     App.axaml/Views/SharedTemplates.axaml) - the exact same
+                                     per-segment colored TextBlock DashboardView.axaml's own
+                                     Events list uses, not a re-implemented copy. -->
+                                <ItemsControl ItemsSource="{Binding EffectiveSegments}"
+                                              ItemTemplate="{StaticResource EventTextSegmentTemplate}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <WrapPanel/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                </ItemsControl>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
 
-                    <views:JumpToNewestButton TargetListBox="{Binding #EventsListBox}"/>
-                </Grid>
+                <views:JumpToNewestButton TargetListBox="{Binding #EventsListBox}"/>
+
+                <!-- "Copy from here" (Feature-Plaene/Archiv/Log-Export.md) floats
+                     over the list's bottom-left corner, mirroring
+                     JumpToNewestButton bottom-right, and only shows while a
+                     row is selected (toggled in OnEventsListSelectionChanged) -
+                     it used to sit, mostly disabled, in its own filter row
+                     (Kompakteres-Layout.md Teil C). Also in the list's
+                     context menu. Copies the selected (earliest, if several)
+                     event and every one after it in the current filtered
+                     view - see ClipboardCopyHelper.CopyFromSelectedOnwardsAsync. -->
+                <Button Name="CopyEventsFromHereButton" Content="Copy from here"
+                        HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="12,0,0,12"
+                        Click="OnCopyEventsFromHereClick" IsVisible="False"/>
             </Grid>
 
             <!-- ── Content row: Hints / Items panels ──
-                 Four explicit rows so both panels share the
-                 same layout skeleton:
-                   Row 0 (Auto) – panel-specific filter buttons
-                   Row 1 (Auto) – Hints-only item-category filter buttons (empty/0-height for Items)
-                   Row 2 (Auto) – panel-specific slot filter + search box, always rendered
-                   Row 3 (*)    – list
-                 Row 1 exists only for Hints - Items already has
-                 its own item-category filter in row 0 - so the
-                 list's start position shifts down slightly when
-                 Hints is the active panel; that's an accepted
-                 tradeoff for keeping the two panels' category
-                 filters (SelectedHintItemCategoryFilter vs.
-                 SelectedItemCategoryFilter, see GroupViewModel)
-                 fully independent rather than sharing one row/one
-                 property. The search box filters by item name in
+                 Two rows so both panels share the same layout
+                 skeleton:
+                   Row 0 (Auto) – one collapsible bar: panel-specific filter
+                                  buttons (one WrapPanel per panel), then the
+                                  panel-specific slot filter + shared search box
+                   Row 1 (*)    – list
+                 The Hints panel's item-category buttons share Row 0's
+                 WrapPanel with its found/role buttons (after a separator)
+                 instead of a Hints-only row of their own
+                 (Kompakteres-Layout.md Teil C) - they
+                 stay buttons rather than a dropdown so switching is still
+                 one click, and simply wrap onto another line in a narrow
+                 column. The two panels' category filters
+                 (SelectedHintItemCategoryFilter vs.
+                 SelectedItemCategoryFilter, see GroupViewModel) stay
+                 fully independent. The search box filters by item name in
                  both modes, so it's shared rather than duplicated
                  per panel; the slot filter differs per panel
                  (SelectedHintsSlotFilter/SelectedItemsSlotFilter
                  are independent too), so that half of the row is
                  the same toggle-by-panel pair as the filter
                  buttons above it. -->
-            <Grid Grid.Row="1" Grid.Column="2" RowDefinitions="Auto,Auto,Auto,*">
+            <Grid Grid.Row="1" Grid.Column="2" RowDefinitions="Auto,*">
 
-                <!-- Row 0 – Hints filters -->
-                <WrapPanel Grid.Row="0"
-                           IsVisible="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Hints}"
-                           Margin="0,0,0,4">
-                    <Button Content="All" Classes="filter-toggle" Command="{Binding ShowAllHintsCommand}"
-                            Classes.active="{Binding SelectedHintFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=All}"/>
-                    <Button Content="Unfound" Classes="filter-toggle" Command="{Binding ShowUnfoundHintsCommand}"
-                            Classes.active="{Binding SelectedHintFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Unfound}"/>
-                    <Border Width="1" Background="Gray" Opacity="0.5" Margin="2,0,10,4"/>
-                    <Button Content="All" Classes="filter-toggle" Command="{Binding ShowAllHintRolesCommand}"
-                            Classes.active="{Binding SelectedHintRoleFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=All}"/>
-                    <Button Content="{Binding HintsIFindButtonText}" Classes="filter-toggle" Command="{Binding ShowHintsIFindCommand}"
-                            Classes.active="{Binding SelectedHintRoleFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=IFind}"/>
-                    <Button Content="{Binding HintsIReceiveButtonText}" Classes="filter-toggle" Command="{Binding ShowHintsIReceiveCommand}"
-                            Classes.active="{Binding SelectedHintRoleFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=IReceive}"/>
-                </WrapPanel>
+                <!-- Row 0 – every filter for the active panel, collapsible as one
+                     (Kompakteres-Layout.md Teil D; the Hints/Items switch in the
+                     header row above is navigation and never collapses). -->
+                <views:CollapsibleFilterBar Grid.Row="0"
+                                            IsExpanded="{Binding FilterLayout.RightPanelFiltersExpanded}"
+                                            Summary="{Binding RightPanelFilterSummaryText}">
+                    <StackPanel>
+                        <!-- Hints filters: found | role | item category. -->
+                        <WrapPanel Classes="filter-row"
+                                   IsVisible="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Hints}">
+                            <Button Content="All" Classes="filter-toggle" Command="{Binding ShowAllHintsCommand}"
+                                    Classes.active="{Binding SelectedHintFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=All}"/>
+                            <Button Content="Unfound" Classes="filter-toggle" Command="{Binding ShowUnfoundHintsCommand}"
+                                    Classes.active="{Binding SelectedHintFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Unfound}"/>
+                            <Border Classes="filter-separator"/>
+                            <Button Content="All" Classes="filter-toggle" Command="{Binding ShowAllHintRolesCommand}"
+                                    Classes.active="{Binding SelectedHintRoleFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=All}"/>
+                            <Button Content="{Binding HintsIFindButtonText}" Classes="filter-toggle" Command="{Binding ShowHintsIFindCommand}"
+                                    Classes.active="{Binding SelectedHintRoleFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=IFind}"/>
+                            <Button Content="{Binding HintsIReceiveButtonText}" Classes="filter-toggle" Command="{Binding ShowHintsIReceiveCommand}"
+                                    Classes.active="{Binding SelectedHintRoleFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=IReceive}"/>
+                            <Border Classes="filter-separator"/>
+                            <!-- Hints-only item-category filter, mirroring the Items panel's
+                                 category buttons but bound to SelectedHintItemCategoryFilter
+                                 instead, so it never affects (or is affected by) the
+                                 received-items list's own category filter. -->
+                            <Button Content="All" Classes="filter-toggle" Command="{Binding ShowAllHintItemCategoriesCommand}"
+                                    Classes.active="{Binding SelectedHintItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=All}"/>
+                            <Button Content="Progress" Classes="filter-toggle" Command="{Binding ShowProgressHintItemsCommand}"
+                                    Classes.active="{Binding SelectedHintItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Progress}"/>
+                            <Button Content="Useful" Classes="filter-toggle" Command="{Binding ShowUsefulHintItemsCommand}"
+                                    Classes.active="{Binding SelectedHintItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Useful}"/>
+                            <Button Content="Filler" Classes="filter-toggle" Command="{Binding ShowNormalHintItemsCommand}"
+                                    Classes.active="{Binding SelectedHintItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Normal}"/>
+                            <Button Content="Trap" Classes="filter-toggle" Command="{Binding ShowTrapHintItemsCommand}"
+                                    Classes.active="{Binding SelectedHintItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Trap}"/>
+                        </WrapPanel>
 
-                <!-- Row 0 – Items filters (same row, alternates with hints filters) -->
-                <WrapPanel Grid.Row="0"
-                           IsVisible="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ReceivedItems}"
-                           Margin="0,0,0,4">
-                    <Button Content="All" Classes="filter-toggle" Command="{Binding ShowAllItemCategoriesCommand}"
-                            Classes.active="{Binding SelectedItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=All}"/>
-                    <Button Content="Progress" Classes="filter-toggle" Command="{Binding ShowProgressItemsCommand}"
-                            Classes.active="{Binding SelectedItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Progress}"/>
-                    <Button Content="Useful" Classes="filter-toggle" Command="{Binding ShowUsefulItemsCommand}"
-                            Classes.active="{Binding SelectedItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Useful}"/>
-                    <Button Content="Filler" Classes="filter-toggle" Command="{Binding ShowNormalItemsCommand}"
-                            Classes.active="{Binding SelectedItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Normal}"/>
-                    <Button Content="Trap" Classes="filter-toggle" Command="{Binding ShowTrapItemsCommand}"
-                            Classes.active="{Binding SelectedItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Trap}"/>
-                </WrapPanel>
+                        <!-- Items filters (alternates with the hints filters above) -->
+                        <WrapPanel Classes="filter-row"
+                                   IsVisible="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ReceivedItems}">
+                            <Button Content="All" Classes="filter-toggle" Command="{Binding ShowAllItemCategoriesCommand}"
+                                    Classes.active="{Binding SelectedItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=All}"/>
+                            <Button Content="Progress" Classes="filter-toggle" Command="{Binding ShowProgressItemsCommand}"
+                                    Classes.active="{Binding SelectedItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Progress}"/>
+                            <Button Content="Useful" Classes="filter-toggle" Command="{Binding ShowUsefulItemsCommand}"
+                                    Classes.active="{Binding SelectedItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Useful}"/>
+                            <Button Content="Filler" Classes="filter-toggle" Command="{Binding ShowNormalItemsCommand}"
+                                    Classes.active="{Binding SelectedItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Normal}"/>
+                            <Button Content="Trap" Classes="filter-toggle" Command="{Binding ShowTrapItemsCommand}"
+                                    Classes.active="{Binding SelectedItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Trap}"/>
+                        </WrapPanel>
 
-                <!-- Row 1 – Hints-only item-category filter, mirroring the Items
-                     category buttons above but bound to SelectedHintItemCategoryFilter
-                     instead, so it never affects (or is affected by) the received-items
-                     list's own category filter. -->
-                <WrapPanel Grid.Row="1"
-                           IsVisible="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Hints}"
-                           Margin="0,0,0,4">
-                    <Button Content="All" Classes="filter-toggle" Command="{Binding ShowAllHintItemCategoriesCommand}"
-                            Classes.active="{Binding SelectedHintItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=All}"/>
-                    <Button Content="Progress" Classes="filter-toggle" Command="{Binding ShowProgressHintItemsCommand}"
-                            Classes.active="{Binding SelectedHintItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Progress}"/>
-                    <Button Content="Useful" Classes="filter-toggle" Command="{Binding ShowUsefulHintItemsCommand}"
-                            Classes.active="{Binding SelectedHintItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Useful}"/>
-                    <Button Content="Filler" Classes="filter-toggle" Command="{Binding ShowNormalHintItemsCommand}"
-                            Classes.active="{Binding SelectedHintItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Normal}"/>
-                    <Button Content="Trap" Classes="filter-toggle" Command="{Binding ShowTrapHintItemsCommand}"
-                            Classes.active="{Binding SelectedHintItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Trap}"/>
-                </WrapPanel>
+                        <!-- Slot filter (per-panel) + search box (shared, filters active panel) -->
+                        <Grid ColumnDefinitions="Auto,*" Margin="0,0,0,4">
+                            <!-- Width fixed, same reasoning as the Events column's slot filter above. -->
+                            <ComboBox Grid.Column="0" Width="130" Margin="0,0,8,0"
+                                      IsVisible="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Hints}"
+                                      ItemsSource="{Binding SlotFilterOptions}" SelectedItem="{Binding SelectedHintsSlotFilter}">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <!-- MaxWidth caps this item's OWN measured width - without
+                                             it, TextTrimming has nothing to trim against yet (an
+                                             Auto-sized ComboBoxItem just grows to fit the text
+                                             first), and the open dropdown's popup was visibly
+                                             growing wider as a longer item scrolled into view and
+                                             got measured for the first time (Avalonia only
+                                             realizes/measures virtualized popup items on demand). -->
+                                        <TextBlock Text="{Binding Converter={StaticResource SlotFilterDisplayConverter}}"
+                                                   MaxWidth="110" TextTrimming="CharacterEllipsis"/>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <ComboBox Grid.Column="0" Width="130" Margin="0,0,8,0"
+                                      IsVisible="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ReceivedItems}"
+                                      ItemsSource="{Binding SlotFilterOptions}" SelectedItem="{Binding SelectedItemsSlotFilter}">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <!-- MaxWidth caps this item's OWN measured width - without
+                                             it, TextTrimming has nothing to trim against yet (an
+                                             Auto-sized ComboBoxItem just grows to fit the text
+                                             first), and the open dropdown's popup was visibly
+                                             growing wider as a longer item scrolled into view and
+                                             got measured for the first time (Avalonia only
+                                             realizes/measures virtualized popup items on demand). -->
+                                        <TextBlock Text="{Binding Converter={StaticResource SlotFilterDisplayConverter}}"
+                                                   MaxWidth="110" TextTrimming="CharacterEllipsis"/>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <TextBox Grid.Column="1" Text="{Binding ItemSearchText}" PlaceholderText="Search..."/>
+                        </Grid>
+                    </StackPanel>
+                </views:CollapsibleFilterBar>
 
-                <!-- Row 2 – slot filter (per-panel) + search box (shared, filters active panel) -->
-                <Grid Grid.Row="2" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,4">
-                    <!-- Width fixed, same reasoning as the Events column's slot filter above. -->
-                    <ComboBox Grid.Column="0" Width="130" Margin="0,0,8,0"
-                              IsVisible="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Hints}"
-                              ItemsSource="{Binding SlotFilterOptions}" SelectedItem="{Binding SelectedHintsSlotFilter}">
-                        <ComboBox.ItemTemplate>
-                            <DataTemplate>
-                                <!-- MaxWidth caps this item's OWN measured width - without
-                                     it, TextTrimming has nothing to trim against yet (an
-                                     Auto-sized ComboBoxItem just grows to fit the text
-                                     first), and the open dropdown's popup was visibly
-                                     growing wider as a longer item scrolled into view and
-                                     got measured for the first time (Avalonia only
-                                     realizes/measures virtualized popup items on demand). -->
-                                <TextBlock Text="{Binding Converter={StaticResource SlotFilterDisplayConverter}}"
-                                           MaxWidth="110" TextTrimming="CharacterEllipsis"/>
+                <!-- Row 1 – Hints list. SelectionMode="Multiple" + KeyDown, same
+                     copy-selected-lines mechanism as the Events list (see
+                     OnHintsListKeyDown), just with its own selection/clipboard
+                     since the two lists are otherwise unrelated. Wrapped in a
+                     Grid only so "Copy from here" can float over it, same as
+                     the Events list's. -->
+                <Grid Grid.Row="1" IsVisible="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Hints}">
+                    <ListBox Name="HintsListBox"
+                             ItemsSource="{Binding VisibleHints}" SelectionMode="Multiple"
+                             KeyDown="OnHintsListKeyDown" SelectionChanged="OnHintsListSelectionChanged">
+                        <ListBox.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Copy from here" Click="OnCopyHintsFromHereClick"/>
+                            </ContextMenu>
+                        </ListBox.ContextMenu>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate DataType="m:HintEntry">
+                                <StackPanel Orientation="Vertical" Spacing="2" Margin="0,2">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <TextBlock Text="NEW" FontWeight="Bold" Foreground="OrangeRed"
+                                                   IsVisible="{Binding IsNewSinceLastSession}"/>
+                                        <TextBlock Text="✓" FontWeight="Bold" Foreground="Green"
+                                                   IsVisible="{Binding Found}"/>
+                                        <TextBlock Text="{Binding ItemName}" FontWeight="Bold" TextWrapping="Wrap"
+                                                   Foreground="{Binding ItemKind, Converter={StaticResource SegmentKindToBrushConverter}}"/>
+                                        <TextBlock Text="-" Opacity="0.5"/>
+                                        <TextBlock Text="{Binding ReceivingPlayerName}" FontWeight="SemiBold" Opacity="0.85" TextWrapping="Wrap"
+                                                   Foreground="{Binding ReceivingPlayerKind, Converter={StaticResource SegmentKindToBrushConverter}}"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                        <TextBlock Text="{Binding FindingPlayerName}" Opacity="0.85" TextWrapping="Wrap"
+                                                   Foreground="{Binding FindingPlayerKind, Converter={StaticResource SegmentKindToBrushConverter}}"/>
+                                        <TextBlock Text=":" Opacity="0.7"/>
+                                        <TextBlock Text="{Binding LocationName}" Opacity="0.7" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </StackPanel>
                             </DataTemplate>
-                        </ComboBox.ItemTemplate>
-                    </ComboBox>
-                    <ComboBox Grid.Column="0" Width="130" Margin="0,0,8,0"
-                              IsVisible="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ReceivedItems}"
-                              ItemsSource="{Binding SlotFilterOptions}" SelectedItem="{Binding SelectedItemsSlotFilter}">
-                        <ComboBox.ItemTemplate>
-                            <DataTemplate>
-                                <!-- MaxWidth caps this item's OWN measured width - without
-                                     it, TextTrimming has nothing to trim against yet (an
-                                     Auto-sized ComboBoxItem just grows to fit the text
-                                     first), and the open dropdown's popup was visibly
-                                     growing wider as a longer item scrolled into view and
-                                     got measured for the first time (Avalonia only
-                                     realizes/measures virtualized popup items on demand). -->
-                                <TextBlock Text="{Binding Converter={StaticResource SlotFilterDisplayConverter}}"
-                                           MaxWidth="110" TextTrimming="CharacterEllipsis"/>
-                            </DataTemplate>
-                        </ComboBox.ItemTemplate>
-                    </ComboBox>
-                    <TextBox Grid.Column="1" Text="{Binding ItemSearchText}" PlaceholderText="Search..."/>
-                    <!-- Hints-only, same "Copy from here" idea as the Events column -
-                         no Items-panel equivalent since Received Items isn't part of
-                         this export feature's scope. -->
-                    <Button Grid.Column="2" Name="CopyHintsFromHereButton" Content="Copy from here"
-                            Margin="8,0,0,0"
-                            IsVisible="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Hints}"
-                            Click="OnCopyHintsFromHereClick" IsEnabled="False"/>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+
+                    <!-- Same floating "Copy from here" as the Events list's (see
+                         there) - no Items-panel equivalent since Received Items
+                         isn't part of this export feature's scope. -->
+                    <Button Name="CopyHintsFromHereButton" Content="Copy from here"
+                            HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="12,0,0,12"
+                            Click="OnCopyHintsFromHereClick" IsVisible="False"/>
                 </Grid>
 
-                <!-- Row 3 – Hints list. SelectionMode="Multiple" + KeyDown, same
-                     copy-selected-lines mechanism as the Events list above (see
-                     OnHintsListKeyDown), just with its own selection/clipboard
-                     since the two lists are otherwise unrelated. -->
-                <ListBox Grid.Row="3" Name="HintsListBox"
-                         IsVisible="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Hints}"
-                         ItemsSource="{Binding VisibleHints}" SelectionMode="Multiple"
-                         KeyDown="OnHintsListKeyDown" SelectionChanged="OnHintsListSelectionChanged">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate DataType="m:HintEntry">
-                            <StackPanel Orientation="Vertical" Spacing="2" Margin="0,2">
-                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <TextBlock Text="NEW" FontWeight="Bold" Foreground="OrangeRed"
-                                               IsVisible="{Binding IsNewSinceLastSession}"/>
-                                    <TextBlock Text="✓" FontWeight="Bold" Foreground="Green"
-                                               IsVisible="{Binding Found}"/>
-                                    <TextBlock Text="{Binding ItemName}" FontWeight="Bold" TextWrapping="Wrap"
-                                               Foreground="{Binding ItemKind, Converter={StaticResource SegmentKindToBrushConverter}}"/>
-                                    <TextBlock Text="-" Opacity="0.5"/>
-                                    <TextBlock Text="{Binding ReceivingPlayerName}" FontWeight="SemiBold" Opacity="0.85" TextWrapping="Wrap"
-                                               Foreground="{Binding ReceivingPlayerKind, Converter={StaticResource SegmentKindToBrushConverter}}"/>
-                                </StackPanel>
-                                <StackPanel Orientation="Horizontal" Spacing="4">
-                                    <TextBlock Text="{Binding FindingPlayerName}" Opacity="0.85" TextWrapping="Wrap"
-                                               Foreground="{Binding FindingPlayerKind, Converter={StaticResource SegmentKindToBrushConverter}}"/>
-                                    <TextBlock Text=":" Opacity="0.7"/>
-                                    <TextBlock Text="{Binding LocationName}" Opacity="0.7" TextWrapping="Wrap"/>
-                                </StackPanel>
-                            </StackPanel>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
-
-                <!-- Row 3 – Items list (same row, alternates with hints list) -->
-                <ListBox Grid.Row="3"
+                <!-- Row 1 – Items list (same row, alternates with hints list) -->
+                <ListBox Grid.Row="1"
                          IsVisible="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ReceivedItems}"
                          ItemsSource="{Binding VisibleReceivedItems}">
                     <ListBox.ItemTemplate>
