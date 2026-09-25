@@ -42,6 +42,21 @@
     <Style Selector="WrapPanel.filter-row > ComboBox">
         <Setter Property="Margin" Value="0,0,6,4"/>
     </Style>
+    <!-- Draggable divider between the Events column and the Hints/Items
+         column (GroupDetailView, DashboardView). Deliberately set only
+         here, never locally on the GridSplitter itself - a local value
+         would silently beat this style (see CLAUDE.md's style-precedence
+         gotcha). Its width comes from the Grid column it sits in (12px in
+         both views); keep that column and this splitter in sync. Color is
+         a per-theme resource (PanelDividerBrush, App.axaml) so the two
+         panels read as clearly separate boxes in both themes. -->
+    <Style Selector="GridSplitter.panel-divider">
+        <Setter Property="Background" Value="{DynamicResource PanelDividerBrush}"/>
+        <Setter Property="HorizontalAlignment" Value="Stretch"/>
+        <Setter Property="VerticalAlignment" Value="Stretch"/>
+        <Setter Property="ResizeDirection" Value="Columns"/>
+    </Style>
+
     <!-- Group separator inside a filter row. -->
     <Style Selector="WrapPanel.filter-row > Border.filter-separator">
         <Setter Property="Width" Value="1"/>

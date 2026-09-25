@@ -135,7 +135,7 @@
              split exactly (2*/8/1*, MinWidth on both outer columns) - see
              the plan's "Struktur" section. Not persisted, resets on restart,
              same as that other splitter. -->
-        <Grid Grid.Row="1" ColumnDefinitions="2*,8,1*">
+        <Grid Grid.Row="1" ColumnDefinitions="2*,12,1*">
 
             <!-- ── Overview / Events (left) ──
                  Button+IsVisible toggle, not a real TabControl - same
@@ -568,8 +568,7 @@
                 </Grid>
             </Grid>
 
-            <GridSplitter Grid.Column="1" Width="8" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                          Background="Gray" Opacity="0.3" ResizeDirection="Columns"/>
+            <GridSplitter Grid.Column="1" Classes="panel-divider"/>
 
             <!-- ── Hints (right): shared, server-spanning, open-only ── -->
             <Grid Grid.Column="2" MinWidth="150" RowDefinitions="Auto,*">

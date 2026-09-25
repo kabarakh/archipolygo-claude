@@ -178,7 +178,7 @@
         <Grid Grid.Row="1" RowDefinitions="Auto,*">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="2*" MinWidth="200"/>
-                <ColumnDefinition Width="8"/>
+                <ColumnDefinition Width="12"/>
                 <ColumnDefinition Width="1*" MinWidth="150"/>
             </Grid.ColumnDefinitions>
 
@@ -245,9 +245,7 @@
                     </ComboBox>
                 </WrapPanel>
             </views:CollapsibleFilterBar>
-            <GridSplitter Grid.Column="1" Grid.RowSpan="2"
-                          Width="8" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                          Background="Gray" Opacity="0.3" ResizeDirection="Columns"/>
+            <GridSplitter Grid.Column="1" Grid.RowSpan="2" Classes="panel-divider"/>
             <WrapPanel Grid.Row="0" Grid.Column="2" Classes="filter-row">
                 <Button Content="{Binding HintsPanelButtonText}" Classes="filter-toggle" Command="{Binding ShowHintsPanelCommand}"
                         Classes.active="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Hints}"/>

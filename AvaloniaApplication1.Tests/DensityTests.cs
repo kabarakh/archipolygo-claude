@@ -55,6 +55,40 @@ public class DensityTests
         Assert.True(compact < normal - 10, $"expected compact rows clearly shorter than normal; normal={normal}, compact={compact}");
     }
 
+    /// <summary>
+    /// Compact's row padding is this app's own override (see
+    /// <see cref="DensityService"/>), not Fluent's tighter 4,2 - and
+    /// switching back to Normal drops the override again instead of leaving
+    /// it stuck on.
+    /// </summary>
+    [AvaloniaFact]
+    public void CompactDensity_UsesAppRowPadding_NormalFallsBackToFluent()
+    {
+        DensityService.Apply(DensityService.Compact);
+        Assert.Equal(new Thickness(4, 4), MeasureEventRowPadding());
+
+        DensityService.Apply(DensityService.Normal);
+        Assert.NotEqual(new Thickness(4, 4), MeasureEventRowPadding());
+
+        DensityService.Apply(DensityService.Compact);
+    }
+
+    private static Thickness MeasureEventRowPadding()
+    {
+        var mainWindowViewModel = new MainWindowViewModel(new FakePersistenceService(), new FakeConnectionManager(), new MultiworldTrackerService());
+        mainWindowViewModel.AddNewGroup("Server1", "host1", 1, string.Empty, "Alice", autoConnect: false);
+        var window = new MainWindow { DataContext = mainWindowViewModel, Width = 900, Height = 550 };
+        window.Show();
+        mainWindowViewModel.IsDashboardVisible = false;
+        mainWindowViewModel.Groups[0].Events.Add(new EventEntry { Text = "One line", Type = EventType.Chat });
+        Dispatcher.UIThread.RunJobs();
+
+        var listBox = window.GetVisualDescendants().OfType<ListBox>().First(l => l.Name == "EventsListBox");
+        var padding = listBox.GetVisualDescendants().OfType<ListBoxItem>().First().Padding;
+        window.Close();
+        return padding;
+    }
+
     private static double MeasureEventRowHeight(string density)
     {
         DensityService.Apply(density);

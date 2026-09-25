@@ -20,6 +20,21 @@
                 <!-- CollapsibleFilterBar's ControlTheme (Kompakteres-Layout.md Teil D). -->
                 <ResourceInclude Source="avares://Archipolygo/Views/CollapsibleFilterBar.axaml"/>
             </ResourceDictionary.MergedDictionaries>
+            <!-- Events | Hints/Items divider (GridSplitter.panel-divider in
+                 FilterStyles.axaml). Solid per-theme colors rather than one
+                 semi-transparent gray: raising a gray overlay's opacity
+                 makes it *lighter* on the dark theme's near-black
+                 background, not darker. Dark: near-black, darker than the
+                 panels. Light: near-white, a step brighter than the
+                 panels' own #F3F3F3-ish background but not pure white. -->
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="PanelDividerBrush" Color="#FAFAFA"/>
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="PanelDividerBrush" Color="#0A0A0A"/>
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>
     </Application.Resources>
 

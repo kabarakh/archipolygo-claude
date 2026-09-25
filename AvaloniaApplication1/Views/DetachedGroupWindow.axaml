@@ -29,6 +29,14 @@
             </Grid>
         </Border>
 
-        <views:GroupDetailView/>
+        <!-- Same Padding Fluent's TabControl puts around its content
+             (TabControl.Padding = {DynamicResource TabItemMargin}), so the
+             panels sit exactly as far from the window edge here as they do
+             inside a MainWindow tab - GroupDetailView's own Margin="12"
+             alone was visibly tighter. A DynamicResource rather than a
+             copied number: its value depends on the Density setting. -->
+        <Border Padding="{DynamicResource TabItemMargin}">
+            <views:GroupDetailView/>
+        </Border>
     </DockPanel>
 </Window>

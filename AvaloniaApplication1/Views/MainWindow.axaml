@@ -264,7 +264,11 @@
              (a DashboardViewModel, which has no IsDashboardVisible of its
              own) - putting IsVisible on the same element would resolve
              against that DataContext instead of MainWindowViewModel's. -->
-        <Border IsVisible="{Binding IsDashboardVisible}">
+        <!-- Padding: same inset the TabControl above gives each tab's
+             content (TabControl.Padding = {DynamicResource TabItemMargin}
+             in Fluent), so switching between Dashboard and Tab View doesn't
+             shift the panels' distance from the window edge. -->
+        <Border IsVisible="{Binding IsDashboardVisible}" Padding="{DynamicResource TabItemMargin}">
             <views:DashboardView x:Name="DashboardViewControl" DataContext="{Binding Dashboard}"/>
         </Border>
         </Grid>
