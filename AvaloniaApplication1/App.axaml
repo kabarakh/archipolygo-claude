@@ -30,9 +30,19 @@
             <ResourceDictionary.ThemeDictionaries>
                 <ResourceDictionary x:Key="Light">
                     <SolidColorBrush x:Key="PanelDividerBrush" Color="#FAFAFA"/>
+                    <!-- Floating list-overlay buttons (Styles/OverlayStyles.axaml):
+                         opaque, unlike Fluent's semi-transparent button fill. -->
+                    <SolidColorBrush x:Key="FloatingButtonBackground" Color="#FFFFFF"/>
+                    <SolidColorBrush x:Key="FloatingButtonBackgroundPointerOver" Color="#F0F0F0"/>
+                    <SolidColorBrush x:Key="FloatingButtonBackgroundPressed" Color="#E4E4E4"/>
+                    <SolidColorBrush x:Key="FloatingButtonBorderBrush" Color="#BDBDBD"/>
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
                     <SolidColorBrush x:Key="PanelDividerBrush" Color="#0A0A0A"/>
+                    <SolidColorBrush x:Key="FloatingButtonBackground" Color="#2F2F2F"/>
+                    <SolidColorBrush x:Key="FloatingButtonBackgroundPointerOver" Color="#3A3A3A"/>
+                    <SolidColorBrush x:Key="FloatingButtonBackgroundPressed" Color="#262626"/>
+                    <SolidColorBrush x:Key="FloatingButtonBorderBrush" Color="#555555"/>
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>
@@ -47,6 +57,8 @@
         <!-- Filter-row buttons (Button.filter-toggle/.active) - see the file's
              own header comment for why these are app-wide. -->
         <StyleInclude Source="avares://Archipolygo/Styles/FilterStyles.axaml"/>
+        <!-- Opaque look for buttons floating over a list (Button.floating-overlay). -->
+        <StyleInclude Source="avares://Archipolygo/Styles/OverlayStyles.axaml"/>
         <!-- Required for the ColorPicker control used by the Connection
              Editor's server color picker - without this, ColorPicker/
              ColorView render completely unstyled (see the

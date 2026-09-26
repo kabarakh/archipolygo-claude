@@ -1,0 +1,33 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!--
+        Buttons that float *over* a list (JumpToNewestButton, the Events/
+        Hints "Copy from here" buttons) rather than sitting in normal
+        layout. FluentTheme's default ButtonBackground (and its
+        pointerover/pressed variants) is semi-transparent, which is fine on
+        a plain panel but lets the list's text show straight through here -
+        the button all but disappears between rows. These swap in fully
+        opaque per-theme brushes (FloatingButton* in App.axaml) plus a solid
+        border so the button reads as a distinct layer on top of the list.
+        Included app-wide from App.axaml for the same reason as
+        FilterStyles.axaml: GroupDetailView is also hosted by
+        DetachedGroupWindow, and DashboardView uses JumpToNewestButton too.
+    -->
+    <Style Selector="Button.floating-overlay">
+        <Setter Property="Background" Value="{DynamicResource FloatingButtonBackground}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource FloatingButtonBorderBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+    </Style>
+    <!-- Fluent's Button template sets the ContentPresenter's Background
+         directly on :pointerover/:pressed, so overriding the Button's own
+         Background alone would still flash back to a transparent brush on
+         hover. -->
+    <Style Selector="Button.floating-overlay:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource FloatingButtonBackgroundPointerOver}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource FloatingButtonBorderBrush}"/>
+    </Style>
+    <Style Selector="Button.floating-overlay:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource FloatingButtonBackgroundPressed}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource FloatingButtonBorderBrush}"/>
+    </Style>
+</Styles>

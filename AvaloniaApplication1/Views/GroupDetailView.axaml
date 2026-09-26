@@ -311,7 +311,7 @@
                      context menu. Copies the selected (earliest, if several)
                      event and every one after it in the current filtered
                      view - see ClipboardCopyHelper.CopyFromSelectedOnwardsAsync. -->
-                <Button Name="CopyEventsFromHereButton" Content="Copy from here"
+                <Button Name="CopyEventsFromHereButton" Content="Copy from here" Classes="floating-overlay"
                         HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="12,0,0,12"
                         Click="OnCopyEventsFromHereClick" IsVisible="False"/>
             </Grid>
@@ -479,7 +479,7 @@
                     <!-- Same floating "Copy from here" as the Events list's (see
                          there) - no Items-panel equivalent since Received Items
                          isn't part of this export feature's scope. -->
-                    <Button Name="CopyHintsFromHereButton" Content="Copy from here"
+                    <Button Name="CopyHintsFromHereButton" Content="Copy from here" Classes="floating-overlay"
                             HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="12,0,0,12"
                             Click="OnCopyHintsFromHereClick" IsVisible="False"/>
                 </Grid>

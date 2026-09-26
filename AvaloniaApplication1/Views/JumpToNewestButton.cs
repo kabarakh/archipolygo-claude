@@ -76,6 +76,9 @@ public class JumpToNewestButton : Button
         VerticalAlignment = VerticalAlignment.Bottom;
         Margin = new Thickness(0, 0, 16, 12);
         IsVisible = false;
+        // Opaque background instead of Fluent's semi-transparent one - see
+        // Styles/OverlayStyles.axaml.
+        Classes.Add("floating-overlay");
 
         Click += (_, _) =>
         {
