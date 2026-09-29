@@ -53,6 +53,9 @@ public class ConnectionEditorResult
     /// <summary><see cref="ConnectionEditorMode.EditGroup"/> only: see <see cref="Models.ServerConnectionGroup.NotificationsMuted"/>. Always false for every other mode.</summary>
     public bool NotificationsMuted { get; init; }
 
+    /// <summary><see cref="ConnectionEditorMode.NewGroup"/>/<see cref="ConnectionEditorMode.EditGroup"/> only: see <see cref="Models.ServerConnectionGroup.IsAdmin"/>. Always false for <see cref="ConnectionEditorMode.AddSlot"/>.</summary>
+    public bool IsAdmin { get; init; }
+
     /// <summary>Tier 2 of Feature-Plaene/Archiv/Fortschrittsanzeigen.md: exactly what the user typed - see <see cref="Models.ServerConnectionGroup.TrackerReferenceInput"/>.</summary>
     public string? TrackerReferenceInput { get; init; }
 
@@ -153,6 +156,10 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     /// <summary>See <see cref="Models.ServerConnectionGroup.NotificationsMuted"/> and <see cref="ShowNotificationsMuted"/>.</summary>
     [ObservableProperty]
     private bool _notificationsMuted;
+
+    /// <summary>"I'm the admin" - see <see cref="Models.ServerConnectionGroup.IsAdmin"/> and <see cref="ShowIsAdmin"/>.</summary>
+    [ObservableProperty]
+    private bool _isAdmin;
 
     /// <summary>
     /// Tier 2 of Feature-Plaene/Archiv/Fortschrittsanzeigen.md: the free-text field
@@ -276,6 +283,13 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     /// yet, and muting is a reaction to a server turning out to be loud.
     /// </summary>
     public bool ShowNotificationsMuted => Mode == ConnectionEditorMode.EditGroup;
+
+    /// <summary>
+    /// "I'm the admin" (Admin-Funktionen.md in the feature-plan archive) - a
+    /// server-level setting like <see cref="ShowAutoConnect"/>, and unlike
+    /// the mute toggle already useful when adding a server you host yourself.
+    /// </summary>
+    public bool ShowIsAdmin => Mode != ConnectionEditorMode.AddSlot;
 
     /// <summary>Tier 2 of Feature-Plaene/Archiv/Fortschrittsanzeigen.md is a server-level setting too, same reasoning as <see cref="ShowAutoConnect"/> - not relevant when only adding slots to an existing server.</summary>
     public bool ShowMultiworldTracker => Mode != ConnectionEditorMode.AddSlot;
@@ -407,6 +421,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             Password = group.Password,
             AutoConnect = group.AutoConnect,
             NotificationsMuted = group.NotificationsMuted,
+            IsAdmin = group.IsAdmin,
             PreferredLeaderSlotId = group.PreferredLeaderSlotId,
             TrackerReferenceInput = group.TrackerReferenceInput ?? string.Empty,
             _targetGroup = group,
@@ -857,6 +872,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             SlotName = slotName,
             AutoConnect = AutoConnect,
             NotificationsMuted = ShowNotificationsMuted && NotificationsMuted,
+            IsAdmin = ShowIsAdmin && IsAdmin,
             SlotsToAdd = slotsToAdd,
             PreferredLeaderSlotId = PreferredLeaderSlotId,
             SlotsToRemove = _slotsToRemove,

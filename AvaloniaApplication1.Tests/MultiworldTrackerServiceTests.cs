@@ -93,6 +93,59 @@ public class MultiworldTrackerServiceTests
         }
     }
 
+    // activity_timers/player_status in the exact shape WebHostLib/api/tracker.py
+    // returns them: RFC 1123 timestamps (null = never connected), ClientStatus ints.
+    private const string TrackerWithActivityJson = """
+        {
+          "aliases": [],
+          "player_items_received": [],
+          "player_checks_done": [
+            { "team": 0, "player": 1, "locations": [1, 2] },
+            { "team": 0, "player": 2, "locations": [] }
+          ],
+          "total_checks_done": [],
+          "hints": [],
+          "activity_timers": [
+            { "team": 0, "player": 1, "time": "Fri, 18 Apr 2025 20:35:45 GMT" },
+            { "team": 0, "player": 2, "time": null }
+          ],
+          "connection_timers": [],
+          "player_status": [
+            { "team": 0, "player": 1, "status": 30 },
+            { "team": 0, "player": 2, "status": 0 }
+          ]
+        }
+        """;
+
+    /// <summary>Admin-Funktionen.md (feature-plan archive): the Admin view's inactivity/status/checked-locations come from the same /tracker response.</summary>
+    [Fact]
+    public async Task GetProgressAsync_ParsesActivityTimersStatusAndCheckedLocations()
+    {
+        var service = MakeService(new Dictionary<string, string>
+        {
+            ["api/tracker/"] = TrackerWithActivityJson,
+            ["api/static_tracker/"] = StaticTrackerJson,
+        }, out _);
+
+        var snapshot = await service.GetProgressAsync("abc");
+
+        Assert.NotNull(snapshot);
+        var player1 = snapshot!.Players.Single(p => p.Player == 1);
+        var player2 = snapshot.Players.Single(p => p.Player == 2);
+        Assert.Equal(new DateTimeOffset(2025, 4, 18, 20, 35, 45, TimeSpan.Zero), player1.LastActivity);
+        Assert.Equal(30, player1.ClientStatus);
+        Assert.Equal(new long[] { 1, 2 }, player1.CheckedLocationIds);
+        Assert.Null(player2.LastActivity);
+        Assert.Equal(0, player2.ClientStatus);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("not a date")]
+    public void ParseTimestamp_UnreadableValue_IsNull(string? value) =>
+        Assert.Null(MultiworldTrackerService.ParseTimestamp(value));
+
     private static MultiworldTrackerService MakeService(
         Dictionary<string, string> responses, out FakeHandler handler, Func<DateTimeOffset>? clock = null)
     {

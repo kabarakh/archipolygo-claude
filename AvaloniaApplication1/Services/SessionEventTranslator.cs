@@ -150,6 +150,48 @@ internal sealed class SessionEventTranslator
     }
 
     /// <summary>
+    /// Which <see cref="ServerReplyKind"/> (if any) a leader log line is. The
+    /// exact <see cref="LogMessage"/> base type is what an untyped PrintJSON
+    /// (MultiServer.py's broadcast_text_all, e.g. "Cheat console: sending
+    /// ...") becomes; Release/Collect notices have their own subtypes.
+    /// </summary>
+    internal static ServerReplyKind? ClassifyServerReply(LogMessage logMessage) => logMessage switch
+    {
+        AdminCommandResultLogMessage => ServerReplyKind.AdminCommandResult,
+        CommandResultLogMessage => ServerReplyKind.CommandResult,
+        ReleaseLogMessage or CollectLogMessage => ServerReplyKind.Broadcast,
+        _ when logMessage.GetType() == typeof(LogMessage) => ServerReplyKind.Broadcast,
+        _ => null,
+    };
+
+    private static bool IsAdminLine(LogMessage logMessage) => logMessage switch
+    {
+        AdminCommandResultLogMessage => AdminEventFormatter.IsAdminLine(AdminLineSource.AdminCommandResult, logMessage.ToString()),
+        CommandResultLogMessage => AdminEventFormatter.IsAdminLine(AdminLineSource.CommandResult, logMessage.ToString()),
+        ChatLogMessage chat => AdminEventFormatter.IsAdminLine(AdminLineSource.Chat, chat.Message),
+        _ when logMessage.GetType() == typeof(LogMessage) => AdminEventFormatter.IsAdminLine(AdminLineSource.Broadcast, logMessage.ToString()),
+        _ => false,
+    };
+
+    /// <summary>Every real room player's slot name and alias with the same color classification chat player parts get.</summary>
+    private static IReadOnlyList<(string Name, EventTextSegmentKind Kind)> BuildPlayerNameKinds(IArchipelagoSession session, IReadOnlySet<int> siblingIds)
+    {
+        var ownSlot = session.ConnectionInfo.Slot;
+        var result = new List<(string, EventTextSegmentKind)>();
+        foreach (var player in session.Players.AllPlayers.Where(p => p.Slot != 0 && !p.IsGroup))
+        {
+            var kind = EventSegmentBuilder.ClassifyPlayerSlot(player.Slot, ownSlot, siblingIds);
+            result.Add((player.Name, kind));
+            if (SlotProfile.StripRedundantSlotName(player.Name, player.Alias) is { Length: > 0 } alias)
+            {
+                result.Add((alias, kind));
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
     /// Fires for every chat/log line the leader's session receives, which
     /// covers the whole room - the core mechanism behind Phase 6. Mirrors an
     /// item-send broadcast into a non-leader slot's own received-items
@@ -172,13 +214,25 @@ internal sealed class SessionEventTranslator
             ItemSendLogMessage => EventType.ItemReceived,
             _ => EventType.Chat
         };
-        _messageHistoryService.HandleChatMessage(group, logMessage.ToString(), segments, slotId, eventType);
+
+        // Admin lines arrive as plain text - see AdminEventFormatter.
+        var isAdminLine = IsAdminLine(logMessage);
+        var text = logMessage.ToString();
+        if (isAdminLine)
+        {
+            eventType = EventType.Admin;
+            text = AdminEventFormatter.MaskPasswords(text);
+            segments = AdminEventFormatter.BuildSegments(text, BuildPlayerNameKinds(session, siblingIds));
+        }
+
+        _messageHistoryService.HandleChatMessage(group, text, segments, slotId, eventType);
 
         // Only genuine player chat - server lines (ServerChatLogMessage),
         // join/leave/goal notices and "[Hint]: ..." lines are separate
         // LogMessage types (checked against Archipelago.MultiClient.Net
         // 6.7.1's source), so a hint line can never double as a mention.
-        if (logMessage is ChatLogMessage chat)
+        // An "!admin ..." echo is chat too, but never worth attention.
+        if (logMessage is ChatLogMessage chat && !isAdminLine)
         {
             var ownNames = roster.Values.SelectMany(configured => new[] { configured.SlotName, configured.Alias });
             var category = ChatAttentionClassifier.Classify(roster.ContainsKey(chat.Player.Slot), chat.Message, ownNames);

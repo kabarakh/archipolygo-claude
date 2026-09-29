@@ -170,6 +170,35 @@ changing behavior it explains, and update the Umsetzungsplan.md section
   Adding slots is a staging-list flow (`StagedSlots`/`StageSelectedPlayer`),
   not one dialog round-trip per slot; editing a group also manages its
   already-configured slots in place (default-leader pick, remove).
+- `ViewModels/AdminPanelViewModel.cs` (+ `AdminPlayerRowViewModel`,
+  `AdminLoginViewModel`, `AdminPlayerDialogViewModel`,
+  `AdminSettingsViewModel`, `Views/Admin*.axaml`, `Services/AdminCommands.cs`)
+  - the Admin view, a third `RightPanelView` next to Hints/Items. It only
+  exists for a group with `ServerConnectionGroup.IsAdmin` set (the "I'm the
+  admin" checkbox). What it does:
+  - It sends `!admin ...` lines through the plain `SendMessageAsync` on the
+    leader.
+  - It reads the server's answers from `IConnectionManager.ServerReplyReceived`.
+    The server never correlates a reply with its command, and a successful
+    `/send`/`/release` only produces a room-wide broadcast. So commands go
+    out one at a time and whatever arrives within a short window counts as
+    the answer.
+  - It logs in again on `IConnectionManager.LeaderConnected`, because every
+    new leader socket is logged out server-side. It also logs in again after
+    a "You must first login" reply, which means another client took the one
+    admin seat.
+  - Admin-related leader lines become `EventType.Admin`, colored by
+    `Services/AdminEventFormatter.cs`, which finds player names in the
+    server's plain text. The same class masks password values
+    (`MaskPasswords`) before anything reaches the event log or a dialog:
+    the admin password is kept in memory only, never persisted.
+  - The player list joins `GetRoomPlayersAsync` with the webhost tracker's
+    `activity_timers`/`player_status`/`player_checks_done` (see
+    `PlayerProgress`).
+
+  See `Admin-Funktionen.md` in the feature-plan archive, and
+  Umsetzungsplan.md's section "Admin-Ansicht: ServerReplyReceived und
+  LeaderConnected".
 - `Views/MainWindow.axaml(.cs)` - the tab strip, per-group panels
   (Events/Hints/Items with their filters), and a handful of Avalonia-quirk
   workarounds (see below) that live in the code-behind rather than XAML
@@ -282,6 +311,13 @@ way first - each was a real bug with a specific root cause.
   another slot on the same server reconnected). A genuine login rejection
   (bad password) never throws in the first place - it comes back as a
   `LoginFailure` result and is never retried.
+- **Admin command quoting differs per command.** MultiServer.py parses
+  `/send`, `/send_multiple`, `/send_location` and `/option` with
+  `shlex.split`, so names are always double-quoted there (`AdminCommands.Quote`).
+  `/release`, `/collect` and the other `@mark_raw` commands instead compare
+  the raw rest of the line to the player name *exactly*: quotes would become
+  part of the name and never match, so those send the bare name. Build admin
+  lines through `Services/AdminCommands.cs`, never by hand.
 - **Every UI-observable mutation made from inside `ConnectionManager` goes
   through `Dispatcher.UIThread.Post`** (session callbacks fire on
   whatever thread the underlying library uses). If you add a new

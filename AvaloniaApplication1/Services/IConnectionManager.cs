@@ -59,6 +59,26 @@ public interface IConnectionManager
     event Action<int>? SlotSyncBatchStarting;
 
     /// <summary>
+    /// Server text on a group's leader session that can be the answer to a
+    /// command this app sent (see <see cref="ServerReplyKind"/>) - the Admin
+    /// view's only way to see "!admin" results, since the server never
+    /// correlates a reply to the command that caused it. Only the leader's
+    /// session is observed (same as every other chat/log line). Always
+    /// raised on the UI thread, in arrival order.
+    /// </summary>
+    event Action<GroupViewModel, ServerReplyKind, string>? ServerReplyReceived;
+
+    /// <summary>
+    /// Raised once a <see cref="SwitchLeaderAsync"/> call has made a slot the
+    /// group's live leader - an account switch, a reconnect after a drop, or
+    /// a fresh connect alike. Any server-side per-connection state (the
+    /// "!admin login" in particular) is gone at that point, since it's a new
+    /// socket. Always raised on the UI thread, after
+    /// <see cref="GroupViewModel.LeaderSlotId"/> has been updated.
+    /// </summary>
+    event Action<GroupViewModel>? LeaderConnected;
+
+    /// <summary>
     /// Settable hook (not a multi-subscriber event - exactly one real
     /// subscriber ever wires this, <see cref="Archipolygo.ViewModels.MainWindowViewModel"/>,
     /// same shape as e.g. an optional service dependency) letting the UI
@@ -290,4 +310,24 @@ public interface IConnectionManager
     /// split as <see cref="GetHintableLocationsAsync"/>.
     /// </summary>
     Task<IReadOnlyList<string>> GetHintableItemsAsync(GroupViewModel group, SlotProfile slot);
+
+    /// <summary>
+    /// Every item and location name <paramref name="game"/> defines, from the
+    /// room's DataPackage - for the Admin view's player dialog, which needs
+    /// them for any player in the room, not just this app's own slots. Only
+    /// answers through the group's live leader session (the Admin view is
+    /// only usable while connected anyway), sharing
+    /// <see cref="GetHintableItemsAsync"/>'s on-disk cache. Null if there's
+    /// no leader session or the DataPackage request fails/times out.
+    /// </summary>
+    Task<GameDataNames?> GetGameDataAsync(GroupViewModel group, string game);
+
+    /// <summary>
+    /// The server settings the leader session's room state currently reports
+    /// (release/collect/remaining modes, hint cost, points per check,
+    /// password flag) - kept current by the server's RoomUpdate packets, so
+    /// this also reflects an "/option" change right after it's made. Null if
+    /// the group has no leader session.
+    /// </summary>
+    RoomSettingsSnapshot? GetRoomSettings(GroupViewModel group);
 }

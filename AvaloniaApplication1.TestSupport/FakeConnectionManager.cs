@@ -52,6 +52,9 @@ public sealed class FakeConnectionManager : IConnectionManager
     // Feature-Plaene/Passwort-Speicherung.md.
     public Func<GroupViewModel, SlotProfile, bool, CancellationToken, Task<bool>>? PasswordRequested { get; set; }
 
+    public event Action<GroupViewModel, ServerReplyKind, string>? ServerReplyReceived;
+    public event Action<GroupViewModel>? LeaderConnected;
+
     // --- Fake hint room -----------------------------------------------
     //
     // Models the real Archipelago server's per-slot hints_{team}_{slot}
@@ -104,6 +107,10 @@ public sealed class FakeConnectionManager : IConnectionManager
         }
 
         GroupPersistNeeded?.Invoke(group);
+
+        // A new connection is never logged in as admin - same as the real server.
+        _adminLoggedInGroups.Remove(group.Group.Id);
+        LeaderConnected?.Invoke(group);
         return Task.CompletedTask;
     }
 
@@ -229,7 +236,141 @@ public sealed class FakeConnectionManager : IConnectionManager
 
     public Task CatchUpSyncAsync(GroupViewModel group, SlotProfile slot) => Task.CompletedTask;
 
-    public Task SendMessageAsync(GroupViewModel group, string text) => Task.CompletedTask;
+    /// <summary>Every line sent via <see cref="SendMessageAsync"/>, in order.</summary>
+    public List<string> SentMessages { get; } = new();
+
+    public Task SendMessageAsync(GroupViewModel group, string text)
+    {
+        SentMessages.Add(text);
+        if (text.StartsWith("!admin", StringComparison.OrdinalIgnoreCase))
+        {
+            SimulateAdminServer(group, text);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    // --- Fake admin server (Admin-Funktionen.md, feature-plan archive) --
+    //
+    // Just enough of MultiServer.py's "!admin" behavior for TestHarness and
+    // tests to drive AdminPanelViewModel: login outcomes as CommandResult,
+    // "must first login" when not logged in, failures/"/option" as
+    // AdminCommandResult, successful actions only as a room-wide broadcast.
+    // Replies are raised synchronously from SendMessageAsync.
+
+    /// <summary>The fake server's server_password; null = "Remote administration is disabled".</summary>
+    public string? AdminServerPassword { get; set; } = "admin";
+
+    private readonly HashSet<Guid> _adminLoggedInGroups = new();
+
+    /// <summary>Another client ran "!admin login" - the server silently drops this client's admin login.</summary>
+    public void SimulateOtherClientTakesOverAdmin(GroupViewModel group) => _adminLoggedInGroups.Remove(group.Group.Id);
+
+    private void SimulateAdminServer(GroupViewModel group, string text)
+    {
+        var command = text.Substring("!admin".Length).Trim();
+        var leaderName = group.Group.Slots.FirstOrDefault(s => s.Id == group.LeaderSlotId)?.SlotName ?? "?";
+
+        // The server broadcasts every "!admin ..." line, password starred out.
+        var echo = AdminEventFormatter.MaskPasswords(text);
+        // Same coloring as the real SessionEventTranslator: leader = own slot,
+        // other configured slots = related, everyone else = other.
+        var nameKinds = RoomPlayers
+            .Select(p => (p.Name, string.Equals(p.Name, leaderName, StringComparison.OrdinalIgnoreCase)
+                ? EventTextSegmentKind.OwnSlotName
+                : group.Group.Slots.Any(s => string.Equals(s.SlotName, p.Name, StringComparison.OrdinalIgnoreCase))
+                    ? EventTextSegmentKind.ConnectedSlotName
+                    : EventTextSegmentKind.OtherSlotName))
+            .Append((leaderName, EventTextSegmentKind.OwnSlotName))
+            .ToList();
+
+        void AddAdminEvent(string line) =>
+            group.Events.Add(new EventEntry { Type = EventType.Admin, Text = line, Segments = AdminEventFormatter.BuildSegments(line, nameKinds) });
+
+        AddAdminEvent($"{leaderName}: {echo}");
+
+        void Reply(ServerReplyKind kind, string reply)
+        {
+            reply = AdminEventFormatter.MaskPasswords(reply);
+            AddAdminEvent(reply);
+            ServerReplyReceived?.Invoke(group, kind, reply);
+        }
+
+        if (string.IsNullOrEmpty(AdminServerPassword))
+        {
+            Reply(ServerReplyKind.CommandResult, "Sorry, Remote administration is disabled");
+            return;
+        }
+
+        if (command.StartsWith("login ", StringComparison.OrdinalIgnoreCase))
+        {
+            if (command.Substring("login ".Length) == AdminServerPassword)
+            {
+                _adminLoggedInGroups.Add(group.Group.Id);
+                Reply(ServerReplyKind.CommandResult, "Login successful. You can now issue server side commands.");
+            }
+            else
+            {
+                Reply(ServerReplyKind.CommandResult, "Password incorrect.");
+            }
+
+            return;
+        }
+
+        if (!_adminLoggedInGroups.Contains(group.Group.Id))
+        {
+            Reply(ServerReplyKind.CommandResult, "You must first login using !admin login [password]");
+            return;
+        }
+
+        if (command == "logout")
+        {
+            _adminLoggedInGroups.Remove(group.Group.Id);
+            Reply(ServerReplyKind.CommandResult, "Logout successful. You can no longer issue server side commands.");
+            return;
+        }
+
+        var parts = command.Split(' ', 2);
+        switch (parts[0])
+        {
+            case "/send":
+            case "/send_multiple":
+                Reply(ServerReplyKind.Broadcast, $"Cheat console: sending {(parts.Length > 1 ? parts[1] : string.Empty)}");
+                break;
+            case "/release":
+                Reply(ServerReplyKind.Broadcast, $"{(parts.Length > 1 ? parts[1] : "?")} (Team #1) has released all remaining items from their world.");
+                break;
+            case "/collect":
+                Reply(ServerReplyKind.Broadcast, $"{(parts.Length > 1 ? parts[1] : "?")} (Team #1) has collected their items from other worlds.");
+                break;
+            case "/option":
+                var option = parts.Length > 1 ? parts[1].Split(' ', 2) : new[] { "?" };
+                if (option[0] == "server_password" && option.Length > 1)
+                {
+                    AdminServerPassword = option[1].Trim('"');
+                }
+
+                Reply(ServerReplyKind.AdminCommandResult, $"Set option {option[0]} to {(option.Length > 1 ? option[1].Trim('"') : string.Empty)}");
+                break;
+            case "/send_location":
+                // Success is silent on the real server too (only the found item is announced).
+                break;
+            default:
+                Reply(ServerReplyKind.AdminCommandResult, $"Could not find command {parts[0].TrimStart('/')}.");
+                break;
+        }
+    }
+
+    private readonly Dictionary<string, GameDataNames> _gameData = new(StringComparer.OrdinalIgnoreCase);
+
+    public void SetGameData(string game, GameDataNames data) => _gameData[game] = data;
+
+    public Task<GameDataNames?> GetGameDataAsync(GroupViewModel group, string game) =>
+        Task.FromResult(_gameData.TryGetValue(game, out var data) ? data : null);
+
+    public RoomSettingsSnapshot? RoomSettings { get; set; }
+
+    public RoomSettingsSnapshot? GetRoomSettings(GroupViewModel group) => group.IsLeaderConnected ? RoomSettings : null;
 
     public Task InitializeGroupAsync(GroupViewModel group)
     {
@@ -244,8 +385,11 @@ public sealed class FakeConnectionManager : IConnectionManager
         return Task.CompletedTask;
     }
 
+    /// <summary>What <see cref="GetRoomPlayersAsync"/> returns - empty unless a test/TestHarness sets it.</summary>
+    public IReadOnlyList<PlayerInfo> RoomPlayers { get; set; } = Array.Empty<PlayerInfo>();
+
     public Task<IReadOnlyList<PlayerInfo>> GetRoomPlayersAsync(GroupViewModel group) =>
-        Task.FromResult<IReadOnlyList<PlayerInfo>>(Array.Empty<PlayerInfo>());
+        Task.FromResult(RoomPlayers);
 
     // --- Hint picker (Feature-Plaene/Archiv/Hint-Eingabefeld.md) -------
     //

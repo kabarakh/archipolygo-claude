@@ -186,6 +186,8 @@
                                     Classes.active="{Binding SelectedEventCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Items}"/>
                             <Button Content="Chat" Classes="filter-toggle" Command="{Binding ShowChatEventsOnlyCommand}"
                                     Classes.active="{Binding SelectedEventCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Chat}"/>
+                            <Button Content="Admin" Classes="filter-toggle" Command="{Binding ShowAdminEventsOnlyCommand}" IsVisible="{Binding HasAdminServer}"
+                                    Classes.active="{Binding SelectedEventCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Admin}"/>
                             <Border Classes="filter-separator"/>
                             <!-- Same shared item-class flyout as a server tab's own Events filter row. -->
                             <views:ItemClassFilterButton/>

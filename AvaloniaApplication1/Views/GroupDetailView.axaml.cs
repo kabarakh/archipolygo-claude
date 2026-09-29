@@ -170,6 +170,26 @@ public partial class GroupDetailView : UserControl
     /// <see cref="DetachedGroupWindow"/> for a detached one (see
     /// Feature-Plaene/Tab-Eigenes-Fenster.md).
     /// </summary>
+    /// <summary>
+    /// The right column's "Admin" button (Admin-Funktionen.md in the
+    /// feature-plan archive): asks for the admin password first while not
+    /// logged in, and only switches to the Admin view once that succeeded.
+    /// </summary>
+    private async void OnAdminButtonClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: GroupViewModel group } || TopLevel.GetTopLevel(this) is not Window owner)
+        {
+            return;
+        }
+
+        if (!group.Admin.IsLoggedIn && !await AdminLoginWindow.ShowDialogAsync(owner, group.Admin))
+        {
+            return;
+        }
+
+        group.SelectedRightPanel = RightPanelView.Admin;
+    }
+
     private void OnHintButtonClick(object? sender, RoutedEventArgs e)
     {
         if (sender is Button { DataContext: GroupViewModel group } && TopLevel.GetTopLevel(this) is Window owner)

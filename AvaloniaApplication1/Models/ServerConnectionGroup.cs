@@ -71,6 +71,16 @@ public partial class ServerConnectionGroup : ObservableObject
     private bool _notificationsMuted;
 
     /// <summary>
+    /// "I'm the admin" in the add/edit server dialog (Admin-Funktionen.md in
+    /// the feature-plan archive): shows the Admin view next to Hints/Items in
+    /// this server's tab. Only an opt-in for the UI - the admin password
+    /// itself is asked for when that view is opened and never persisted.
+    /// Missing from an older <c>groups.json</c> simply reads as false.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isAdmin;
+
+    /// <summary>
     /// Every slot name configured for this server. Order is preserved across
     /// edits/saves so the UI (tab header, account dropdown, slot filter)
     /// stays stable.

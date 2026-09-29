@@ -24,4 +24,13 @@ public class DataPackageCacheEntry
     public string Checksum { get; set; } = string.Empty;
 
     public List<string> ItemNames { get; set; } = new();
+
+    /// <summary>
+    /// Location name -> id for the same game, added for the Admin view's
+    /// "Send location" (Admin-Funktionen.md in the feature-plan archive).
+    /// Null in a cache file written before that - treated as a cache miss by
+    /// <see cref="Services.IConnectionManager.GetGameDataAsync"/>, which
+    /// refetches and rewrites the entry with both halves.
+    /// </summary>
+    public Dictionary<string, long>? LocationIds { get; set; }
 }

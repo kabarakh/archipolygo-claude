@@ -1,0 +1,93 @@
+<!-- The Admin view (Admin-Funktionen.md in the feature-plan archive): the
+     third panel in GroupDetailView's right column next to Hints/Items, only
+     reachable for a server marked "I'm the admin". Its own header replaces
+     the Hints/Items filter bar while shown. -->
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Archipolygo.ViewModels"
+             x:Class="Archipolygo.Views.AdminPanelView"
+             x:DataType="vm:AdminPanelViewModel">
+
+    <UserControl.Styles>
+        <Style Selector="Border.inactive-badge">
+            <Setter Property="CornerRadius" Value="3"/>
+            <Setter Property="Padding" Value="4,0"/>
+        </Style>
+        <!-- Decided 2026-09-29: yellow from 3 days without a new check, red from 5. -->
+        <Style Selector="Border.inactive-badge.warning">
+            <Setter Property="Background" Value="#55FFC107"/>
+        </Style>
+        <Style Selector="Border.inactive-badge.critical">
+            <Setter Property="Background" Value="#66E53935"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Grid>
+        <!-- Logged out (reconnect without a remembered password, Log out, a
+             failed automatic re-login): no player data without a login. -->
+        <StackPanel IsVisible="{Binding !IsLoggedIn}" Spacing="8" Margin="0,4,0,0">
+            <TextBlock Text="{Binding LoginStatusText}" FontWeight="SemiBold"/>
+            <Button Content="Log in..." Click="OnLoginClick" HorizontalAlignment="Left"/>
+        </StackPanel>
+
+        <DockPanel IsVisible="{Binding IsLoggedIn}" LastChildFill="True">
+            <StackPanel DockPanel.Dock="Top" Spacing="2">
+                <WrapPanel Classes="filter-row">
+                    <TextBlock Text="{Binding LoginStatusText}" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,8,4"/>
+                    <Button Content="Server settings..." Classes="filter-toggle" Click="OnSettingsClick"/>
+                    <Button Content="Log out" Classes="filter-toggle" Command="{Binding LogoutCommand}"/>
+                </WrapPanel>
+                <WrapPanel Classes="filter-row">
+                    <Button Content="Longest inactive" Classes="filter-toggle" Classes.active="{Binding SortByInactivity}"
+                            Command="{Binding SetSortByInactivityCommand}" IsVisible="{Binding HasTracker}"/>
+                    <Button Content="Name" Classes="filter-toggle" Classes.active="{Binding SortByName}"
+                            Command="{Binding SetSortByNameCommand}" IsVisible="{Binding HasTracker}"/>
+                    <Border Classes="filter-separator" IsVisible="{Binding HasTracker}"/>
+                    <!-- Goal status comes from the tracker, so only offered with one. -->
+                    <CheckBox Content="Exclude goaled slots" IsChecked="{Binding ExcludeGoaled}" IsVisible="{Binding HasTracker}"
+                              VerticalAlignment="Center" Margin="0,0,8,4"/>
+                    <Border Classes="filter-separator" IsVisible="{Binding HasTracker}"/>
+                    <Button Content="⟳" Classes="filter-toggle" ToolTip.Tip="Refresh player list"
+                            Command="{Binding RefreshPlayersCommand}" IsEnabled="{Binding !IsRefreshing}"/>
+                    <TextBlock Text="{Binding TrackerAgeText}" Opacity="0.6" VerticalAlignment="Center" FontSize="11" Margin="4,0,0,4"/>
+                </WrapPanel>
+                <!-- Decided 2026-09-29: without a tracker id a hint is enough. -->
+                <Border IsVisible="{Binding !HasTracker}" Background="#22888888" CornerRadius="4" Padding="8,6" Margin="0,0,0,6">
+                    <TextBlock TextWrapping="Wrap" FontSize="12"
+                               Text="No tracker set for this server - status, checks and inactivity come from the room's tracker. Add it via Edit server → Multiworld tracker."/>
+                </Border>
+                <TextBlock Text="{Binding RefreshError}" IsVisible="{Binding RefreshError, Converter={x:Static ObjectConverters.IsNotNull}}"
+                           Foreground="OrangeRed" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,6"/>
+            </StackPanel>
+
+            <ListBox ItemsSource="{Binding Players}">
+                <ListBox.ItemTemplate>
+                    <DataTemplate DataType="vm:AdminPlayerRowViewModel">
+                        <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                            <StackPanel Grid.Column="0" Spacing="2">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <TextBlock Text="{Binding DisplayName}" FontWeight="Bold" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="(you)" Opacity="0.6" IsVisible="{Binding IsOwnSlot}"/>
+                                    <TextBlock Text="{Binding StatusText}" Opacity="0.7" IsVisible="{Binding HasTrackerData}"/>
+                                    <TextBlock Text="✓" Foreground="Green" FontWeight="Bold" IsVisible="{Binding IsGoal}"/>
+                                </StackPanel>
+                                <WrapPanel Orientation="Horizontal">
+                                    <TextBlock Text="{Binding Game}" Opacity="0.7" Margin="0,0,8,0"/>
+                                    <TextBlock Text="{Binding ChecksText}" Opacity="0.7" Margin="0,0,8,0" IsVisible="{Binding HasTrackerData}"/>
+                                    <Border Classes="inactive-badge"
+                                            Classes.warning="{Binding IsInactiveWarning}"
+                                            Classes.critical="{Binding IsInactiveCritical}"
+                                            IsVisible="{Binding HasTrackerData}">
+                                        <TextBlock Text="{Binding InactiveText}" FontSize="12"/>
+                                    </Border>
+                                </WrapPanel>
+                            </StackPanel>
+                            <Button Grid.Column="1" Content="Actions..." VerticalAlignment="Center" Margin="6,0,0,0"
+                                    Click="OnPlayerActionsClick"/>
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </DockPanel>
+    </Grid>
+</UserControl>

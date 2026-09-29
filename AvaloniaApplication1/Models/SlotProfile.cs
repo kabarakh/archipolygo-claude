@@ -83,43 +83,40 @@ public partial class SlotProfile : ObservableObject
     /// known yet, or if it's identical to the slot name (the common case:
     /// most players never set a different one).
     /// </summary>
-    public string DisplayName
+    public string DisplayName => FormatDisplayName(SlotName, Alias);
+
+    /// <summary>
+    /// The <see cref="DisplayName"/> rule for any room player, not just a
+    /// configured slot - also used by the Admin view's player list, which
+    /// gets its names/aliases straight from <c>PlayerInfo</c>.
+    /// </summary>
+    public static string FormatDisplayName(string slotName, string? alias)
     {
-        get
-        {
-            var alias = EffectiveAlias;
-            return string.IsNullOrEmpty(alias) || string.Equals(alias, SlotName, StringComparison.Ordinal)
-                ? SlotName
-                : $"{SlotName} ({alias})";
-        }
+        var effectiveAlias = StripRedundantSlotName(slotName, alias);
+        return string.IsNullOrEmpty(effectiveAlias) || string.Equals(effectiveAlias, slotName, StringComparison.Ordinal)
+            ? slotName
+            : $"{slotName} ({effectiveAlias})";
     }
 
     /// <summary>
-    /// <see cref="Alias"/>, but with a redundant trailing "(SlotName)"
+    /// <paramref name="alias"/>, but with a redundant trailing "(SlotName)"
     /// stripped first - observed in practice for grouped/linked slots, where
     /// <c>PlayerInfo.Alias</c> itself already comes back as e.g. "KabaDone
     /// (KabaHK)" for a slot named "KabaHK", not just "KabaDone". Without this,
     /// <see cref="DisplayName"/> would double the slot name up as "KabaHK
     /// (KabaDone (KabaHK))" instead of the intended "KabaHK (KabaDone)".
     /// </summary>
-    private string? EffectiveAlias
+    public static string? StripRedundantSlotName(string slotName, string? alias)
     {
-        get
+        if (string.IsNullOrEmpty(alias))
         {
-            var alias = Alias;
-            if (string.IsNullOrEmpty(alias))
-            {
-                return alias;
-            }
-
-            var redundantSuffix = $" ({SlotName})";
-            if (alias.EndsWith(redundantSuffix, StringComparison.OrdinalIgnoreCase))
-            {
-                alias = alias[..^redundantSuffix.Length];
-            }
-
             return alias;
         }
+
+        var redundantSuffix = $" ({slotName})";
+        return alias.EndsWith(redundantSuffix, StringComparison.OrdinalIgnoreCase)
+            ? alias[..^redundantSuffix.Length]
+            : alias;
     }
 
     partial void OnAliasChanged(string? value) => OnPropertyChanged(nameof(DisplayName));

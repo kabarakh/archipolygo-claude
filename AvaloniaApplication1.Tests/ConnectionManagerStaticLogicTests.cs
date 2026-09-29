@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using Archipelago.MultiClient.Net.Enums;
 using Archipelago.MultiClient.Net.Helpers;
 using Archipolygo.Services;
 
@@ -87,6 +88,16 @@ public class ConnectionManagerStaticLogicTests
         new Exception("generic failure"),
         new ArgumentException(),
     };
+
+    /// <summary>Admin-Funktionen.md (feature-plan archive): the settings dialog shows RoomState's flags as the exact strings "/option ..._mode" accepts.</summary>
+    [Theory]
+    [InlineData(Permissions.Disabled, "disabled")]
+    [InlineData(Permissions.Enabled, "enabled")]
+    [InlineData(Permissions.Goal, "goal")]
+    [InlineData(Permissions.Auto, "auto")]
+    [InlineData(Permissions.AutoEnabled, "auto_enabled")]
+    public void PermissionToOptionValue_MatchesServerOptionStrings(Permissions permissions, string expected) =>
+        Assert.Equal(expected, ConnectionManager.PermissionToOptionValue(permissions));
 
     private static PlayerInfo MakePlayer(int slot, string name, int[]? groupMembers = null) =>
         new(team: 0, slot: slot, name: name, alias: name, game: "Some Game", groups: null!, groupMembers: groupMembers!);

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace Archipolygo.Models;
@@ -36,6 +37,15 @@ public sealed class PlayerProgress
     public double ChecksTotalValue => ChecksTotal ?? 0;
 
     public string ChecksText => ChecksTotal is not null ? $"{ChecksDone}/{ChecksTotal}" : ChecksDone.ToString();
+
+    /// <summary>The tracker's "activity_timers" entry: when this player last checked a NEW location. Null if the player never connected (or the tracker didn't say).</summary>
+    public DateTimeOffset? LastActivity { get; init; }
+
+    /// <summary>The tracker's "player_status" entry - an Archipelago <c>ClientStatus</c> value (0 unknown, 5 connected, 10 ready, 20 playing, 30 goal). Null if not reported.</summary>
+    public int? ClientStatus { get; init; }
+
+    /// <summary>The tracker's "player_checks_done" location ids - lets the Admin view's "Send location" hide already checked locations for any player, not just this app's own slots.</summary>
+    public IReadOnlyList<long> CheckedLocationIds { get; init; } = Array.Empty<long>();
 }
 
 /// <summary>

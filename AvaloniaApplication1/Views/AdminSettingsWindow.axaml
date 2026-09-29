@@ -1,0 +1,80 @@
+<!-- The Admin view's "Server settings..." dialog (Admin-Funktionen.md in the
+     feature-plan archive): Save sends one "/option" per changed value.
+     Deliberately no way to shut the server down ("/exit") here. -->
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Archipolygo.ViewModels"
+        x:Class="Archipolygo.Views.AdminSettingsWindow"
+        x:DataType="vm:AdminSettingsViewModel"
+        Width="460" SizeToContent="Height" CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Title="{Binding Title}">
+
+    <StackPanel Margin="16" Spacing="8">
+        <TextBlock Text="Changes are sent as !admin /option commands when you click Save - only values you changed."
+                   Opacity="0.6" TextWrapping="Wrap"/>
+
+        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" Margin="0,4,0,0">
+            <Grid.Styles>
+                <Style Selector="Grid > TextBlock">
+                    <Setter Property="VerticalAlignment" Value="Center"/>
+                    <Setter Property="Margin" Value="0,4,12,4"/>
+                </Style>
+                <Style Selector="Grid > ComboBox, Grid > NumericUpDown">
+                    <Setter Property="HorizontalAlignment" Value="Stretch"/>
+                    <Setter Property="Margin" Value="0,4"/>
+                </Style>
+            </Grid.Styles>
+
+            <TextBlock Grid.Row="0" Text="Release"/>
+            <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding ReleaseCollectModes}" SelectedItem="{Binding ReleaseMode}"/>
+
+            <TextBlock Grid.Row="1" Text="Collect"/>
+            <ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding ReleaseCollectModes}" SelectedItem="{Binding CollectMode}"/>
+
+            <TextBlock Grid.Row="2" Text="Remaining"/>
+            <ComboBox Grid.Row="2" Grid.Column="1" ItemsSource="{Binding RemainingModes}" SelectedItem="{Binding RemainingMode}"/>
+
+            <TextBlock Grid.Row="3" Text="Countdown"/>
+            <ComboBox Grid.Row="3" Grid.Column="1" ItemsSource="{Binding CountdownModes}" SelectedItem="{Binding CountdownMode}"/>
+
+            <TextBlock Grid.Row="4" Text="Item cheat (!getitem)"/>
+            <ComboBox Grid.Row="4" Grid.Column="1" ItemsSource="{Binding ItemCheatValues}" SelectedItem="{Binding ItemCheat}"/>
+
+            <TextBlock Grid.Row="5" Text="Hint cost (%)"/>
+            <NumericUpDown Grid.Row="5" Grid.Column="1" Value="{Binding HintCost}" Minimum="0" Maximum="100" FormatString="0"/>
+
+            <TextBlock Grid.Row="6" Text="Points per check"/>
+            <NumericUpDown Grid.Row="6" Grid.Column="1" Value="{Binding LocationCheckPoints}" Minimum="0" Maximum="1000" FormatString="0"/>
+        </Grid>
+
+        <StackPanel Spacing="4">
+            <TextBlock Text="Room password"/>
+            <TextBlock Text="{Binding RoomPasswordStatus}" Opacity="0.6" FontSize="12"/>
+            <TextBox Text="{Binding NewRoomPassword}" PasswordChar="*" PlaceholderText="New room password (leave empty to keep it)"
+                     IsEnabled="{Binding !RemoveRoomPassword}"/>
+            <CheckBox Content="Remove the room password" IsChecked="{Binding RemoveRoomPassword}"/>
+        </StackPanel>
+
+        <!-- Set apart: changing it can lock others (and you) out. No
+             confirmation dialog - those are only for Release/Collect - but
+             Archipolygo updates the admin password it keeps in memory so the
+             automatic re-login keeps working. -->
+        <Border BorderBrush="#88E53935" BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,6,0,0">
+            <StackPanel Spacing="4">
+                <TextBlock Text="Admin password (server_password)" FontWeight="SemiBold"/>
+                <TextBlock Text="Leave empty to keep it. Everyone who logs in as admin needs the new one." Opacity="0.6" FontSize="12" TextWrapping="Wrap"/>
+                <TextBox Text="{Binding NewAdminPassword}" PasswordChar="*" PlaceholderText="(unchanged)"/>
+            </StackPanel>
+        </Border>
+
+        <Border IsVisible="{Binding HasResult}" Background="#22888888" CornerRadius="4" Padding="8,6">
+            <TextBlock Text="{Binding ResultText}" TextWrapping="Wrap" FontSize="12"/>
+        </Border>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,8,0,0">
+            <Button Content="Close" Click="OnCloseClick"/>
+            <Button Content="Save" Click="OnSaveClick" IsDefault="True" IsEnabled="{Binding !IsSaving}"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

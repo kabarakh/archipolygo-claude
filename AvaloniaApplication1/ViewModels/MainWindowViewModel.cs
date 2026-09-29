@@ -673,10 +673,12 @@ public partial class MainWindowViewModel : ViewModelBase
     /// TestHarness and most tests) falls back to that same auto-assignment,
     /// unchanged from before.
     /// </param>
-    public void AddNewGroup(string name, string host, int port, string password, string slotName, bool autoConnect, string? color = null, string? trackerReferenceInput = null, string? trackerId = null)
+    public void AddNewGroup(string name, string host, int port, string password, string slotName, bool autoConnect, string? color = null, string? trackerReferenceInput = null, string? trackerId = null,
+        bool isAdmin = false)
     {
         var group = new ServerConnectionGroup
         {
+            IsAdmin = isAdmin,
             Name = name,
             Host = host,
             Port = port,
@@ -803,7 +805,7 @@ public partial class MainWindowViewModel : ViewModelBase
     public async Task UpdateGroup(
         GroupViewModel groupViewModel, string name, string host, int port, string password, bool autoConnect,
         Guid? preferredLeaderSlotId, string? color = null, IReadOnlyList<SlotProfile>? slotsToRemove = null,
-        string? trackerReferenceInput = null, string? trackerId = null, bool? notificationsMuted = null)
+        string? trackerReferenceInput = null, string? trackerId = null, bool? notificationsMuted = null, bool? isAdmin = null)
     {
         groupViewModel.Group.Name = name;
         groupViewModel.Group.Host = host;
@@ -819,6 +821,12 @@ public partial class MainWindowViewModel : ViewModelBase
         if (notificationsMuted is { } muted)
         {
             ApplyNotificationsMuted(groupViewModel, muted);
+        }
+
+        // Null for call sites that predate "I'm the admin" - left untouched.
+        if (isAdmin is { } admin)
+        {
+            groupViewModel.Group.IsAdmin = admin;
         }
 
         // Null/empty only for call sites that predate the color picker

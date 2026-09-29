@@ -344,6 +344,7 @@ public partial class GroupViewModel : ViewModelBase, IEventItemClassFilter
                 EventCategoryFilter.Hints => events.Where(e => e.Type == EventType.HintReceived),
                 EventCategoryFilter.Items => events.Where(e => e.Type == EventType.ItemReceived),
                 EventCategoryFilter.Chat => events.Where(e => e.Type == EventType.Chat),
+                EventCategoryFilter.Admin => events.Where(e => e.Type == EventType.Admin),
                 _ => events,
             };
 
@@ -486,6 +487,21 @@ public partial class GroupViewModel : ViewModelBase, IEventItemClassFilter
         FilterSummaryText.Slot(SelectedEventsSlotFilter));
 
     /// <summary>Same as <see cref="EventFilterSummaryText"/>, for whichever of the Hints/Items panels is showing.</summary>
+    /// <summary>
+    /// The Admin view's state (Admin-Funktionen.md in the feature-plan
+    /// archive) - login, player list, admin commands. Exists for every group;
+    /// only reachable in the UI while <see cref="ShowAdminButton"/> is true.
+    /// </summary>
+    public AdminPanelViewModel Admin { get; }
+
+    /// <summary>The "Admin" button next to Hints/Items - only for a server marked "I'm the admin" (see <see cref="ServerConnectionGroup.IsAdmin"/>).</summary>
+    public bool ShowAdminButton => Group.IsAdmin;
+
+    /// <summary>Hides the Hints/Items filter bar while the Admin view (which has its own header) fills the right column.</summary>
+    public bool IsAdminPanelVisible => SelectedRightPanel == RightPanelView.Admin;
+
+    partial void OnSelectedRightPanelChanged(RightPanelView value) => OnPropertyChanged(nameof(IsAdminPanelVisible));
+
     public string RightPanelFilterSummaryText => SelectedRightPanel == RightPanelView.Hints
         ? FilterSummaryText.Join(
             FilterSummaryText.HintFound(SelectedHintFilter),
@@ -529,6 +545,7 @@ public partial class GroupViewModel : ViewModelBase, IEventItemClassFilter
         _connectionManager = connectionManager;
         _multiworldTrackerService = multiworldTrackerService;
         HintPicker = new HintPickerViewModel(this, connectionManager);
+        Admin = new AdminPanelViewModel(this, connectionManager, multiworldTrackerService);
 
         Events.CollectionChanged += OnEventsCollectionChanged;
         Hints.CollectionChanged += OnHintsCollectionChanged;
@@ -1157,6 +1174,20 @@ public partial class GroupViewModel : ViewModelBase, IEventItemClassFilter
             OnPropertyChanged(nameof(ColorBrush));
         }
 
+        if (e.PropertyName == nameof(ServerConnectionGroup.IsAdmin))
+        {
+            OnPropertyChanged(nameof(ShowAdminButton));
+            if (!Group.IsAdmin && SelectedRightPanel == RightPanelView.Admin)
+            {
+                SelectedRightPanel = RightPanelView.Hints;
+            }
+
+            if (!Group.IsAdmin && SelectedEventCategoryFilter == EventCategoryFilter.Admin)
+            {
+                SelectedEventCategoryFilter = EventCategoryFilter.All;
+            }
+        }
+
         if (e.PropertyName == nameof(ServerConnectionGroup.TrackerId))
         {
             OnPropertyChanged(nameof(HasMultiworldTracker));
@@ -1243,6 +1274,16 @@ public partial class GroupViewModel : ViewModelBase, IEventItemClassFilter
     /// </summary>
     private void RecordSentMessage(string text)
     {
+        // A hand-typed "!admin login <pw>" etc. must not be recallable in
+        // plain text. The server stars the password out for everyone else
+        // anyway - this is purely about the local Up-arrow history.
+        if (AdminCommands.ContainsPassword(text))
+        {
+            _messageHistoryIndex = -1;
+            _messageHistoryDraft = null;
+            return;
+        }
+
         _messageHistory.Add(text);
         if (_messageHistory.Count > MaxMessageHistory)
         {
@@ -1378,6 +1419,9 @@ public partial class GroupViewModel : ViewModelBase, IEventItemClassFilter
 
     [RelayCommand]
     private void ShowChatEventsOnly() => SelectedEventCategoryFilter = EventCategoryFilter.Chat;
+
+    [RelayCommand]
+    private void ShowAdminEventsOnly() => SelectedEventCategoryFilter = EventCategoryFilter.Admin;
 
     /// <summary>
     /// Sets <see cref="SelectedChatSlot"/>/<see cref="LeaderSlotId"/> without

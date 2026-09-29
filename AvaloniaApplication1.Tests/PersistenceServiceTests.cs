@@ -80,6 +80,16 @@ public sealed class PersistenceServiceTests : IDisposable
     }
 
     [Fact]
+    public void SaveThenLoadGroups_RoundTripsIsAdmin()
+    {
+        var group = new ServerConnectionGroup { Name = "Hosted by me", IsAdmin = true };
+
+        _service.SaveGroups(new[] { group });
+
+        Assert.True(Assert.Single(_service.LoadGroups()).IsAdmin);
+    }
+
+    [Fact]
     public void SaveGroups_NeverWritesAPasswordKey_EvenWhenOneIsSet()
     {
         // The actual "don't store passwords" promise, checked against the
@@ -96,6 +106,28 @@ public sealed class PersistenceServiceTests : IDisposable
         var rawJson = File.ReadAllText(Path.Combine(_tempDirectory, "groups.json"));
         Assert.DoesNotContain("secret", rawJson, StringComparison.Ordinal);
         Assert.DoesNotContain("\"Password\"", rawJson, StringComparison.Ordinal);
+    }
+
+    /// <summary>Admin-Funktionen.md (feature-plan archive): after an admin login, nothing written to disk contains the admin password.</summary>
+    [Fact]
+    public async Task AdminLogin_NeverPersistsTheAdminPassword()
+    {
+        var manager = new Archipolygo.TestSupport.FakeConnectionManager { AdminServerPassword = "admin-secret-pw" };
+        var group = new ServerConnectionGroup { Name = "S", Host = "h", Port = 1, IsAdmin = true };
+        var slot = new SlotProfile { GroupId = group.Id, SlotName = "Alice" };
+        group.Slots.Add(slot);
+        var groupViewModel = new Archipolygo.ViewModels.GroupViewModel(group, manager);
+        await manager.SwitchLeaderAsync(groupViewModel, slot);
+        groupViewModel.Admin.LoginTimeout = TimeSpan.FromMilliseconds(50);
+        Assert.Equal(Archipolygo.ViewModels.AdminLoginResult.Success, await groupViewModel.Admin.LoginAsync("admin-secret-pw"));
+
+        _service.SaveGroups(new[] { group });
+        _service.SaveSettings(new AppSettings());
+
+        foreach (var file in Directory.EnumerateFiles(_tempDirectory, "*", SearchOption.AllDirectories))
+        {
+            Assert.DoesNotContain("admin-secret-pw", File.ReadAllText(file), StringComparison.Ordinal);
+        }
     }
 
     [Fact]

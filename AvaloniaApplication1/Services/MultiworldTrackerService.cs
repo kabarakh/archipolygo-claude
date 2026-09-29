@@ -131,6 +131,15 @@ public class MultiworldTrackerService : IMultiworldTrackerService
         var aliasesByPlayer = tracker.Aliases
             .ToDictionary(a => (a.Team, a.Player), a => a.Alias);
 
+        // Admin view (Admin-Funktionen.md in the feature-plan archive): same
+        // /tracker response, previously just not read.
+        var activityByPlayer = tracker.ActivityTimers
+            .GroupBy(t => (t.Team, t.Player))
+            .ToDictionary(g => g.Key, g => ParseTimestamp(g.First().Time));
+        var statusByPlayer = tracker.PlayerStatus
+            .GroupBy(s => (s.Team, s.Player))
+            .ToDictionary(g => g.Key, g => g.First().Status);
+
         var players = tracker.PlayerChecksDone
             .Select(entry => new PlayerProgress
             {
@@ -140,6 +149,9 @@ public class MultiworldTrackerService : IMultiworldTrackerService
                 Game = gamesByPlayer.GetValueOrDefault((entry.Team, entry.Player)),
                 ChecksDone = entry.Locations.Count,
                 ChecksTotal = totalsByPlayer.TryGetValue((entry.Team, entry.Player), out var total) ? total : null,
+                LastActivity = activityByPlayer.GetValueOrDefault((entry.Team, entry.Player)),
+                ClientStatus = statusByPlayer.GetValueOrDefault((entry.Team, entry.Player)),
+                CheckedLocationIds = entry.Locations,
             })
             .ToList();
 
@@ -212,10 +224,39 @@ public class MultiworldTrackerService : IMultiworldTrackerService
         public int? LastPort { get; set; }
     }
 
+    /// <summary>
+    /// The tracker API returns timers in RFC 1123 format ("Tue, 29 Sep 2026
+    /// 12:00:00 GMT", Flask's default datetime serialization - see
+    /// WebHostLib/api/tracker.py), or null for a player who never connected.
+    /// Parsed leniently: anything unreadable just counts as "unknown".
+    /// </summary>
+    internal static DateTimeOffset? ParseTimestamp(string? value) =>
+        !string.IsNullOrWhiteSpace(value) &&
+        DateTimeOffset.TryParse(value, System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out var parsed)
+            ? parsed
+            : null;
+
     private sealed class TrackerResponse
     {
         public List<AliasEntry> Aliases { get; set; } = new();
         public List<PlayerChecksDoneEntry> PlayerChecksDone { get; set; } = new();
+        public List<PlayerTimerEntry> ActivityTimers { get; set; } = new();
+        public List<PlayerStatusEntry> PlayerStatus { get; set; } = new();
+    }
+
+    private sealed class PlayerTimerEntry
+    {
+        public int Team { get; set; }
+        public int Player { get; set; }
+        public string? Time { get; set; }
+    }
+
+    private sealed class PlayerStatusEntry
+    {
+        public int Team { get; set; }
+        public int Player { get; set; }
+        public int? Status { get; set; }
     }
 
     private sealed class AliasEntry

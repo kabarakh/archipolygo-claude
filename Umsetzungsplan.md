@@ -433,14 +433,59 @@ Slot im selben Hint-Picker-Durchlauf nicht erneut verbindet.
 
 Nichts in der API dieser Library-Version enumeriert das komplette
 `item_name_to_id`-Mapping eines Spiels (anders als einzelne Id/Name-Lookups
-wie `GetLocationNameFromId`), deshalb schickt `FetchItemNamesFromDataPackageAsync`
+wie `GetLocationNameFromId`), deshalb schickt `FetchGameDataFromDataPackageAsync`
 das rohe `GetDataPackagePacket` und wartet direkt am Socket auf das passende
 `DataPackagePacket` (verifiziert gegen das offizielle Archipelago-Netzwerk-
 protokoll und den gepinnten Archipelago.MultiClient.Net-Quellcode am exakten
 Tag). `GetDataPackagePacket.Games` wird bewusst auf genau ein Spiel
 eingeschränkt, um nicht das DataPackage jedes anderen Spiels im Raum
-mitzuladen. Ergebnis ist eine leere Liste (kein Hänger), wenn der Server
+mitzuladen. Ergebnis ist `null` (kein Hänger), wenn der Server
 innerhalb des Timeouts nicht antwortet oder den Socket vorher schließt.
+
+Seit der Admin-Ansicht liefert derselbe Abruf Item- **und** Location-Namen
+(`GameDataNames`, Location-Name → Id). `GetHintableItemsAsync` nutzt davon
+nur die Items. `GetGameDataAsync` braucht beides, und zwar für das Spiel
+*jedes* Spielers im Raum. Es antwortet nur über die Leader-Session, denn die
+Admin-Ansicht ist ohnehin nur verbunden benutzbar. Beide teilen sich den
+Plattencache. Ein Cache-Eintrag von vor dieser Änderung hat
+`LocationIds == null` und zählt für `GetGameDataAsync` als Cache-Miss: Er
+wird neu geholt und mit beiden Hälften überschrieben.
+
+### Admin-Ansicht: ServerReplyReceived und LeaderConnected
+
+Die Admin-Ansicht (`AdminPanelViewModel`, siehe `Admin-Funktionen.md` im
+Feature-Plan-Archiv) schickt `!admin …`-Zeilen über das normale
+`SendMessageAsync` und braucht dafür zwei Signale aus `ConnectionManager`.
+
+**`ServerReplyReceived`** meldet Serverzeilen, die eine Antwort sein
+können. Grundlage ist eine zweite `MessageLog`-Subscription nur auf der
+Leader-Session; die Klassifizierung macht
+`SessionEventTranslator.ClassifyServerReply`. Geprüft gegen MultiServer.py
+und den MultiClient.Net-6.7.1-Quellcode:
+- `!`-Kommandos antworten als `CommandResultLogMessage`. Dazu gehört jedes
+  `!admin login`-Ergebnis und "You must first login".
+- Fehlschlagende `/`-Kommandos antworten als `AdminCommandResultLogMessage`,
+  ebenso `/option` bei Erfolg.
+- Die meisten *erfolgreichen* Admin-Aktionen (`/send`, `/release`,
+  `/collect`) antworten gar nicht direkt. Sie erscheinen nur als raumweiter
+  Broadcast: ein untypisiertes PrintJSON, das die Library als exakten
+  Basistyp `LogMessage` liefert, bzw. `Release`/`CollectLogMessage`.
+
+Der Server korreliert keine Antwort mit ihrem Kommando. `AdminPanelViewModel`
+sendet deshalb strikt eins nach dem anderen und sammelt, was in einem kurzen
+Fenster danach ankommt. Mehrzeilige Antworten kommen dabei als einzelne
+Nachrichten an, weil die Library sie pro Zeile splittet. Die Zeilen landen
+unverändert auch im normalen Event-Log.
+
+**`LeaderConnected`** wird nach jedem erfolgreichen `SwitchLeaderAsync`
+gefeuert, bei Account-Wechsel, Reconnect und Erstverbindung. Es ist hinter
+das `SetLeaderStateWithoutTriggeringSwitch`-Post gequeued. Der Grund: Das
+`!admin login` gehört serverseitig zum Socket. Jede neue Leader-Verbindung
+ist also abgemeldet, und das ViewModel meldet sich mit dem nur im Speicher
+gehaltenen Passwort still neu an. Den zweiten Weg, abgemeldet zu werden
+(ein anderer Client meldet sich als Admin an), meldet der Server nicht. Er
+wird erst am "You must first login" des nächsten Kommandos erkannt; dann
+folgt ein Re-Login und derselbe Befehl wird erneut gesendet.
 
 ### RunAsSlotAsync / ReleaseHeldSessionAsync (Hint-Picker)
 

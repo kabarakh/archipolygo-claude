@@ -149,7 +149,7 @@ public partial class MainWindow : Window, IGroupHostWindow
         var result = await ConnectionEditorWindow.ShowDialogAsync(this, editorViewModel);
         if (result is not null)
         {
-            ViewModel.AddNewGroup(result.Name, result.Host, result.Port, result.Password, result.SlotName, result.AutoConnect, result.Color, result.TrackerReferenceInput, result.TrackerId);
+            ViewModel.AddNewGroup(result.Name, result.Host, result.Port, result.Password, result.SlotName, result.AutoConnect, result.Color, result.TrackerReferenceInput, result.TrackerId, result.IsAdmin);
         }
     }
 
@@ -197,7 +197,7 @@ public partial class MainWindow : Window, IGroupHostWindow
         var result = await ConnectionEditorWindow.ShowDialogAsync(this, editorViewModel);
         if (result is not null)
         {
-            await ViewModel.UpdateGroup(group, result.Name, result.Host, result.Port, result.Password, result.AutoConnect, result.PreferredLeaderSlotId, result.Color, result.SlotsToRemove, result.TrackerReferenceInput, result.TrackerId, result.NotificationsMuted);
+            await ViewModel.UpdateGroup(group, result.Name, result.Host, result.Port, result.Password, result.AutoConnect, result.PreferredLeaderSlotId, result.Color, result.SlotsToRemove, result.TrackerReferenceInput, result.TrackerId, result.NotificationsMuted, result.IsAdmin);
         }
     }
 

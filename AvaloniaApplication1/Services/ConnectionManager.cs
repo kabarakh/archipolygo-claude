@@ -130,6 +130,12 @@ public class ConnectionManager : IConnectionManager
     public event Action<int>? SlotSyncBatchStarting;
 
     /// <inheritdoc/>
+    public event Action<GroupViewModel, ServerReplyKind, string>? ServerReplyReceived;
+
+    /// <inheritdoc/>
+    public event Action<GroupViewModel>? LeaderConnected;
+
+    /// <inheritdoc/>
     public Func<GroupViewModel, SlotProfile, bool, CancellationToken, Task<bool>>? PasswordRequested { get; set; }
 
     // Optional - see HintService's own doc comment on its matching field for
@@ -223,6 +229,12 @@ public class ConnectionManager : IConnectionManager
             _leaderSlotByGroup[groupId] = targetSlot.Id;
             Dispatcher.UIThread.Post(() => group.SetLeaderStateWithoutTriggeringSwitch(targetSlot.Id, targetSlot));
             SetConnectionState(group, ConnectionState.Connected);
+
+            // Queued after the leader-state post above, so subscribers (the
+            // Admin view's automatic re-login) already see the new leader. See
+            // Umsetzungsplan.md, section "Admin-Ansicht: ServerReplyReceived
+            // und LeaderConnected".
+            Dispatcher.UIThread.Post(() => LeaderConnected?.Invoke(group));
 
             // A successful leader connect, by any means, is itself what
             // brings this group back at the next app start - remembered
@@ -707,17 +719,93 @@ public class ConnectionManager : IConnectionManager
             return cached.ItemNames;
         }
 
-        var itemNames = await FetchItemNamesFromDataPackageAsync(session, ownGame, _dataPackageRequestTimeout);
-
-        // Only worth caching with a checksum to validate it against later -
-        // otherwise every future call would treat it as stale anyway.
-        if (itemNames.Count > 0 && currentChecksum is not null)
+        var gameData = await FetchGameDataFromDataPackageAsync(session, ownGame, _dataPackageRequestTimeout);
+        if (gameData is null)
         {
-            _persistenceService?.SaveDataPackageCache(groupId, ownGame,
-                new DataPackageCacheEntry { Checksum = currentChecksum, ItemNames = itemNames.ToList() });
+            return Array.Empty<string>();
         }
 
-        return itemNames;
+        SaveGameDataCache(groupId, ownGame, currentChecksum, gameData);
+        return gameData.ItemNames;
+    }
+
+    public async Task<GameDataNames?> GetGameDataAsync(GroupViewModel group, string game)
+    {
+        var groupId = group.Group.Id;
+        if (string.IsNullOrEmpty(game) ||
+            !_leaderSlotByGroup.TryGetValue(groupId, out var leaderId) ||
+            !_sessions.TryGetValue(leaderId, out var leaderSession))
+        {
+            return null;
+        }
+
+        _roomInfoBySlot.TryGetValue(leaderId, out var roomInfo);
+        var currentChecksum = roomInfo?.DataPackageChecksums is { } checksums && checksums.TryGetValue(game, out var checksum)
+            ? checksum
+            : null;
+
+        // A cache entry from before LocationIds existed counts as a miss.
+        var cached = _persistenceService?.LoadDataPackageCache(groupId, game);
+        if (cached?.LocationIds is not null && currentChecksum is not null &&
+            string.Equals(cached.Checksum, currentChecksum, StringComparison.Ordinal))
+        {
+            return new GameDataNames { ItemNames = cached.ItemNames, LocationIds = cached.LocationIds };
+        }
+
+        var gameData = await FetchGameDataFromDataPackageAsync(leaderSession, game, _dataPackageRequestTimeout);
+        if (gameData is not null)
+        {
+            SaveGameDataCache(groupId, game, currentChecksum, gameData);
+        }
+
+        return gameData;
+    }
+
+    public RoomSettingsSnapshot? GetRoomSettings(GroupViewModel group)
+    {
+        if (!_leaderSlotByGroup.TryGetValue(group.Group.Id, out var leaderId) ||
+            !_sessions.TryGetValue(leaderId, out var session) ||
+            session.RoomState is not { } room)
+        {
+            return null;
+        }
+
+        return new RoomSettingsSnapshot
+        {
+            ReleaseMode = PermissionToOptionValue(room.ReleasePermissions),
+            CollectMode = PermissionToOptionValue(room.CollectPermissions),
+            RemainingMode = PermissionToOptionValue(room.RemainingPermissions),
+            HintCostPercentage = room.HintCostPercentage,
+            LocationCheckPoints = room.LocationCheckPoints,
+            HasPassword = room.HasPassword,
+        };
+    }
+
+    /// <summary>
+    /// Maps the library's <see cref="Permissions"/> flags back to the exact
+    /// value strings MultiServer.py's "/option ..._mode" accepts.
+    /// </summary>
+    internal static string PermissionToOptionValue(Permissions permissions) => permissions switch
+    {
+        Permissions.AutoEnabled => "auto_enabled",
+        Permissions.Auto => "auto",
+        Permissions.Goal => "goal",
+        Permissions.Enabled => "enabled",
+        _ => "disabled",
+    };
+
+    /// <summary>Only worth caching with a checksum to validate it against later - otherwise every future call would treat it as stale anyway.</summary>
+    private void SaveGameDataCache(Guid groupId, string game, string? checksum, GameDataNames gameData)
+    {
+        if (gameData.ItemNames.Count > 0 && checksum is not null)
+        {
+            _persistenceService?.SaveDataPackageCache(groupId, game, new DataPackageCacheEntry
+            {
+                Checksum = checksum,
+                ItemNames = gameData.ItemNames.ToList(),
+                LocationIds = gameData.LocationIds.ToDictionary(p => p.Key, p => p.Value),
+            });
+        }
     }
 
     /// <summary>
@@ -725,22 +813,25 @@ public class ConnectionManager : IConnectionManager
     /// matching <see cref="DataPackagePacket"/> directly. See
     /// Umsetzungsplan.md, section "DataPackage-Abruf per Rohpaket".
     /// </summary>
-    private static async Task<IReadOnlyList<string>> FetchItemNamesFromDataPackageAsync(IArchipelagoSession session, string game, TimeSpan timeout)
+    private static async Task<GameDataNames?> FetchGameDataFromDataPackageAsync(IArchipelagoSession session, string game, TimeSpan timeout)
     {
-        var tcs = new TaskCompletionSource<IReadOnlyList<string>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var tcs = new TaskCompletionSource<GameDataNames?>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         void OnPacketReceived(ArchipelagoPacketBase packet)
         {
             if (packet is DataPackagePacket dataPackagePacket)
             {
-                var names = dataPackagePacket.DataPackage.Games.TryGetValue(game, out var gameData)
-                    ? (IReadOnlyList<string>)gameData.ItemLookup.Keys.ToList()
-                    : Array.Empty<string>();
-                tcs.TrySetResult(names);
+                tcs.TrySetResult(dataPackagePacket.DataPackage.Games.TryGetValue(game, out var gameData)
+                    ? new GameDataNames
+                    {
+                        ItemNames = gameData.ItemLookup.Keys.ToList(),
+                        LocationIds = new Dictionary<string, long>(gameData.LocationLookup),
+                    }
+                    : null);
             }
         }
 
-        void OnSocketClosed(string reason) => tcs.TrySetResult(Array.Empty<string>());
+        void OnSocketClosed(string reason) => tcs.TrySetResult(null);
 
         session.Socket.PacketReceived += OnPacketReceived;
         session.Socket.SocketClosed += OnSocketClosed;
@@ -749,12 +840,12 @@ public class ConnectionManager : IConnectionManager
             session.Socket.SendPacket(new GetDataPackagePacket { Games = new[] { game } });
 
             var completed = await Task.WhenAny(tcs.Task, Task.Delay(timeout));
-            return completed == tcs.Task ? await tcs.Task : Array.Empty<string>();
+            return completed == tcs.Task ? await tcs.Task : null;
         }
         catch (Exception)
         {
             // Socket already closed/errored trying to send.
-            return Array.Empty<string>();
+            return null;
         }
         finally
         {
@@ -940,6 +1031,17 @@ public class ConnectionManager : IConnectionManager
                 // Only the leader's session stays open long enough for this
                 // to matter - see SessionEventTranslator.OnLeaderMessageReceived.
                 session.MessageLog.OnMessageReceived += logMessage => _sessionEvents.OnLeaderMessageReceived(group, session, slot, logMessage);
+
+                // Possible command replies for the Admin view. See Umsetzungsplan.md,
+                // section "Admin-Ansicht: ServerReplyReceived und LeaderConnected".
+                session.MessageLog.OnMessageReceived += logMessage =>
+                {
+                    if (SessionEventTranslator.ClassifyServerReply(logMessage) is { } kind)
+                    {
+                        var text = AdminEventFormatter.MaskPasswords(logMessage.ToString());
+                        Dispatcher.UIThread.Post(() => ServerReplyReceived?.Invoke(group, kind, text));
+                    }
+                };
             }
 
             // Clear this slot's received-items panel before subscribing -

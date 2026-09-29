@@ -212,6 +212,8 @@
                             Classes.active="{Binding SelectedEventCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Items}"/>
                     <Button Content="Chat" Classes="filter-toggle" Command="{Binding ShowChatEventsOnlyCommand}"
                             Classes.active="{Binding SelectedEventCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Chat}"/>
+                    <Button Content="Admin" Classes="filter-toggle" Command="{Binding ShowAdminEventsOnlyCommand}" IsVisible="{Binding ShowAdminButton}"
+                            Classes.active="{Binding SelectedEventCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Admin}"/>
                     <Border Classes="filter-separator"/>
                     <!-- Independent item-category checkboxes (not mutually exclusive
                          with each other or with the filter-toggle buttons) - narrows
@@ -251,6 +253,15 @@
                         Classes.active="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Hints}"/>
                 <Button Content="Items" Classes="filter-toggle" Command="{Binding ShowReceivedItemsPanelCommand}"
                         Classes.active="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ReceivedItems}"/>
+                <!-- Admin-Funktionen.md (feature-plan archive): only for a server
+                     marked "I'm the admin"; asks for the admin password first
+                     while not logged in (see OnAdminButtonClick). Admin
+                     commands go through the live leader connection, hence
+                     IsEnabled. -->
+                <Button Content="Admin" Classes="filter-toggle" Click="OnAdminButtonClick"
+                        IsVisible="{Binding ShowAdminButton}" IsEnabled="{Binding IsLeaderConnected}"
+                        ToolTip.Tip="Admin tools for this server (needs a live connection)"
+                        Classes.active="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Admin}"/>
             </WrapPanel>
 
             <!-- ── Content row: Events ── just the list; its filters moved up
@@ -345,6 +356,7 @@
                      (Kompakteres-Layout.md Teil D; the Hints/Items switch in the
                      header row above is navigation and never collapses). -->
                 <views:CollapsibleFilterBar Grid.Row="0"
+                                            IsVisible="{Binding !IsAdminPanelVisible}"
                                             IsExpanded="{Binding FilterLayout.RightPanelFiltersExpanded}"
                                             Summary="{Binding RightPanelFilterSummaryText}">
                     <StackPanel>
@@ -483,6 +495,12 @@
                             HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="12,0,0,12"
                             Click="OnCopyHintsFromHereClick" IsVisible="False"/>
                 </Grid>
+
+                <!-- Rows 0+1 – Admin view: brings its own header in place of the
+                     filter bar above (hidden while this is shown). -->
+                <Panel Grid.Row="0" Grid.RowSpan="2" IsVisible="{Binding IsAdminPanelVisible}">
+                    <views:AdminPanelView DataContext="{Binding Admin}"/>
+                </Panel>
 
                 <!-- Row 1 – Items list (same row, alternates with hints list) -->
                 <ListBox Grid.Row="1"

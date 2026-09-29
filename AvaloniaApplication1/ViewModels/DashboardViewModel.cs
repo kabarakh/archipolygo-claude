@@ -167,6 +167,7 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
         HintFilter.RebuildServerOptions();
         EventsFilter.RebuildServerOptions();
         RaiseAggregatesChanged();
+        OnPropertyChanged(nameof(HasAdminServer));
         OnPropertyChanged(nameof(VisibleHints));
         OnPropertyChanged(nameof(VisibleEvents));
     }
@@ -225,6 +226,11 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
         if (e.PropertyName is nameof(GroupViewModel.UnreadAttentionCount) or nameof(GroupViewModel.UnfoundHintCount))
         {
             RaiseAggregatesChanged();
+        }
+
+        if (e.PropertyName == nameof(GroupViewModel.ShowAdminButton))
+        {
+            OnPropertyChanged(nameof(HasAdminServer));
         }
 
         if (e.PropertyName == nameof(GroupViewModel.IsLeaderConnected) && ReferenceEquals(sender, SelectedSendServerGroup))
@@ -429,6 +435,12 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
     [RelayCommand]
     private void ShowChatEventsOnly() => SelectedEventCategoryFilter = EventCategoryFilter.Chat;
 
+    [RelayCommand]
+    private void ShowAdminEventsOnly() => SelectedEventCategoryFilter = EventCategoryFilter.Admin;
+
+    /// <summary>The "Admin" category button only makes sense once at least one server is marked "I'm the admin".</summary>
+    public bool HasAdminServer => _groups.Any(g => g.ShowAdminButton);
+
     /// <summary>
     /// Every configured server's events, tagged with their owning group (see
     /// <see cref="DashboardEventRow"/>), narrowed by relevance, category and
@@ -460,6 +472,7 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
                 EventCategoryFilter.Hints => rows.Where(r => r.Event.Type == EventType.HintReceived),
                 EventCategoryFilter.Items => rows.Where(r => r.Event.Type == EventType.ItemReceived),
                 EventCategoryFilter.Chat => rows.Where(r => r.Event.Type == EventType.Chat),
+                EventCategoryFilter.Admin => rows.Where(r => r.Event.Type == EventType.Admin),
                 _ => rows,
             };
 

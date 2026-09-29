@@ -27,6 +27,7 @@ public static class FilterSummaryText
         EventCategoryFilter.Hints => "Hints",
         EventCategoryFilter.Items => "Items",
         EventCategoryFilter.Chat => "Chat",
+        EventCategoryFilter.Admin => "Admin",
         _ => null
     };
 

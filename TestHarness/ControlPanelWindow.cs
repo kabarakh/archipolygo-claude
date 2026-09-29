@@ -48,6 +48,8 @@ public sealed class ControlPanelWindow : Window
 
         var panel = new StackPanel { Orientation = Orientation.Vertical, Spacing = 6, Margin = new Avalonia.Thickness(10) };
 
+        AddAdminSection(panel, group, connectionManager);
+
         panel.Children.Add(new TextBlock { Text = "Notifications (Benachrichtigungen.md)", FontWeight = Avalonia.Media.FontWeight.Bold });
         panel.Children.Add(new TextBlock
         {
@@ -122,6 +124,49 @@ public sealed class ControlPanelWindow : Window
         });
 
         Content = new ScrollViewer { Content = panel };
+    }
+
+    /// <summary>Admin-Funktionen.md - simulated server-side conditions for TestServer's Admin view.</summary>
+    private static void AddAdminSection(StackPanel panel, GroupViewModel group, FakeConnectionManager connectionManager)
+    {
+        panel.Children.Add(new TextBlock { Text = "Admin (Admin-Funktionen.md)", FontWeight = Avalonia.Media.FontWeight.Bold });
+        panel.Children.Add(new TextBlock
+        {
+            Text = "TestServer tab → \"Admin\" next to Hints/Items. Fake admin password: admin. The \"I'm the admin\" checkbox is also in Edit server / Add server.",
+            FontSize = 11,
+            Opacity = 0.7,
+            TextWrapping = Avalonia.Media.TextWrapping.Wrap
+        });
+
+        var isAdmin = new CheckBox { Content = "TestServer: I'm the admin", IsChecked = group.Group.IsAdmin };
+        isAdmin.IsCheckedChanged += (_, _) => group.Group.IsAdmin = isAdmin.IsChecked == true;
+        group.Group.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(ServerConnectionGroup.IsAdmin))
+            {
+                isAdmin.IsChecked = group.Group.IsAdmin;
+            }
+        };
+        panel.Children.Add(isAdmin);
+
+        var hasPassword = new CheckBox { Content = "Server has an admin password", IsChecked = true };
+        hasPassword.IsCheckedChanged += (_, _) => connectionManager.AdminServerPassword = hasPassword.IsChecked == true ? "admin" : null;
+        panel.Children.Add(hasPassword);
+
+        var trackerId = group.Group.TrackerId;
+        var hasTracker = new CheckBox { Content = "Tracker id set", IsChecked = trackerId is not null };
+        hasTracker.IsCheckedChanged += (_, _) => group.Group.TrackerId = hasTracker.IsChecked == true ? trackerId : null;
+        panel.Children.Add(hasTracker);
+
+        panel.Children.Add(Btn("Another client logs in as admin", () => connectionManager.SimulateOtherClientTakesOverAdmin(group)));
+        panel.Children.Add(Btn("Simulate reconnect", () =>
+        {
+            var leader = group.Group.Slots.FirstOrDefault(s => s.Id == group.LeaderSlotId);
+            if (leader is not null)
+            {
+                _ = connectionManager.SwitchLeaderAsync(group, leader);
+            }
+        }));
     }
 
     private static Button Btn(string text, Action action)

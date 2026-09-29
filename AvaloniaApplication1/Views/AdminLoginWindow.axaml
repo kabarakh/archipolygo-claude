@@ -1,0 +1,46 @@
+<!-- Asked for when "Admin" is clicked while not logged in
+     (Admin-Funktionen.md in the feature-plan archive). Same width and dialog
+     styling as PasswordPromptWindow. -->
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Archipolygo.ViewModels"
+        x:Class="Archipolygo.Views.AdminLoginWindow"
+        x:DataType="vm:AdminLoginViewModel"
+        Width="460" SizeToContent="Height" CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Title="{Binding Title}">
+
+    <StackPanel Margin="16" Spacing="8">
+        <TextBlock Text="{Binding IntroText}" TextWrapping="Wrap"/>
+
+        <TextBlock Text="Admin password (server_password)" Opacity="0.6"/>
+        <TextBox Name="PasswordBox" Text="{Binding Password}" PasswordChar="*"/>
+
+        <TextBlock Text="{Binding ErrorText}" IsVisible="{Binding HasError}" Foreground="Red" TextWrapping="Wrap"/>
+        <Border IsVisible="{Binding ShowDisabledHelp}" Background="#22888888" CornerRadius="4" Padding="8,6">
+            <TextBlock TextWrapping="Wrap" FontSize="12"
+                       Text="On archipelago.gg, the room owner can set an admin password in the command field on the room page: /option server_password &lt;password&gt;. On a self-hosted server, start it with --server_password or set it in host.yaml."/>
+        </Border>
+
+        <Expander Header="When will I be logged out?" HorizontalAlignment="Stretch">
+            <StackPanel Spacing="4">
+                <TextBlock TextWrapping="Wrap" FontSize="12" Text="• When you switch accounts via &quot;Chat as&quot; - that's a new connection."/>
+                <TextBlock TextWrapping="Wrap" FontSize="12" Text="• When the connection drops and reconnects."/>
+                <TextBlock TextWrapping="Wrap" FontSize="12" Text="In both cases Archipolygo logs you in again automatically while it's running."/>
+                <TextBlock TextWrapping="Wrap" FontSize="12" Text="• When another client logs in as admin - a server only has one admin at a time, and it doesn't tell you. Archipolygo notices on your next command and logs in again."/>
+                <TextBlock TextWrapping="Wrap" FontSize="12" Text="• When Archipolygo closes - the admin password is never saved."/>
+                <TextBlock TextWrapping="Wrap" FontSize="12" Text="• When you click Log out."/>
+            </StackPanel>
+        </Expander>
+
+        <Expander Header="The server has no admin password?" HorizontalAlignment="Stretch">
+            <TextBlock TextWrapping="Wrap" FontSize="12"
+                       Text="Then remote administration is off. On archipelago.gg, the room owner can set one in the command field on the room page: /option server_password &lt;password&gt;. On a self-hosted server, start it with --server_password or set it in host.yaml."/>
+        </Expander>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,8,0,0">
+            <Button Content="Cancel" Click="OnCancelClick"/>
+            <Button Content="Log in" Click="OnLoginClick" IsDefault="True" IsEnabled="{Binding CanLogin}"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

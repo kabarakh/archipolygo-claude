@@ -15,5 +15,8 @@ public enum EventCategoryFilter
     Items,
 
     /// <summary>Show only <see cref="EventType.Chat"/> entries.</summary>
-    Chat
+    Chat,
+
+    /// <summary>Show only <see cref="EventType.Admin"/> entries - offered only where an "I'm the admin" server exists.</summary>
+    Admin
 }
