@@ -50,6 +50,9 @@ public class ConnectionEditorResult
 
     public bool AutoConnect { get; init; }
 
+    /// <summary><see cref="ConnectionEditorMode.EditGroup"/> only: see <see cref="Models.ServerConnectionGroup.NotificationsMuted"/>. Always false for every other mode.</summary>
+    public bool NotificationsMuted { get; init; }
+
     /// <summary>Tier 2 of Feature-Plaene/Archiv/Fortschrittsanzeigen.md: exactly what the user typed - see <see cref="Models.ServerConnectionGroup.TrackerReferenceInput"/>.</summary>
     public string? TrackerReferenceInput { get; init; }
 
@@ -146,6 +149,10 @@ public partial class ConnectionEditorViewModel : ViewModelBase
 
     [ObservableProperty]
     private bool _autoConnect;
+
+    /// <summary>See <see cref="Models.ServerConnectionGroup.NotificationsMuted"/> and <see cref="ShowNotificationsMuted"/>.</summary>
+    [ObservableProperty]
+    private bool _notificationsMuted;
 
     /// <summary>
     /// Tier 2 of Feature-Plaene/Archiv/Fortschrittsanzeigen.md: the free-text field
@@ -262,6 +269,13 @@ public partial class ConnectionEditorViewModel : ViewModelBase
 
     /// <summary>Auto-connect is a server-level setting; not relevant when only adding slots to one.</summary>
     public bool ShowAutoConnect => Mode != ConnectionEditorMode.AddSlot;
+
+    /// <summary>
+    /// Per-server mute (feature-plan archive's <c>Benachrichtigungen.md</c>) -
+    /// only when editing: a brand-new server has nothing to be noisy about
+    /// yet, and muting is a reaction to a server turning out to be loud.
+    /// </summary>
+    public bool ShowNotificationsMuted => Mode == ConnectionEditorMode.EditGroup;
 
     /// <summary>Tier 2 of Feature-Plaene/Archiv/Fortschrittsanzeigen.md is a server-level setting too, same reasoning as <see cref="ShowAutoConnect"/> - not relevant when only adding slots to an existing server.</summary>
     public bool ShowMultiworldTracker => Mode != ConnectionEditorMode.AddSlot;
@@ -392,6 +406,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             HostPortInput = group.HostPort,
             Password = group.Password,
             AutoConnect = group.AutoConnect,
+            NotificationsMuted = group.NotificationsMuted,
             PreferredLeaderSlotId = group.PreferredLeaderSlotId,
             TrackerReferenceInput = group.TrackerReferenceInput ?? string.Empty,
             _targetGroup = group,
@@ -841,6 +856,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             Password = Mode == ConnectionEditorMode.AddSlot ? string.Empty : Password,
             SlotName = slotName,
             AutoConnect = AutoConnect,
+            NotificationsMuted = ShowNotificationsMuted && NotificationsMuted,
             SlotsToAdd = slotsToAdd,
             PreferredLeaderSlotId = PreferredLeaderSlotId,
             SlotsToRemove = _slotsToRemove,

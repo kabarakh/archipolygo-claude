@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -12,8 +13,12 @@ using Archipolygo.ViewModels;
 
 namespace Archipolygo.Views;
 
-public partial class MainWindow : Window
+public partial class MainWindow : Window, IGroupHostWindow
 {
+    /// <summary>A docked group is on screen only while its tab is the selected one and the Dashboard isn't covering the tab area - see <see cref="IGroupHostWindow"/>.</summary>
+    public bool IsShowingGroup(Guid groupId) =>
+        DataContext is MainWindowViewModel { IsDashboardVisible: false, SelectedGroup: { } selected } && selected.Group.Id == groupId;
+
     /// <summary>
     /// Set by <see cref="App"/> right after construction, same wiring style
     /// as <see cref="MainWindowViewModel.ShowPasswordPromptDialogAsync"/> -
@@ -24,12 +29,31 @@ public partial class MainWindow : Window
     /// </summary>
     public IGroupWindowLocator? GroupWindowLocator { get; set; }
 
+    /// <summary>
+    /// Set by <see cref="App"/> the same way as <see cref="GroupWindowLocator"/>
+    /// (Benachrichtigungen.md step 4). Null in tests and the TestHarness
+    /// unless they opt in, so a headless run never touches the real Dock or
+    /// taskbar.
+    /// </summary>
+    public IUnreadBadgeService? UnreadBadgeService { get; set; }
+
+    private MainWindowViewModel? _badgeSource;
+
     /// <summary>Every currently-open detached window, keyed by the group it shows - see <see cref="OpenDetachedGroupWindow"/>.</summary>
     private readonly Dictionary<GroupViewModel, DetachedGroupWindow> _detachedWindows = new();
 
     public MainWindow()
     {
         InitializeComponent();
+
+        // Native unread badge: follow the view model's counts, and re-apply
+        // the window's own overlay once its taskbar button exists (Opened)
+        // and after every DPI change - Avalonia's Win32 backend clears the
+        // overlay itself right before raising ScalingChanged (see
+        // WindowsTaskbarBadge's doc comment).
+        DataContextChanged += (_, _) => HookBadgeSource();
+        Opened += (_, _) => ApplyBadges();
+        ScalingChanged += (_, _) => ApplyWindowBadge();
 
         // Feature-Plaene/Archiv/Dashboard-Tab.md's per-row icons: DashboardView
         // itself has no Window to anchor a dialog on and no reference to
@@ -49,6 +73,7 @@ public partial class MainWindow : Window
         // (DetachGroup's own guard) - the Dashboard row's menu item is
         // greyed out for that case, but this stays safe regardless.
         DashboardViewControl.OpenInNewWindowRequested += (_, group) => ViewModel.DetachGroup(group);
+        DashboardViewControl.ToggleMuteRequested += (_, group) => ViewModel.ToggleNotificationsMuted(group);
 
         // Feature-Plaene/Tab-Eigenes-Fenster.md: no detached window's own
         // state is persisted, so there's nothing to save here - closing the
@@ -87,7 +112,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var window = DetachedGroupWindow.Create(group, GroupWindowLocator, ViewModel.RedockGroup);
+        var window = DetachedGroupWindow.Create(group, GroupWindowLocator, ViewModel.RedockGroup, UnreadBadgeService);
         _detachedWindows[group] = window;
 
         window.Closed += (_, _) =>
@@ -172,7 +197,7 @@ public partial class MainWindow : Window
         var result = await ConnectionEditorWindow.ShowDialogAsync(this, editorViewModel);
         if (result is not null)
         {
-            await ViewModel.UpdateGroup(group, result.Name, result.Host, result.Port, result.Password, result.AutoConnect, result.PreferredLeaderSlotId, result.Color, result.SlotsToRemove, result.TrackerReferenceInput, result.TrackerId);
+            await ViewModel.UpdateGroup(group, result.Name, result.Host, result.Port, result.Password, result.AutoConnect, result.PreferredLeaderSlotId, result.Color, result.SlotsToRemove, result.TrackerReferenceInput, result.TrackerId, result.NotificationsMuted);
         }
     }
 
@@ -341,6 +366,49 @@ public partial class MainWindow : Window
         if (sender is MenuItem { DataContext: GroupViewModel group })
         {
             ViewModel.DetachGroup(group);
+        }
+    }
+
+    private void HookBadgeSource()
+    {
+        if (_badgeSource is not null)
+        {
+            _badgeSource.PropertyChanged -= OnBadgeSourcePropertyChanged;
+        }
+
+        _badgeSource = DataContext as MainWindowViewModel;
+        if (_badgeSource is not null)
+        {
+            _badgeSource.PropertyChanged += OnBadgeSourcePropertyChanged;
+        }
+    }
+
+    private void OnBadgeSourcePropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(MainWindowViewModel.MainWindowBadgeCount))
+        {
+            ApplyWindowBadge();
+        }
+        else if (e.PropertyName == nameof(MainWindowViewModel.AppBadgeCount))
+        {
+            UnreadBadgeService?.SetAppBadge(_badgeSource?.AppBadgeCount ?? 0);
+        }
+    }
+
+    private void ApplyWindowBadge() => UnreadBadgeService?.SetWindowBadge(this, _badgeSource?.MainWindowBadgeCount ?? 0);
+
+    private void ApplyBadges()
+    {
+        ApplyWindowBadge();
+        UnreadBadgeService?.SetAppBadge(_badgeSource?.AppBadgeCount ?? 0);
+    }
+
+    /// <summary>Benachrichtigungen.md: one-click per-server mute, same flag as Edit server's "Mute notifications" checkbox.</summary>
+    private void OnToggleMuteMenuClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is MenuItem { DataContext: GroupViewModel group })
+        {
+            ViewModel.ToggleNotificationsMuted(group);
         }
     }
 }

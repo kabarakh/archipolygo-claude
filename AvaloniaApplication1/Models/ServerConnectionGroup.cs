@@ -61,6 +61,16 @@ public partial class ServerConnectionGroup : ObservableObject
     private Guid? _preferredLeaderSlotId;
 
     /// <summary>
+    /// Per-server override of every global notification setting: a muted
+    /// server never counts or blinks, whatever the per-category toggles say
+    /// (see <see cref="Services.AttentionTracker"/> and the feature-plan
+    /// archive's <c>Benachrichtigungen.md</c>). Missing from an older
+    /// <c>groups.json</c> simply reads as false.
+    /// </summary>
+    [ObservableProperty]
+    private bool _notificationsMuted;
+
+    /// <summary>
     /// Every slot name configured for this server. Order is preserved across
     /// edits/saves so the UI (tab header, account dropdown, slot filter)
     /// stays stable.

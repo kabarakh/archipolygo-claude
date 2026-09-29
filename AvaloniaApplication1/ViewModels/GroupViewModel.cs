@@ -84,8 +84,35 @@ public partial class GroupViewModel : ViewModelBase, IEventItemClassFilter
     [ObservableProperty]
     private SlotProfile? _selectedItemsSlotFilter;
 
+    /// <summary>
+    /// How many attention-worthy events (see <see cref="Models.AttentionCategory"/>
+    /// and the per-category "Count" setting) arrived while this group wasn't
+    /// being looked at. Only ever changed by <see cref="Services.AttentionTracker"/>,
+    /// which also resets it once the group is seen again (its tab selected
+    /// in an active main window, or its detached window active - the
+    /// Dashboard deliberately doesn't count as seen, so it keeps pointing at
+    /// where something happened). Replaced the older per-tab counter that
+    /// counted every own-slot event regardless of kind (feature-plan
+    /// archive's <c>Benachrichtigungen.md</c>). Never persisted.
+    /// </summary>
     [ObservableProperty]
-    private int _unreadEventCount;
+    [NotifyPropertyChangedFor(nameof(HasUnreadAttention))]
+    [NotifyPropertyChangedFor(nameof(DetachedWindowTitle))]
+    [NotifyPropertyChangedFor(nameof(DetachedWindowBadgeCount))]
+    private int _unreadAttentionCount;
+
+    /// <summary>Mirrors <see cref="Models.AppSettings.ShowUnreadInTitle"/> - pushed in by <see cref="MainWindowViewModel"/>, since a group view model has no settings access of its own.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(DetachedWindowTitle))]
+    private bool _showUnreadInTitle = true;
+
+    /// <summary>Mirrors <see cref="Models.AppSettings.ShowUnreadBadge"/> - pushed in the same way as <see cref="ShowUnreadInTitle"/>.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(DetachedWindowBadgeCount))]
+    private bool _showUnreadBadge = true;
+
+    /// <summary>This group's own <see cref="Views.DetachedGroupWindow"/> taskbar badge on Windows - 0 while badges are turned off.</summary>
+    public int DetachedWindowBadgeCount => ShowUnreadBadge ? UnreadAttentionCount : 0;
 
     [ObservableProperty]
     private bool _isSelected;
@@ -367,9 +394,20 @@ public partial class GroupViewModel : ViewModelBase, IEventItemClassFilter
         }
     }
 
-    public bool HasUnreadEvents => UnreadEventCount > 0;
+    public bool HasUnreadAttention => UnreadAttentionCount > 0;
 
     public string HeaderText => Group.Name;
+
+    /// <summary>Drives the small muted-bell icon next to the server name (tab header, Dashboard row) - see <see cref="ServerConnectionGroup.NotificationsMuted"/>.</summary>
+    public bool IsNotificationsMuted => Group.NotificationsMuted;
+
+    /// <summary>Label of the tab/Dashboard-row context-menu toggle - flips rather than a checkmark, same "text says what clicking does" approach as the Dashboard toggle button.</summary>
+    public string MuteMenuHeader => Group.NotificationsMuted ? "Unmute notifications" : "Mute notifications";
+
+    /// <summary>Title of this group's own <see cref="Views.DetachedGroupWindow"/> - "(3) Server" while something is unread, so it shows up in Alt-Tab/taskbar tooltips too.</summary>
+    public string DetachedWindowTitle => ShowUnreadInTitle && UnreadAttentionCount > 0
+        ? $"({UnreadAttentionCount}) {HeaderText}"
+        : HeaderText;
 
     /// <summary>
     /// <see cref="ServerConnectionGroup.Color"/> parsed to a brush, for the
@@ -925,6 +963,9 @@ public partial class GroupViewModel : ViewModelBase, IEventItemClassFilter
 
         newValue.PropertyChanged += OnGroupPropertyChanged;
         OnPropertyChanged(nameof(HeaderText));
+        OnPropertyChanged(nameof(DetachedWindowTitle));
+        OnPropertyChanged(nameof(IsNotificationsMuted));
+        OnPropertyChanged(nameof(MuteMenuHeader));
         OnPropertyChanged(nameof(Slots));
     }
 
@@ -1011,8 +1052,6 @@ public partial class GroupViewModel : ViewModelBase, IEventItemClassFilter
             return;
         }
 
-        UnreadEventCount = 0;
-
         // Tier 2 progress is fetched lazily rather than on some background
         // timer for every group regardless of whether its tab is even being
         // looked at - the first time a tab with a resolved tracker id is
@@ -1026,8 +1065,6 @@ public partial class GroupViewModel : ViewModelBase, IEventItemClassFilter
             _ = RefreshMultiworldProgressAsync();
         }
     }
-
-    partial void OnUnreadEventCountChanged(int value) => OnPropertyChanged(nameof(HasUnreadEvents));
 
     partial void OnSelectedHintFilterChanged(HintFilter value) => OnPropertyChanged(nameof(VisibleHints));
 
@@ -1074,26 +1111,8 @@ public partial class GroupViewModel : ViewModelBase, IEventItemClassFilter
     /// <inheritdoc/>
     public bool IsEventItemClassFilterActive => EventItemClassFilterText.IsActive(this);
 
-    private void OnEventsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
-    {
+    private void OnEventsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) =>
         OnPropertyChanged(nameof(VisibleEvents));
-
-        if (e.Action != NotifyCollectionChangedAction.Add || IsSelected || e.NewItems is null)
-        {
-            return;
-        }
-
-        var relevantCount = 0;
-        foreach (var item in e.NewItems)
-        {
-            if (item is EventEntry { ConcernsOwnSlot: true })
-            {
-                relevantCount++;
-            }
-        }
-
-        UnreadEventCount += relevantCount;
-    }
 
     private void OnHintsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
@@ -1124,6 +1143,13 @@ public partial class GroupViewModel : ViewModelBase, IEventItemClassFilter
         if (e.PropertyName == nameof(ServerConnectionGroup.Name))
         {
             OnPropertyChanged(nameof(HeaderText));
+            OnPropertyChanged(nameof(DetachedWindowTitle));
+        }
+
+        if (e.PropertyName == nameof(ServerConnectionGroup.NotificationsMuted))
+        {
+            OnPropertyChanged(nameof(IsNotificationsMuted));
+            OnPropertyChanged(nameof(MuteMenuHeader));
         }
 
         if (e.PropertyName == nameof(ServerConnectionGroup.Color))

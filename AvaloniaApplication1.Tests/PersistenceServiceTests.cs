@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -326,6 +327,85 @@ public sealed class PersistenceServiceTests : IDisposable
 
         Assert.Equal("System", loaded.ThemePreference);
         Assert.True(loaded.DefaultAutoConnect);
+    }
+
+    [Fact]
+    public void SaveThenLoadSettings_RoundTripsAttentionSettings()
+    {
+        var settings = new AppSettings { AttentionBlinkMode = "UntilFocus", AttentionBlinkCount = 7 };
+        settings.AttentionCategories[nameof(AttentionCategory.Chat)] = new AttentionCategorySetting { Count = true, Blink = false };
+        settings.AttentionCategories[nameof(AttentionCategory.DeathLink)] = new AttentionCategorySetting { Count = false, Blink = false };
+
+        _service.SaveSettings(settings);
+        var loaded = _service.LoadSettings();
+
+        Assert.Equal(AttentionBlinkMode.UntilFocus, loaded.BlinkMode);
+        Assert.Equal(7, loaded.AttentionBlinkCount);
+        var chat = loaded.GetAttentionCategorySetting(AttentionCategory.Chat);
+        Assert.True(chat.Count);
+        Assert.False(chat.Blink);
+        var deathLink = loaded.GetAttentionCategorySetting(AttentionCategory.DeathLink);
+        Assert.False(deathLink.Count);
+        Assert.False(deathLink.Blink);
+    }
+
+    /// <summary>
+    /// An older settings.json (or one from before a category was added)
+    /// only lists some categories - every missing one must keep its own
+    /// default instead of silently reading as "off". Also guards how
+    /// PreferredObjectCreationHandling.Populate treats a dictionary property
+    /// with an initializer (the ObservableCollection gotcha from CLAUDE.md's
+    /// sibling case).
+    /// </summary>
+    [Fact]
+    public void LoadSettings_OnlySomeAttentionCategoriesStored_OthersKeepTheirDefaults()
+    {
+        Directory.CreateDirectory(_tempDirectory);
+        var path = Path.Combine(_tempDirectory, "settings.json");
+        File.WriteAllText(path, JsonSerializer.Serialize(new
+        {
+            AttentionCategories = new Dictionary<string, object>
+            {
+                [nameof(AttentionCategory.OwnHint)] = new { Count = false, Blink = false }
+            }
+        }));
+
+        var loaded = _service.LoadSettings();
+
+        Assert.False(loaded.GetAttentionCategorySetting(AttentionCategory.OwnHint).Blink);
+        Assert.True(loaded.GetAttentionCategorySetting(AttentionCategory.ProgressionItem).Blink);
+        Assert.True(loaded.GetAttentionCategorySetting(AttentionCategory.DeathLink).Count);
+        Assert.False(loaded.GetAttentionCategorySetting(AttentionCategory.Chat).Count);
+    }
+
+    [Fact]
+    public void LoadSettings_FileFromBeforeAttentionSettingsExisted_UsesDefaults()
+    {
+        Directory.CreateDirectory(_tempDirectory);
+        var path = Path.Combine(_tempDirectory, "settings.json");
+        File.WriteAllText(path, JsonSerializer.Serialize(new { EventHistoryLimit = 500 }));
+
+        var loaded = _service.LoadSettings();
+
+        Assert.Equal(AttentionBlinkMode.Count, loaded.BlinkMode);
+        Assert.Equal(4, loaded.AttentionBlinkCount);
+        Assert.True(loaded.GetAttentionCategorySetting(AttentionCategory.OwnHint).Blink);
+        Assert.False(loaded.GetAttentionCategorySetting(AttentionCategory.OtherItem).Blink);
+    }
+
+    [Fact]
+    public void LoadSettings_GroupFromBeforeNotificationsMutedExisted_IsNotMuted()
+    {
+        var group = new ServerConnectionGroup { Name = "Old", NotificationsMuted = true };
+        _service.SaveGroups(new[] { group });
+        var path = Path.Combine(_tempDirectory, "groups.json");
+        var groups = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(path))!.AsArray();
+        Assert.True(groups[0]!.AsObject().Remove(nameof(ServerConnectionGroup.NotificationsMuted)));
+        File.WriteAllText(path, groups.ToJsonString());
+
+        var loaded = Assert.Single(_service.LoadGroups());
+
+        Assert.False(loaded.NotificationsMuted);
     }
 
     private void WriteLegacyProfilesFile(object legacyProfiles)

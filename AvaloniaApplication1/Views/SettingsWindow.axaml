@@ -25,6 +25,48 @@
         <TextBlock Text="Event history limit per tab"/>
         <NumericUpDown Value="{Binding EventHistoryLimit}" Minimum="1" Maximum="100000" FormatString="0"/>
 
+        <!-- Benachrichtigungen.md (feature-plan archive): what counts toward the unread
+             count (tab badge, Dashboard, window title) and what blinks the
+             taskbar button - per category, both independent. Applied as soon
+             as Save is clicked (see MainWindowViewModel.SaveSettings). -->
+        <Border Height="1" Background="Gray" Opacity="0.3" Margin="0,8,0,0"/>
+        <TextBlock Text="Notifications" FontWeight="SemiBold"/>
+
+        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" ColumnSpacing="8" RowSpacing="6">
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Taskbar blink" VerticalAlignment="Center"/>
+            <ComboBox Grid.Row="0" Grid.Column="1" HorizontalAlignment="Stretch"
+                      ItemsSource="{Binding BlinkModes}" SelectedItem="{Binding SelectedBlinkMode}"/>
+            <!-- Windows only - see SettingsViewModel.SupportsBlinkCount. -->
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Times" VerticalAlignment="Center"
+                       IsVisible="{Binding ShowBlinkCount}"/>
+            <NumericUpDown Grid.Row="1" Grid.Column="1" Minimum="1" Maximum="20" FormatString="0"
+                           Value="{Binding BlinkCount}" IsVisible="{Binding ShowBlinkCount}"/>
+        </Grid>
+
+        <Grid ColumnDefinitions="*,56,56" Margin="0,4,0,0">
+            <TextBlock Grid.Column="0" Text="Event" Opacity="0.6" FontSize="12"/>
+            <TextBlock Grid.Column="1" Text="Count" Opacity="0.6" FontSize="12" HorizontalAlignment="Center"/>
+            <TextBlock Grid.Column="2" Text="Blink" Opacity="0.6" FontSize="12" HorizontalAlignment="Center"/>
+        </Grid>
+        <ItemsControl ItemsSource="{Binding AttentionCategories}">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:AttentionCategoryRowViewModel">
+                    <Grid ColumnDefinitions="*,56,56">
+                        <TextBlock Grid.Column="0" Text="{Binding Label}" VerticalAlignment="Center"/>
+                        <CheckBox Grid.Column="1" IsChecked="{Binding Count}" HorizontalAlignment="Center"/>
+                        <CheckBox Grid.Column="2" IsChecked="{Binding Blink}" HorizontalAlignment="Center"/>
+                    </Grid>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <TextBlock Text="Count: shown on the tab, the Dashboard and in the window title. Blink: flash the taskbar button while the window isn't focused. Individual servers can be muted in Edit server."
+                   Opacity="0.6" FontSize="12" TextWrapping="Wrap"/>
+        <CheckBox Content="Show unread count in window title" IsChecked="{Binding ShowUnreadInTitle}"/>
+        <!-- Windows taskbar overlay / macOS Dock badge - not offered where
+             no native badge exists (Linux), see SettingsViewModel.SupportsUnreadBadge. -->
+        <CheckBox Content="Show unread count as taskbar/Dock badge" IsChecked="{Binding ShowUnreadBadge}"
+                  IsVisible="{Binding SupportsUnreadBadge}"/>
+
         <TextBlock Text="{Binding ValidationError}"
                    Foreground="Red"
                    IsVisible="{Binding ValidationError, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"

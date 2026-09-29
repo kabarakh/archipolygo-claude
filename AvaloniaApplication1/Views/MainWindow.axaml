@@ -11,7 +11,7 @@
         x:Class="Archipolygo.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Icon="/Assets/archipolyo-icon.ico"
-        Title="Archipolygo">
+        Title="{Binding MainWindowTitle}">
 
     <Window.Resources>
         <!-- SegmentKindToBrushConverter/EventTextSegmentTemplate come from
@@ -185,6 +185,7 @@
                         <Border.ContextMenu>
                             <ContextMenu>
                                 <MenuItem Header="Open in new window" Click="OnDetachTabMenuClick"/>
+                                <MenuItem Header="{Binding MuteMenuHeader}" Click="OnToggleMuteMenuClick"/>
                             </ContextMenu>
                         </Border.ContextMenu>
                         <!-- Grid, not the StackPanel directly as the Border's child -
@@ -214,11 +215,17 @@
                                          Fill="{Binding ConnectionState, Converter={StaticResource ConnectionStateToBrushConverter}}"/>
                                 <Border Background="OrangeRed" CornerRadius="8" MinWidth="16" Height="16"
                                         Padding="4,0" VerticalAlignment="Center"
-                                        IsVisible="{Binding HasUnreadEvents}">
-                                    <TextBlock Text="{Binding UnreadEventCount}" Foreground="White" FontSize="10"
+                                        IsVisible="{Binding HasUnreadAttention}">
+                                    <TextBlock Text="{Binding UnreadAttentionCount}" Foreground="White" FontSize="10"
                                                FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 </Border>
                                 <TextBlock Text="{Binding HeaderText}" Foreground="{Binding ColorBrush}"/>
+                                <!-- Benachrichtigungen.md: this server is muted (Edit server /
+                                     right-click "Mute notifications"). -->
+                                <Path Data="{StaticResource BellOffGeometry}" Width="11" Height="11" Stretch="Uniform"
+                                      Stroke="{Binding $parent[TabItem].Foreground}" StrokeThickness="1.4" Opacity="0.6"
+                                      VerticalAlignment="Center" IsVisible="{Binding IsNotificationsMuted}"
+                                      ToolTip.Tip="Notifications muted for this server"/>
                                 <!-- Only shown while there's no live leader connection,
                                      so the tab itself surfaces "disconnected"/
                                      "connecting"/"reconnecting"/"error" without

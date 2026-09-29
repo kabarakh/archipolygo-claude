@@ -8,7 +8,7 @@ namespace Archipolygo.TestSupport;
 /// <summary>No-op <see cref="IHintService"/> - see <see cref="NoOpMessageHistoryService"/>'s doc comment for why.</summary>
 public sealed class NoOpHintService : IHintService
 {
-    public void SyncHints(GroupViewModel group, IReadOnlyList<HintSnapshot> hints) { }
+    public void SyncHints(GroupViewModel group, IReadOnlyList<HintSnapshot> hints, bool isLive) { }
 
     public void AddHintFromChat(GroupViewModel group, HintSnapshot snapshot) { }
 }

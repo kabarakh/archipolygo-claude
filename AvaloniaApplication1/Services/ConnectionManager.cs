@@ -134,10 +134,10 @@ public class ConnectionManager : IConnectionManager
 
     // Optional - see HintService's own doc comment on its matching field for
     // the "purely additive dependency" reasoning. Used directly here only
-    // for DeathLink (no per-item classification needed); the item/hint
+    // for DeathLink (no per-item classification needed); the item/hint/chat
     // trigger points live in SessionEventTranslator/HintService instead,
     // both constructed with this same instance below.
-    private readonly IWindowAttentionService? _windowAttentionService;
+    private readonly IAttentionTracker? _attentionTracker;
 
     public ConnectionManager(
         IMessageHistoryService messageHistoryService,
@@ -148,7 +148,7 @@ public class ConnectionManager : IConnectionManager
         IPersistenceService? persistenceService = null,
         TimeSpan? dataPackageRequestTimeout = null,
         IDiagnosticLogger? diagnosticLogger = null,
-        IWindowAttentionService? windowAttentionService = null)
+        IAttentionTracker? attentionTracker = null)
     {
         _messageHistoryService = messageHistoryService;
         _hintService = hintService;
@@ -158,8 +158,8 @@ public class ConnectionManager : IConnectionManager
         _persistenceService = persistenceService;
         _dataPackageRequestTimeout = dataPackageRequestTimeout ?? DefaultDataPackageRequestTimeout;
         _diagnosticLogger = diagnosticLogger ?? NullDiagnosticLogger.Instance;
-        _windowAttentionService = windowAttentionService;
-        _sessionEvents = new SessionEventTranslator(_messageHistoryService, _hintService, _windowAttentionService);
+        _attentionTracker = attentionTracker;
+        _sessionEvents = new SessionEventTranslator(_messageHistoryService, _hintService, _attentionTracker);
         _socketCleanup = new SocketCleanup(_messageHistoryService, _diagnosticLogger);
     }
 
@@ -1116,11 +1116,9 @@ public class ConnectionManager : IConnectionManager
                     {
                         _messageHistoryService.HandleDeathLinkReceived(group, deathLink);
 
-                        // Feature-Plaene/Tab-Eigenes-Fenster.md, Phase 2: no
-                        // classification needed here, unlike items/hints -
-                        // every DeathLink is one of this feature's decided
-                        // trigger conditions.
-                        _windowAttentionService?.RequestAttention(group.Group.Id);
+                        // No classification needed, unlike items/hints/chat -
+                        // every DeathLink is its own attention category.
+                        _attentionTracker?.Report(group, AttentionCategory.DeathLink);
                     };
                 }
             }
@@ -1130,7 +1128,7 @@ public class ConnectionManager : IConnectionManager
             // Umsetzungsplan.md, section "Warum die Leader-Session pro
             // Sibling-Slot ein eigenes TrackHints braucht".
             session.Hints.TrackHints(
-                hints => _sessionEvents.OnHintsUpdated(group, session, hints),
+                hints => _sessionEvents.OnHintsUpdated(group, session, hints, isLeaderSession && hasAnnouncedConnection),
                 retrieveCurrentlyUnlockedHints: true);
 
             if (isLeaderSession)
@@ -1146,7 +1144,7 @@ public class ConnectionManager : IConnectionManager
                     }
 
                     session.Hints.TrackHints(
-                        hints => _sessionEvents.OnHintsUpdated(group, session, hints),
+                        hints => _sessionEvents.OnHintsUpdated(group, session, hints, isLeaderSession && hasAnnouncedConnection),
                         retrieveCurrentlyUnlockedHints: true,
                         slot: numericSlotId);
                 }

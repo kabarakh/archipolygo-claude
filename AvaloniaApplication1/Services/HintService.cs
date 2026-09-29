@@ -11,20 +11,20 @@ public class HintService : IHintService
 
     /// <summary>
     /// Optional - null in every existing test construction site that
-    /// doesn't care about Feature-Plaene/Tab-Eigenes-Fenster.md's window
-    /// flash, same "purely additive dependency" reasoning as this app's
-    /// other optional services (e.g. <see cref="ViewModels.MainWindowViewModel"/>'s
-    /// own <c>IUpdateService?</c>).
+    /// doesn't care about attention reporting (window flash, see
+    /// <see cref="IAttentionTracker"/>), same "purely additive dependency"
+    /// reasoning as this app's other optional services (e.g.
+    /// <see cref="ViewModels.MainWindowViewModel"/>'s own <c>IUpdateService?</c>).
     /// </summary>
-    private readonly IWindowAttentionService? _windowAttentionService;
+    private readonly IAttentionTracker? _attentionTracker;
 
-    public HintService(IProfileSyncStateStore syncStateStore, IWindowAttentionService? windowAttentionService = null)
+    public HintService(IProfileSyncStateStore syncStateStore, IAttentionTracker? attentionTracker = null)
     {
         _syncStateStore = syncStateStore;
-        _windowAttentionService = windowAttentionService;
+        _attentionTracker = attentionTracker;
     }
 
-    public void SyncHints(GroupViewModel group, IReadOnlyList<HintSnapshot> hints)
+    public void SyncHints(GroupViewModel group, IReadOnlyList<HintSnapshot> hints, bool isLive)
     {
         // The whole diff runs on the UI thread: group.Hints is owned by the UI and
         // must not be enumerated from a background thread while a previous,
@@ -40,7 +40,7 @@ public class HintService : IHintService
 
             foreach (var snapshot in hints)
             {
-                AddOrUpdate(group, index, snapshot, addEventEntry: true, changedStates);
+                AddOrUpdate(group, index, snapshot, addEventEntry: true, reportAttention: isLive, changedStates);
             }
 
             foreach (var state in changedStates)
@@ -59,7 +59,9 @@ public class HintService : IHintService
             // No event entry of its own: the chat line this came from is
             // already in the log (typed HintReceived, see
             // SessionEventTranslator.OnLeaderMessageReceived).
-            AddOrUpdate(group, new HintIndex(group.Hints), snapshot, addEventEntry: false, changedStates);
+            // Always live: chat lines only ever reach the leader's message
+            // log in real time, never as replayed backlog.
+            AddOrUpdate(group, new HintIndex(group.Hints), snapshot, addEventEntry: false, reportAttention: true, changedStates);
 
             foreach (var state in changedStates)
             {
@@ -76,7 +78,7 @@ public class HintService : IHintService
     /// alone identifies a hint) - is only updated in place, never duplicated.
     /// Must run on the UI thread.
     /// </summary>
-    private void AddOrUpdate(GroupViewModel group, HintIndex index, HintSnapshot snapshot, bool addEventEntry, HashSet<ProfileSyncState> changedStates)
+    private void AddOrUpdate(GroupViewModel group, HintIndex index, HintSnapshot snapshot, bool addEventEntry, bool reportAttention, HashSet<ProfileSyncState> changedStates)
     {
         var existing = index.Find(snapshot);
 
@@ -150,13 +152,17 @@ public class HintService : IHintService
                 });
             }
 
-            // Feature-Plaene/Tab-Eigenes-Fenster.md, Phase 2: a genuinely
-            // new, still-unfound hint is exactly the condition already
-            // guarding the event-log entry above - reuse it rather than
-            // re-deriving "is this worth flashing for" separately. Applies
+            // A genuinely new, still-unfound hint is exactly the condition
+            // already guarding the event-log entry above - reuse it rather
+            // than re-deriving "is this worth attention" separately. Applies
             // to a chat-sourced hint too, since whichever source arrives
-            // first is the only one that ever gets this far.
-            _windowAttentionService?.RequestAttention(group.Group.Id);
+            // first is the only one that ever gets this far. Every hint that
+            // reaches this service already concerns one of this group's
+            // slots (SessionEventTranslator only snapshots those).
+            if (reportAttention)
+            {
+                _attentionTracker?.Report(group, AttentionCategory.OwnHint);
+            }
         }
 
         if (syncState.SeenHintIds.Add(snapshot.Key))

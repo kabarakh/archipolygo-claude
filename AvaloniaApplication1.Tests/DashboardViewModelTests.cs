@@ -48,8 +48,8 @@ public class DashboardViewModelTests
         groups.Add(g1);
         groups.Add(g2);
 
-        g1.UnreadEventCount = 5;
-        g2.UnreadEventCount = 7;
+        g1.UnreadAttentionCount = 5;
+        g2.UnreadAttentionCount = 7;
         g1.Hints.Add(MakeHint(Guid.NewGuid(), "Sword"));
         g2.Hints.Add(MakeHint(Guid.NewGuid(), "Shield"));
         g2.Hints.Add(MakeHint(Guid.NewGuid(), "Bow", found: true)); // found - still counts toward UnfoundHintCount denominator? No: UnfoundHintCount only counts unfound.
@@ -67,7 +67,7 @@ public class DashboardViewModelTests
 
         var g1 = MakeGroup("Server1");
         groups.Add(g1);
-        g1.UnreadEventCount = 3;
+        g1.UnreadAttentionCount = 3;
         Assert.Equal(1, dashboard.TotalServers);
         Assert.Equal(3, dashboard.TotalUnreadEvents);
 
@@ -84,7 +84,7 @@ public class DashboardViewModelTests
         groups.Add(g1);
         var dashboard = new DashboardViewModel(groups, _ => { }, (_, _, _) => { });
 
-        g1.UnreadEventCount = 4;
+        g1.UnreadAttentionCount = 4;
         Assert.Equal(4, dashboard.TotalUnreadEvents);
 
         g1.Hints.Add(MakeHint(Guid.NewGuid(), "Sword"));

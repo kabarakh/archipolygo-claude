@@ -53,11 +53,10 @@ public class EventEntry
     /// <summary>
     /// Whether this entry actually concerns this tab's own slot, as opposed
     /// to e.g. chat banter between two other players, or a hint that's
-    /// neither received by nor to be found by this slot. Used to decide
-    /// whether the entry should count towards the tab's unread-event badge
-    /// (see <see cref="ViewModels.GroupViewModel.UnreadEventCount"/>); defaults
-    /// to true since most event types (connect/disconnect/error/item
-    /// received) are inherently about this slot.
+    /// neither received by nor to be found by this slot. Drives the Events
+    /// panel's "relevant only" filter; defaults to true since most event
+    /// types (connect/disconnect/error/item received) are inherently about
+    /// this slot.
     /// </summary>
     public bool ConcernsOwnSlot { get; init; } = true;
 

@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using Archipolygo.Models;
 using Avalonia.Controls;
 
 namespace Archipolygo.Services;
@@ -9,15 +11,37 @@ public sealed class WindowAttentionService : IWindowAttentionService
 {
     private readonly IGroupWindowLocator _locator;
 
+    /// <summary>Windows whose Activated/Closed events are already forwarded to <see cref="WindowAcknowledged"/> - hooked lazily on first resolve, since detached windows come and go.</summary>
+    private readonly HashSet<Window> _hookedWindows = new(ReferenceEqualityComparer.Instance);
+
     public WindowAttentionService(IGroupWindowLocator locator)
     {
         _locator = locator;
     }
 
-    public void RequestAttention(Guid groupId)
+    public event Action<object>? WindowAcknowledged;
+
+    public object? ResolveWindow(Guid groupId)
     {
         var window = _locator.Resolve(groupId);
-        if (window is null || window.IsActive)
+        if (window is not null && _hookedWindows.Add(window))
+        {
+            window.Activated += OnWindowActivated;
+            window.Closed += OnWindowClosed;
+        }
+
+        return window;
+    }
+
+    public bool IsActive(object window) => window is Window { IsActive: true };
+
+    public bool IsGroupSeen(Guid groupId) =>
+        ResolveWindow(groupId) is Window { IsActive: true } window &&
+        (window is not IGroupHostWindow host || host.IsShowingGroup(groupId));
+
+    public void RequestAttention(object window, AttentionBlinkMode mode, int blinkCount)
+    {
+        if (mode == AttentionBlinkMode.Off || window is not Window avaloniaWindow)
         {
             return;
         }
@@ -25,21 +49,24 @@ public sealed class WindowAttentionService : IWindowAttentionService
         // Every platform call below is best-effort - a failed/unsupported
         // interop call here must never take the whole app down over a
         // cosmetic attention request. See each helper's own doc comment for
-        // the platform-specific API this wraps (Feature-Plaene/Tab-Eigenes-Fenster.md,
-        // Phase 2's API research).
+        // the platform-specific API this wraps (the feature-plan archive's
+        // Tab-Eigenes-Fenster.md, Phase 2's API research).
         try
         {
+            var untilFocus = mode == AttentionBlinkMode.UntilFocus;
             if (OperatingSystem.IsWindows())
             {
-                WindowsWindowAttention.Flash(window);
+                WindowsWindowAttention.Flash(avaloniaWindow, untilFocus, (uint)Math.Max(1, blinkCount));
             }
             else if (OperatingSystem.IsMacOS())
             {
-                MacWindowAttention.RequestAttention();
+                MacWindowAttention.RequestAttention(untilFocus);
             }
             else if (OperatingSystem.IsLinux())
             {
-                LinuxWindowAttention.RequestAttention(window);
+                // No "how long" knob exists here - the window manager
+                // decides how (and for how long) to show the hint.
+                LinuxWindowAttention.RequestAttention(avaloniaWindow);
             }
         }
         catch
@@ -47,16 +74,37 @@ public sealed class WindowAttentionService : IWindowAttentionService
             // Best-effort only - see this method's own doc comment.
         }
     }
+
+    private void OnWindowActivated(object? sender, EventArgs e)
+    {
+        if (sender is Window window)
+        {
+            WindowAcknowledged?.Invoke(window);
+        }
+    }
+
+    private void OnWindowClosed(object? sender, EventArgs e)
+    {
+        if (sender is not Window window)
+        {
+            return;
+        }
+
+        window.Activated -= OnWindowActivated;
+        window.Closed -= OnWindowClosed;
+        _hookedWindows.Remove(window);
+        WindowAcknowledged?.Invoke(window);
+    }
 }
 
 /// <summary>
 /// Windows: <c>FlashWindowEx</c> (user32.dll) - flashes the taskbar button
-/// and caption <see cref="FlashCount"/> times, after which Windows itself
+/// and caption either a fixed number of times, after which Windows itself
 /// leaves the taskbar button highlighted until the window is activated (the
-/// Discord-style "blink briefly, then stay marked" behavior). Replaced the
-/// original endless <c>FLASHW_TIMERNOFG</c> flash, which kept blinking for as
-/// long as the window stayed unfocused - see the feature-plan archive's
-/// <c>Tab-Eigenes-Fenster.md</c> status section.
+/// Discord-style "blink briefly, then stay marked" behavior, the default),
+/// or with <c>FLASHW_TIMERNOFG</c> for as long as the window stays unfocused
+/// (the original behavior, now opt-in via
+/// <see cref="Models.AttentionBlinkMode.UntilFocus"/>).
 /// </summary>
 internal static class WindowsWindowAttention
 {
@@ -73,13 +121,13 @@ internal static class WindowsWindowAttention
     /// <summary>FLASHW_CAPTION | FLASHW_TRAY - flash both the title bar and the taskbar button.</summary>
     private const uint FlashwAll = 0x00000003;
 
-    /// <summary>Default cap on how often a single attention request blinks; becomes a user setting later (see the feature-plan directory's <c>Benachrichtigungen.md</c>).</summary>
-    private const uint FlashCount = 4;
+    /// <summary>FLASHW_TIMERNOFG - keep flashing until the window comes to the foreground.</summary>
+    private const uint FlashwTimerNoFg = 0x0000000C;
 
     [DllImport("user32.dll")]
     private static extern bool FlashWindowEx(ref FLASHWINFO pwfi);
 
-    public static void Flash(Window window)
+    public static void Flash(Window window, bool untilFocus, uint count)
     {
         var handle = window.TryGetPlatformHandle();
         if (handle is null || handle.Handle == IntPtr.Zero)
@@ -90,8 +138,8 @@ internal static class WindowsWindowAttention
         var info = new FLASHWINFO
         {
             hwnd = handle.Handle,
-            dwFlags = FlashwAll,
-            uCount = FlashCount,
+            dwFlags = untilFocus ? FlashwAll | FlashwTimerNoFg : FlashwAll,
+            uCount = untilFocus ? 0 : count,
             dwTimeout = 0
         };
         info.cbSize = (uint)Marshal.SizeOf<FLASHWINFO>();
@@ -108,12 +156,13 @@ internal static class WindowsWindowAttention
 /// by this cross-platform Avalonia app - see Feature-Plaene/Tab-Eigenes-Fenster.md).
 /// <c>NSInformationalRequest</c> (10) bounces once - AppKit offers no
 /// "bounce N times" equivalent of Windows' flash count, so this is the
-/// closest match to the capped Windows flash. The original
-/// <c>NSCriticalRequest</c> (0) bounced continuously until the app was
-/// activated.
+/// closest match to the capped Windows flash. <c>NSCriticalRequest</c> (0)
+/// bounces continuously until the app is activated - used for
+/// <see cref="Models.AttentionBlinkMode.UntilFocus"/>.
 /// </summary>
 internal static class MacWindowAttention
 {
+    private const long NsCriticalRequest = 0;
     private const long NsInformationalRequest = 10;
 
     [DllImport("/usr/lib/libobjc.dylib")]
@@ -128,11 +177,11 @@ internal static class MacWindowAttention
     [DllImport("/usr/lib/libobjc.dylib", EntryPoint = "objc_msgSend")]
     private static extern IntPtr objc_msgSend_long(IntPtr receiver, IntPtr selector, IntPtr arg);
 
-    public static void RequestAttention()
+    public static void RequestAttention(bool untilFocus)
     {
         var nsApplicationClass = objc_getClass("NSApplication");
         var sharedApplication = objc_msgSend_get(nsApplicationClass, sel_registerName("sharedApplication"));
-        objc_msgSend_long(sharedApplication, sel_registerName("requestUserAttention:"), (IntPtr)NsInformationalRequest);
+        objc_msgSend_long(sharedApplication, sel_registerName("requestUserAttention:"), (IntPtr)(untilFocus ? NsCriticalRequest : NsInformationalRequest));
     }
 }
 
@@ -148,6 +197,9 @@ internal static class MacWindowAttention
 /// change; whichever doesn't (or ignores this entirely under Wayland) was
 /// already an accepted limitation, not something this feature promises to
 /// fix - see Feature-Plaene/Tab-Eigenes-Fenster.md's own API research.
+/// The current property value is read first (<c>XGetWindowProperty</c>,
+/// again scalar-only signatures) so repeated requests don't keep appending
+/// the same atom over and over.
 /// </summary>
 internal static class LinuxWindowAttention
 {
@@ -162,6 +214,13 @@ internal static class LinuxWindowAttention
 
     [DllImport("libX11.so.6")]
     private static extern int XChangeProperty(IntPtr display, IntPtr window, IntPtr property, IntPtr type, int format, int mode, long[] data, int nelements);
+
+    [DllImport("libX11.so.6")]
+    private static extern int XGetWindowProperty(IntPtr display, IntPtr window, IntPtr property, IntPtr longOffset, IntPtr longLength, bool delete, IntPtr reqType,
+                                                 out IntPtr actualType, out int actualFormat, out IntPtr itemCount, out IntPtr bytesAfter, out IntPtr data);
+
+    [DllImport("libX11.so.6")]
+    private static extern int XFree(IntPtr data);
 
     [DllImport("libX11.so.6")]
     private static extern void XFlush(IntPtr display);
@@ -192,12 +251,53 @@ internal static class LinuxWindowAttention
                 return;
             }
 
+            if (HasAtom(display, handle.Handle, stateAtom, attentionAtom))
+            {
+                return;
+            }
+
             XChangeProperty(display, handle.Handle, stateAtom, XaAtom, 32, PropModeAppend, new[] { (long)attentionAtom }, 1);
             XFlush(display);
         }
         finally
         {
             XCloseDisplay(display);
+        }
+    }
+
+    /// <summary>Whether <paramref name="atom"/> is already part of the window's <c>_NET_WM_STATE</c> list. Format-32 property data is an array of C <c>long</c>s, i.e. pointer-sized on Linux.</summary>
+    private static bool HasAtom(IntPtr display, IntPtr window, IntPtr property, IntPtr atom)
+    {
+        const int success = 0;
+        if (XGetWindowProperty(display, window, property, IntPtr.Zero, (IntPtr)1024, false, XaAtom,
+                               out _, out var format, out var itemCount, out _, out var data) != success)
+        {
+            return false;
+        }
+
+        try
+        {
+            if (data == IntPtr.Zero || format != 32)
+            {
+                return false;
+            }
+
+            for (var i = 0; i < (long)itemCount; i++)
+            {
+                if (Marshal.ReadIntPtr(data, i * IntPtr.Size) == atom)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+        finally
+        {
+            if (data != IntPtr.Zero)
+            {
+                XFree(data);
+            }
         }
     }
 }

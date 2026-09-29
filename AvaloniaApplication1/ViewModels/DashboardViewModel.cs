@@ -121,7 +121,8 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
 
     public int TotalServers => _groups.Count;
 
-    public int TotalUnreadEvents => _groups.Sum(g => g.UnreadEventCount);
+    /// <summary>Sum of every group's <see cref="GroupViewModel.UnreadAttentionCount"/> - the Dashboard itself doesn't reset these (it isn't "seen", see that property's doc comment).</summary>
+    public int TotalUnreadEvents => _groups.Sum(g => g.UnreadAttentionCount);
 
     public int TotalUnfoundHints => _groups.Sum(g => g.UnfoundHintCount);
 
@@ -221,7 +222,7 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
 
     private void OnGroupPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is nameof(GroupViewModel.UnreadEventCount) or nameof(GroupViewModel.UnfoundHintCount))
+        if (e.PropertyName is nameof(GroupViewModel.UnreadAttentionCount) or nameof(GroupViewModel.UnfoundHintCount))
         {
             RaiseAggregatesChanged();
         }

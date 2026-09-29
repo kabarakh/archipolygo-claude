@@ -13,6 +13,16 @@
     -->
     <conv:EventTextSegmentKindToBrushConverter x:Key="SegmentKindToBrushConverter"/>
 
+    <!--
+        Muted-bell icon (Benachrichtigungen.md: a muted server's tab header
+        and Dashboard row) - bell outline, clapper, and a diagonal slash, all
+        open strokes on a 16x16 grid. Drawn by hand rather than taken from an
+        icon font/emoji, since emoji rendering (color vs. monochrome, missing
+        glyphs) differs per platform. Meant for a stroked Path, not PathIcon
+        (which only fills).
+    -->
+    <StreamGeometry x:Key="BellOffGeometry">M8,2 C5.8,2 4.5,3.8 4.5,6 L4.5,9.5 L3,11.5 L13,11.5 L11.5,9.5 L11.5,6 C11.5,3.8 10.2,2 8,2 Z M6.5,13.5 L9.5,13.5 M2,2 L14,14</StreamGeometry>
+
     <DataTemplate x:Key="EventTextSegmentTemplate" DataType="m:EventTextSegment">
         <TextBlock Text="{Binding Text}" TextWrapping="Wrap"
                    Foreground="{Binding Kind, Converter={StaticResource SegmentKindToBrushConverter}}"/>

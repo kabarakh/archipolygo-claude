@@ -180,6 +180,11 @@
 
         <CheckBox Content="Auto-connect" IsChecked="{Binding AutoConnect}" IsVisible="{Binding ShowAutoConnect}"/>
 
+        <!-- Benachrichtigungen.md: overrides every global notification
+             setting for this one server. -->
+        <CheckBox Content="Mute notifications (no blinking, no unread count)" IsChecked="{Binding NotificationsMuted}"
+                  IsVisible="{Binding ShowNotificationsMuted}"/>
+
         <!-- Tier 2 of Feature-Plaene/Archiv/Fortschrittsanzeigen.md: whole-multiworld
              progress via the room's webhost tracker - optional, only usable
              for a room hosted through a webhost (archipelago.gg or a

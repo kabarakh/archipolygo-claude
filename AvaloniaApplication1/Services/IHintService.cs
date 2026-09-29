@@ -23,9 +23,11 @@ public interface IHintService
     /// (see <see cref="ConnectionManager"/>, which resolves that before
     /// calling this). Adds new hints, updates the <see cref="HintEntry.Found"/>
     /// status of existing ones, and persists which hints have been seen, per
-    /// slot.
+    /// slot. <paramref name="isLive"/> false (catch-up / initial replay)
+    /// still adds and flags new hints, but never reports them to
+    /// <see cref="IAttentionTracker"/>.
     /// </summary>
-    void SyncHints(GroupViewModel group, IReadOnlyList<HintSnapshot> hints);
+    void SyncHints(GroupViewModel group, IReadOnlyList<HintSnapshot> hints, bool isLive);
 
     /// <summary>
     /// Adds a single hint announced by a "[Hint]: ..." chat line to

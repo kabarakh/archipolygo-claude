@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Archipolygo.Models;
 using Archipolygo.Services;
@@ -32,6 +34,66 @@ public partial class SettingsViewModel : ViewModelBase
 
     [ObservableProperty]
     private string? _validationError;
+
+    // --- Notifications (feature-plan archive's Benachrichtigungen.md) ---
+
+    public sealed record BlinkModeOption(AttentionBlinkMode Mode, string Label)
+    {
+        public override string ToString() => Label;
+    }
+
+    public IReadOnlyList<BlinkModeOption> BlinkModes { get; } = new[]
+    {
+        new BlinkModeOption(AttentionBlinkMode.Count, "Blink a few times"),
+        new BlinkModeOption(AttentionBlinkMode.UntilFocus, "Blink until focused"),
+        new BlinkModeOption(AttentionBlinkMode.Off, "Don't blink"),
+    };
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowBlinkCount))]
+    private BlinkModeOption? _selectedBlinkMode;
+
+    [ObservableProperty]
+    private int _blinkCount = 4;
+
+    [ObservableProperty]
+    private bool _showUnreadInTitle = true;
+
+    [ObservableProperty]
+    private bool _showUnreadBadge = true;
+
+    /// <summary>
+    /// Whether platform-specific blink options apply - only Windows can
+    /// blink a set number of times (macOS bounces once, Linux leaves it to
+    /// the window manager; see <see cref="Services.WindowAttentionService"/>).
+    /// Settable so tests don't depend on the OS they run on.
+    /// </summary>
+    public bool SupportsBlinkCount { get; init; } = OperatingSystem.IsWindows();
+
+    /// <summary>Native badges exist only on Windows and macOS (see <see cref="Services.IUnreadBadgeService"/>) - settable for tests, like <see cref="SupportsBlinkCount"/>.</summary>
+    public bool SupportsUnreadBadge { get; init; } = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();
+
+    public bool ShowBlinkCount => SupportsBlinkCount && SelectedBlinkMode?.Mode == AttentionBlinkMode.Count;
+
+    /// <summary>The per-category Count/Blink table, in the order shown in the dialog.</summary>
+    public IReadOnlyList<AttentionCategoryRowViewModel> AttentionCategories { get; private init; } = BuildCategoryRows(new AppSettings());
+
+    private static IReadOnlyList<AttentionCategoryRowViewModel> BuildCategoryRows(AppSettings settings) =>
+        new (AttentionCategory Category, string Label)[]
+            {
+                (AttentionCategory.OwnHint, "Hint for one of my slots"),
+                (AttentionCategory.DeathLink, "DeathLink"),
+                (AttentionCategory.ProgressionItem, "Progression item for me"),
+                (AttentionCategory.OtherItem, "Other items for me"),
+                (AttentionCategory.ChatMention, "Chat mentioning my slot"),
+                (AttentionCategory.Chat, "Any other chat message"),
+            }
+            .Select(c =>
+            {
+                var setting = settings.GetAttentionCategorySetting(c.Category);
+                return new AttentionCategoryRowViewModel { Category = c.Category, Label = c.Label, Count = setting.Count, Blink = setting.Blink };
+            })
+            .ToList();
 
     /// <summary>
     /// The settings this dialog was opened with. <see cref="TryBuildSettings"/>
@@ -89,16 +151,32 @@ public partial class SettingsViewModel : ViewModelBase
     /// </summary>
     public bool ShowUnmanagedInstallHint { get; private init; }
 
-    public static SettingsViewModel FromSettings(AppSettings settings, Func<Task<string?>>? checkForUpdatesAsync = null, bool showUnmanagedInstallHint = false, Func<string>? readDiagnosticLog = null) => new()
+    public SettingsViewModel()
     {
-        DefaultAutoConnect = settings.DefaultAutoConnect,
-        EventHistoryLimit = settings.EventHistoryLimit,
-        CompactDensity = settings.UiDensity != DensityService.Normal,
-        _originalSettings = settings.Clone(),
-        _checkForUpdatesAsync = checkForUpdatesAsync,
-        ShowUnmanagedInstallHint = showUnmanagedInstallHint,
-        _readDiagnosticLog = readDiagnosticLog
-    };
+        _selectedBlinkMode = BlinkModes[0];
+    }
+
+    public static SettingsViewModel FromSettings(AppSettings settings, Func<Task<string?>>? checkForUpdatesAsync = null, bool showUnmanagedInstallHint = false, Func<string>? readDiagnosticLog = null,
+                                                 bool? supportsBlinkCount = null)
+    {
+        var viewModel = new SettingsViewModel
+        {
+            SupportsBlinkCount = supportsBlinkCount ?? OperatingSystem.IsWindows(),
+            AttentionCategories = BuildCategoryRows(settings),
+            BlinkCount = settings.AttentionBlinkCount,
+            ShowUnreadInTitle = settings.ShowUnreadInTitle,
+            ShowUnreadBadge = settings.ShowUnreadBadge,
+            DefaultAutoConnect = settings.DefaultAutoConnect,
+            EventHistoryLimit = settings.EventHistoryLimit,
+            CompactDensity = settings.UiDensity != DensityService.Normal,
+            _originalSettings = settings.Clone(),
+            _checkForUpdatesAsync = checkForUpdatesAsync,
+            ShowUnmanagedInstallHint = showUnmanagedInstallHint,
+            _readDiagnosticLog = readDiagnosticLog
+        };
+        viewModel.SelectedBlinkMode = viewModel.BlinkModes.First(m => m.Mode == settings.BlinkMode);
+        return viewModel;
+    }
 
     /// <summary>
     /// The log text to write out, or null if there's nothing to export
@@ -156,11 +234,27 @@ public partial class SettingsViewModel : ViewModelBase
             return false;
         }
 
+        if (BlinkCount < 1)
+        {
+            ValidationError = "Blink count must be at least 1.";
+            settings = null!;
+            return false;
+        }
+
         ValidationError = null;
         settings = _originalSettings.Clone();
         settings.DefaultAutoConnect = DefaultAutoConnect;
         settings.EventHistoryLimit = EventHistoryLimit;
         settings.UiDensity = CompactDensity ? DensityService.Compact : DensityService.Normal;
+        settings.AttentionBlinkMode = (SelectedBlinkMode?.Mode ?? AttentionBlinkMode.Count).ToString();
+        settings.AttentionBlinkCount = BlinkCount;
+        settings.ShowUnreadInTitle = ShowUnreadInTitle;
+        settings.ShowUnreadBadge = ShowUnreadBadge;
+        foreach (var row in AttentionCategories)
+        {
+            settings.AttentionCategories[row.Category.ToString()] = new AttentionCategorySetting { Count = row.Count, Blink = row.Blink };
+        }
+
         return true;
     }
 }

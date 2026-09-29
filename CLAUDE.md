@@ -126,6 +126,25 @@ changing behavior it explains, and update the Umsetzungsplan.md section
   picker's missing-locations cache). `ConnectionManager` still does the
   session-event *subscribing* (inside `ConnectSlotSessionAsync`) and calls
   into `SessionEventTranslator`'s methods from those subscriptions.
+- `Services/AttentionTracker.cs` (`IAttentionTracker`) - the single place
+  every "this deserves attention" trigger (hint, DeathLink, item, chat - see
+  `Models/AttentionCategory.cs`) reports to; it applies the per-category
+  settings, per-server mute and blink throttling, keeps each
+  `GroupViewModel.UnreadAttentionCount` (tab badge, Dashboard, window
+  titles - it replaced the older count-every-own-slot-event
+  `UnreadEventCount`) and resets it via `RefreshSeenState` once the group is
+  on screen (`IGroupHostWindow`; the Dashboard deliberately doesn't count
+  as on screen; the same count also drives `IUnreadBadgeService`'s native
+  taskbar-overlay/Dock badge, wired from `MainWindow`/`DetachedGroupWindow`
+  code-behind - re-applied on `ScalingChanged` because Avalonia's Win32
+  backend clears overlays itself on every DPI change), then calls
+  `IWindowAttentionService` (`Services/WindowAttentionService.cs`), which is
+  only the platform layer (resolve window, is-active, the actual
+  FlashWindowEx/Dock-bounce/X11 call). Trigger sites only ever report *live*
+  activity, never catch-up backlog. See `Benachrichtigungen.md` in the
+  feature-plan archive (its status section lists how the build differs
+  from the plan); further ideas (toasts, sound, ...) are sketched in
+  `Benachrichtigungen-Erweiterungen.md` in the feature-plan directory.
 - `Services/MessageHistoryService.cs` / `HintService.cs` - turn raw session
   data into `EventEntry`/`HintEntry` and append them to a `GroupViewModel`'s
   collections; also own the per-slot "what have I already shown"

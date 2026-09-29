@@ -38,12 +38,14 @@ public partial class App : Application
         services.AddSingleton<IHintService, HintService>();
         services.AddSingleton<ISessionFactory, ArchipelagoSessionFactoryAdapter>();
         // Feature-Plaene/Tab-Eigenes-Fenster.md: shared foundation for both
-        // detached-window support and the window flash - registered before
-        // IConnectionManager, which consumes IWindowAttentionService (via
-        // HintService/its own DeathLink handling/its internal
-        // SessionEventTranslator) as an optional constructor parameter.
+        // detached-window support and the window flash. IAttentionTracker
+        // (Benachrichtigungen.md) decides whether a trigger blinks; it's
+        // consumed by HintService, ConnectionManager (DeathLink) and its
+        // internal SessionEventTranslator as an optional constructor
+        // parameter, and by MainWindowViewModel to pick up saved settings.
         services.AddSingleton<IGroupWindowLocator, GroupWindowLocator>();
         services.AddSingleton<IWindowAttentionService, WindowAttentionService>();
+        services.AddSingleton<IAttentionTracker, AttentionTracker>();
         services.AddSingleton<IConnectionManager, ConnectionManager>();
         services.AddSingleton<IMultiworldTrackerService, MultiworldTrackerService>();
         services.AddSingleton<IUpdateService, UpdateService>();
@@ -75,6 +77,11 @@ public partial class App : Application
             var groupWindowLocator = Services.GetRequiredService<IGroupWindowLocator>();
             groupWindowLocator.RegisterMainWindow(mainWindow);
             mainWindow.GroupWindowLocator = groupWindowLocator;
+
+            // Benachrichtigungen.md step 4 - native taskbar/Dock badge. Set
+            // only here, like GroupWindowLocator: headless tests never touch
+            // the real Dock/taskbar because nothing sets it for them.
+            mainWindow.UnreadBadgeService = new UnreadBadgeService();
 
             // Same wiring style as ShowPasswordPromptDialogAsync/
             // ShowConfirmationDialogAsync above - MainWindow is the one

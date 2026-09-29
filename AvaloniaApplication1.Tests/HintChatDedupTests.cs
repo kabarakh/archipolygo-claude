@@ -92,7 +92,7 @@ public class HintChatDedupTests
         var group = MakeGroup(out var slot);
         var hintService = new HintService(new InMemoryProfileSyncStateStore());
 
-        hintService.SyncHints(group, new[] { Snapshot("1:2:10:20", slot.Id) });
+        hintService.SyncHints(group, new[] { Snapshot("1:2:10:20", slot.Id) }, isLive: true);
         hintService.AddHintFromChat(group, Snapshot("1:2:10:20", slot.Id));
         Dispatcher.UIThread.RunJobs();
 
@@ -107,7 +107,7 @@ public class HintChatDedupTests
         var hintService = new HintService(new InMemoryProfileSyncStateStore());
 
         hintService.AddHintFromChat(group, Snapshot("1:2:10:20", slot.Id));
-        hintService.SyncHints(group, new[] { Snapshot("1:2:10:20", slot.Id, found: true) });
+        hintService.SyncHints(group, new[] { Snapshot("1:2:10:20", slot.Id, found: true) }, isLive: true);
         Dispatcher.UIThread.RunJobs();
 
         var hint = Assert.Single(group.Hints);
@@ -125,7 +125,7 @@ public class HintChatDedupTests
         var restartedGroup = MakeGroup(out _);
         restartedGroup.Group.Slots.Clear();
         restartedGroup.Group.Slots.Add(slot);
-        new HintService(store).SyncHints(restartedGroup, new[] { Snapshot("1:2:10:20", slot.Id) });
+        new HintService(store).SyncHints(restartedGroup, new[] { Snapshot("1:2:10:20", slot.Id) }, isLive: true);
         Dispatcher.UIThread.RunJobs();
 
         Assert.False(Assert.Single(restartedGroup.Hints).IsNewSinceLastSession);

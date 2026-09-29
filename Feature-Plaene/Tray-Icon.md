@@ -6,6 +6,14 @@ aus der inzwischen archivierten Datei
 `archipolygo_feature_ideas.md` ("Tray icon - keep
 running minimized, with an unread-events badge") übernommen.
 
+## Nachtrag (2026-09-29)
+
+Mit `Benachrichtigungen.md` (Feature-Plan-Archiv) gibt es inzwischen einen
+dauerhaft sichtbaren Zählerstand: im Fenstertitel, als Badge am Tab und im
+Dashboard, als Taskleisten-Overlay unter Windows und als Dock-Badge unter
+macOS. Damit ist der Teil "Unread-Badge" dieses Wunsches abgedeckt. Offen
+bleibt nur noch "aus der Taskleiste verschwinden" (siehe unten).
+
 ## Offene Kernfrage (2026-09-13 aufgeworfen)
 
 Seit ["Taskbar-button / title-bar flash"](Archiv/Tab-Eigenes-Fenster.md) das

@@ -165,7 +165,7 @@ public class DashboardTabTests
         var mainWindowViewModel = new MainWindowViewModel(new FakePersistenceService(), new FakeConnectionManager(), new MultiworldTrackerService());
         mainWindowViewModel.AddNewGroup("Server1", "host1", 1, string.Empty, "Alice", autoConnect: false);
         var group1 = mainWindowViewModel.Groups[0];
-        group1.UnreadEventCount = 3;
+        group1.UnreadAttentionCount = 3;
         group1.Hints.Add(new HintEntry { Key = "h1", SlotId = group1.Group.Slots[0].Id, ItemName = "Sword", LocationName = "Loc", ReceivingPlayerName = "Alice", FindingPlayerName = "Alice" });
 
         var window = ShowWindow(mainWindowViewModel);

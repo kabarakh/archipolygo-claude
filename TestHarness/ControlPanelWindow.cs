@@ -27,11 +27,14 @@ public sealed class ControlPanelWindow : Window
     private readonly SlotProfile _siblingSlot;
     private readonly FakeConnectionManager _connectionManager;
     private readonly TextBlock _leaderStatusText;
+    private readonly IAttentionTracker _attentionTracker;
     private int _counter;
     private int _hintCounter;
 
-    public ControlPanelWindow(GroupViewModel group, SlotProfile slot, SlotProfile siblingSlot, FakeConnectionManager connectionManager)
+    public ControlPanelWindow(GroupViewModel group, SlotProfile slot, SlotProfile siblingSlot, FakeConnectionManager connectionManager,
+                              IAttentionTracker attentionTracker)
     {
+        _attentionTracker = attentionTracker;
         _group = group;
         _slot = slot;
         _siblingSlot = siblingSlot;
@@ -39,13 +42,30 @@ public sealed class ControlPanelWindow : Window
 
         Title = "Test Control Panel";
         Width = 260;
-        Height = 700;
+        Height = 860;
         WindowStartupLocation = WindowStartupLocation.Manual;
         Position = new Avalonia.PixelPoint(20, 20);
 
         var panel = new StackPanel { Orientation = Orientation.Vertical, Spacing = 6, Margin = new Avalonia.Thickness(10) };
 
-        panel.Children.Add(new TextBlock { Text = "Chat / connect", FontWeight = Avalonia.Media.FontWeight.Bold });
+        panel.Children.Add(new TextBlock { Text = "Notifications (Benachrichtigungen.md)", FontWeight = Avalonia.Media.FontWeight.Bold });
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Buttons below report to the real AttentionTracker for TestServer. Clicking here makes the main window inactive, so it can blink. Switch tabs / Dashboard in the main window to see when the count resets. Settings and \"Mute notifications\" (Edit server) are the real dialogs in the main window.",
+            FontSize = 11,
+            Opacity = 0.7,
+            TextWrapping = Avalonia.Media.TextWrapping.Wrap
+        });
+        panel.Children.Add(Btn("Progression item arrives", () => { AddItem(ItemFlags.Advancement, "Progression Sword"); Report(AttentionCategory.ProgressionItem); }));
+        panel.Children.Add(Btn("Filler item arrives", () => { AddItem(ItemFlags.None, "Filler Junk"); Report(AttentionCategory.OtherItem); }));
+        panel.Children.Add(Btn("Hint for my slot arrives", () => { AddHint(ItemFlags.Advancement, "Progression Key"); Report(AttentionCategory.OwnHint); }));
+        panel.Children.Add(Btn("DeathLink arrives", () => Report(AttentionCategory.DeathLink)));
+        panel.Children.Add(Btn("Chat mentioning TestSlot", () => { AddChat($"SomePlayer: TestSlot, do you have the hookshot?"); Report(AttentionCategory.ChatMention); }));
+        panel.Children.Add(Btn("Other chat message", () => { AddChat(); Report(AttentionCategory.Chat); }));
+        panel.Children.Add(Btn("Progression item in 3 s (switch away!)", () =>
+            Avalonia.Threading.DispatcherTimer.RunOnce(() => { AddItem(ItemFlags.Advancement, "Delayed Sword"); Report(AttentionCategory.ProgressionItem); }, TimeSpan.FromSeconds(3))));
+
+        panel.Children.Add(new TextBlock { Text = "Chat / connect", FontWeight = Avalonia.Media.FontWeight.Bold, Margin = new Avalonia.Thickness(0, 10, 0, 0) });
         panel.Children.Add(Btn("Add chat line", AddChat));
 
         panel.Children.Add(new TextBlock { Text = "Items (event + received-items list)", FontWeight = Avalonia.Media.FontWeight.Bold, Margin = new Avalonia.Thickness(0, 10, 0, 0) });
@@ -111,13 +131,17 @@ public sealed class ControlPanelWindow : Window
         return button;
     }
 
-    private void AddChat()
+    private void Report(AttentionCategory category) => _attentionTracker.Report(_group, category);
+
+    private void AddChat() => AddChat(null);
+
+    private void AddChat(string? text)
     {
         _counter++;
         _group.Events.Add(new EventEntry
         {
             Type = EventType.Chat,
-            Text = $"SomePlayer: hello #{_counter}",
+            Text = text ?? $"SomePlayer: hello #{_counter}",
             SlotId = null,
             ConcernsOwnSlot = false,
         });

@@ -57,7 +57,7 @@ Weicht an einigen Stellen vom Plantext unten ab:
   `NSCriticalRequest` (Dauer-Hüpfen) umgestellt; Linux unverändert (der
   Window-Manager entscheidet dort ohnehin selbst). Nutzer-Einstellbarkeit
   und weitere Benachrichtigungswege (Badge, Titel-Zähler, ...) siehe
-  `Benachrichtigungen.md` im Feature-Plan-Verzeichnis.
+  `Benachrichtigungen.md` im Feature-Plan-Archiv (umgesetzt 2026-09-29).
 - **`IWindowAttentionService.RequestAttention(Guid groupId)`** ist synchron
   (`void`), nicht `Task FlashGroupAsync(Guid)` wie im Plan skizziert - keine
   der drei Plattform-Implementierungen tut tatsächlich etwas Awaitbares.

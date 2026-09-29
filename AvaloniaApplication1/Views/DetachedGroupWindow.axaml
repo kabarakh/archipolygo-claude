@@ -9,7 +9,7 @@
         x:DataType="vm:GroupViewModel"
         Width="900" Height="550"
         Icon="/Assets/archipolyo-icon.ico"
-        Title="{Binding HeaderText}">
+        Title="{Binding DetachedWindowTitle}">
 
     <DockPanel>
         <!-- "Dock to main window" button re-docks the group (see

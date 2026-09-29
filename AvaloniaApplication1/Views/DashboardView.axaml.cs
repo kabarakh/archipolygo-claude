@@ -44,6 +44,9 @@ public partial class DashboardView : UserControl
     /// </summary>
     public event EventHandler<GroupViewModel>? OpenInNewWindowRequested;
 
+    /// <summary>The row's "Mute/Unmute notifications" context-menu item - handled by <see cref="MainWindow"/>, same as the other row actions (this view has no <see cref="MainWindowViewModel"/> of its own).</summary>
+    public event EventHandler<GroupViewModel>? ToggleMuteRequested;
+
     /// <summary>
     /// Every per-row icon button's own <c>DataContext</c> is already the
     /// row's <see cref="GroupViewModel"/> (inherited from the enclosing
@@ -73,6 +76,14 @@ public partial class DashboardView : UserControl
         if (GroupOf(sender) is { } group)
         {
             RemoveServerRequested?.Invoke(this, group);
+        }
+    }
+
+    private void OnToggleMuteMenuClick(object? sender, RoutedEventArgs e)
+    {
+        if (GroupOf(sender) is { } group)
+        {
+            ToggleMuteRequested?.Invoke(this, group);
         }
     }
 

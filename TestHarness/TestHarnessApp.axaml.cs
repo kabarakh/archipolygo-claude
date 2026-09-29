@@ -22,7 +22,16 @@ public partial class TestHarnessApp : Application
         {
             var persistenceService = new FakePersistenceService();
             var connectionManager = new FakeConnectionManager();
-            var mainWindowViewModel = new MainWindowViewModel(persistenceService, connectionManager, new Archipolygo.Services.MultiworldTrackerService());
+
+            // Real attention pipeline (Benachrichtigungen.md) - the same
+            // tracker/platform layer as App.axaml.cs, so ControlPanelWindow's
+            // "Notifications" buttons really blink this harness's window and
+            // update its tab badge/title.
+            var groupWindowLocator = new Archipolygo.Services.GroupWindowLocator();
+            var attentionTracker = new Archipolygo.Services.AttentionTracker(
+                new Archipolygo.Services.WindowAttentionService(groupWindowLocator), persistenceService);
+            var mainWindowViewModel = new MainWindowViewModel(persistenceService, connectionManager, new Archipolygo.Services.MultiworldTrackerService(),
+                attentionTracker: attentionTracker);
 
             // One demo server with two slots, connected as leader right away
             // (see FakeConnectionManager.SwitchLeaderAsync) - enough to
@@ -105,8 +114,13 @@ public partial class TestHarnessApp : Application
                 viewModel => ConfirmationWindow.ShowDialogAsync(mainWindow, viewModel);
 
             desktop.MainWindow = mainWindow;
+            groupWindowLocator.RegisterMainWindow(mainWindow);
+            mainWindow.GroupWindowLocator = groupWindowLocator;
+            mainWindow.UnreadBadgeService = new Archipolygo.Services.UnreadBadgeService();
+            mainWindowViewModel.OpenDetachedWindow = mainWindow.OpenDetachedGroupWindow;
+            mainWindowViewModel.CloseDetachedWindow = mainWindow.CloseDetachedGroupWindowIfOpen;
 
-            var controlPanel = new ControlPanelWindow(groupViewModel, slot, siblingSlot, connectionManager);
+            var controlPanel = new ControlPanelWindow(groupViewModel, slot, siblingSlot, connectionManager, attentionTracker);
             controlPanel.Show();
         }
 

@@ -268,6 +268,7 @@
                             <Border.ContextMenu>
                                 <ContextMenu>
                                     <MenuItem Header="Open in new window" Click="OnOpenInNewWindowMenuClick" IsEnabled="{Binding !IsDetached}"/>
+                                    <MenuItem Header="{Binding MuteMenuHeader}" Click="OnToggleMuteMenuClick"/>
                                 </ContextMenu>
                             </Border.ContextMenu>
                             <!-- Grid, not the StackPanel directly as the Border's child -
@@ -332,8 +333,13 @@
                                                  Fill="{Binding ConnectionState, Converter={StaticResource ConnectionStateToBrushConverter}}"/>
                                         <TextBlock Text="{Binding HeaderText}" FontWeight="SemiBold" VerticalAlignment="Center"
                                                    Foreground="{Binding ColorBrush}"/>
+                                        <!-- Same muted-bell icon as MainWindow.axaml's tab header. -->
+                                        <Path Data="{StaticResource BellOffGeometry}" Width="11" Height="11" Stretch="Uniform"
+                                              Stroke="{Binding $parent[ListBoxItem].Foreground}" StrokeThickness="1.4" Opacity="0.6"
+                                              VerticalAlignment="Center" IsVisible="{Binding IsNotificationsMuted}"
+                                              ToolTip.Tip="Notifications muted for this server"/>
                                         <Border Background="#e6f1fb" CornerRadius="10" Padding="6,1" VerticalAlignment="Center">
-                                            <TextBlock Text="{Binding UnreadEventCount, StringFormat='{}{0} events'}" FontSize="11" Foreground="#0c447c"/>
+                                            <TextBlock Text="{Binding UnreadAttentionCount, StringFormat='{}{0} events'}" FontSize="11" Foreground="#0c447c"/>
                                         </Border>
                                         <Border Background="#faeeda" CornerRadius="10" Padding="6,1" VerticalAlignment="Center">
                                             <TextBlock Text="{Binding UnfoundHintCount, StringFormat='{}{0} hints'}" FontSize="11" Foreground="#854f0b"/>

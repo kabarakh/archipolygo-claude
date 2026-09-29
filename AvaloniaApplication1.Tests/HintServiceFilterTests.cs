@@ -72,7 +72,7 @@ public class HintServiceFilterTests
         var syncStateStore = new InMemoryProfileSyncStateStore();
         var hintService = new HintService(syncStateStore);
 
-        hintService.SyncHints(groupViewModel, new[] { MakeSnapshot("new-hint", slot.Id) });
+        hintService.SyncHints(groupViewModel, new[] { MakeSnapshot("new-hint", slot.Id) }, isLive: true);
         Dispatcher.UIThread.RunJobs();
 
         var entry = Assert.Single(groupViewModel.Hints);
@@ -89,7 +89,7 @@ public class HintServiceFilterTests
         syncStateStore.Seed(new ProfileSyncState { ProfileId = slot.Id, SeenHintIds = { "already-seen" } });
         var hintService = new HintService(syncStateStore);
 
-        hintService.SyncHints(groupViewModel, new[] { MakeSnapshot("already-seen", slot.Id) });
+        hintService.SyncHints(groupViewModel, new[] { MakeSnapshot("already-seen", slot.Id) }, isLive: true);
         Dispatcher.UIThread.RunJobs();
 
         var entry = Assert.Single(groupViewModel.Hints);
@@ -111,7 +111,7 @@ public class HintServiceFilterTests
         {
             MakeSnapshot("old-hint", slot.Id),
             MakeSnapshot("hint-that-arrived-while-away", slot.Id),
-        });
+        }, isLive: true);
         Dispatcher.UIThread.RunJobs();
 
         var oldEntry = groupViewModel.Hints.Single(h => h.Key == "old-hint");
@@ -131,12 +131,12 @@ public class HintServiceFilterTests
         var syncStateStore = new InMemoryProfileSyncStateStore();
         var hintService = new HintService(syncStateStore);
 
-        hintService.SyncHints(groupViewModel, new[] { MakeSnapshot("hint-1", slot.Id, found: false) });
+        hintService.SyncHints(groupViewModel, new[] { MakeSnapshot("hint-1", slot.Id, found: false) }, isLive: true);
         Dispatcher.UIThread.RunJobs();
         var firstEntry = Assert.Single(groupViewModel.Hints);
         Assert.True(firstEntry.IsNewSinceLastSession);
 
-        hintService.SyncHints(groupViewModel, new[] { MakeSnapshot("hint-1", slot.Id, found: true) });
+        hintService.SyncHints(groupViewModel, new[] { MakeSnapshot("hint-1", slot.Id, found: true) }, isLive: true);
         Dispatcher.UIThread.RunJobs();
 
         var updatedEntry = Assert.Single(groupViewModel.Hints);

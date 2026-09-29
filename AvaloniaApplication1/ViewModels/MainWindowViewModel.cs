@@ -147,7 +147,13 @@ public partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     public string DashboardToggleButtonText => IsDashboardVisible ? "Tab View" : "Dashboard";
 
-    partial void OnIsDashboardVisibleChanged(bool value) => OnPropertyChanged(nameof(DashboardToggleButtonText));
+    partial void OnIsDashboardVisibleChanged(bool value)
+    {
+        OnPropertyChanged(nameof(DashboardToggleButtonText));
+
+        // Leaving the Dashboard makes the selected tab visible again.
+        _attentionTracker?.RefreshSeenState();
+    }
 
     [RelayCommand]
     private void ToggleDashboard() => IsDashboardVisible = !IsDashboardVisible;
@@ -186,6 +192,90 @@ public partial class MainWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(StartupSyncStatusText));
     }
 
+    /// <summary>Optional, like <c>_updateService</c> - null in design-time/test construction; see <see cref="SaveSettings"/>.</summary>
+    private readonly IAttentionTracker? _attentionTracker;
+
+    private bool _showUnreadInTitle = true;
+
+    private bool _showUnreadBadge = true;
+
+    /// <summary>
+    /// "(3) Archipolygo" while docked groups have unread attention-worthy
+    /// events (<see cref="GroupViewModel.UnreadAttentionCount"/>) - visible in
+    /// Alt-Tab and the taskbar tooltip. Detached groups count toward their own
+    /// window's title instead (<see cref="GroupViewModel.DetachedWindowTitle"/>).
+    /// </summary>
+    public string MainWindowTitle
+    {
+        get
+        {
+            var unread = DockedGroups.Sum(g => g.UnreadAttentionCount);
+            return _showUnreadInTitle && unread > 0 ? $"({unread}) Archipolygo" : "Archipolygo";
+        }
+    }
+
+    /// <summary>
+    /// The main window's own taskbar-button badge on Windows (see
+    /// <see cref="Services.IUnreadBadgeService.SetWindowBadge"/>) - the same
+    /// docked-groups sum as <see cref="MainWindowTitle"/>, or 0 while
+    /// <see cref="AppSettings.ShowUnreadBadge"/> is off.
+    /// </summary>
+    public int MainWindowBadgeCount => _showUnreadBadge ? DockedGroups.Sum(g => g.UnreadAttentionCount) : 0;
+
+    /// <summary>The macOS Dock badge (see <see cref="Services.IUnreadBadgeService.SetAppBadge"/>) - one per app, so every group counts, docked or detached.</summary>
+    public int AppBadgeCount => _showUnreadBadge ? Groups.Sum(g => g.UnreadAttentionCount) : 0;
+
+    private GroupViewModel CreateGroupViewModel(ServerConnectionGroup group) =>
+        new(group, _connectionManager, _multiworldTrackerService, FilterLayout)
+        {
+            ShowUnreadInTitle = _showUnreadInTitle,
+            ShowUnreadBadge = _showUnreadBadge
+        };
+
+    private void ApplyUnreadDisplaySettings(AppSettings settings)
+    {
+        _showUnreadInTitle = settings.ShowUnreadInTitle;
+        _showUnreadBadge = settings.ShowUnreadBadge;
+        foreach (var group in Groups)
+        {
+            group.ShowUnreadInTitle = _showUnreadInTitle;
+            group.ShowUnreadBadge = _showUnreadBadge;
+        }
+
+        RaiseUnreadDisplayChanged();
+    }
+
+    private void RaiseUnreadDisplayChanged()
+    {
+        OnPropertyChanged(nameof(MainWindowTitle));
+        OnPropertyChanged(nameof(MainWindowBadgeCount));
+        OnPropertyChanged(nameof(AppBadgeCount));
+    }
+
+    /// <summary>Every group's count feeds <see cref="AppBadgeCount"/>, not just docked ones - so this watches <see cref="Groups"/>; <see cref="DockedGroups"/> changes only move a count between windows.</summary>
+    private void OnGroupsChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+    {
+        foreach (var group in e.OldItems?.OfType<GroupViewModel>() ?? Enumerable.Empty<GroupViewModel>())
+        {
+            group.PropertyChanged -= OnGroupUnreadPropertyChanged;
+        }
+
+        foreach (var group in e.NewItems?.OfType<GroupViewModel>() ?? Enumerable.Empty<GroupViewModel>())
+        {
+            group.PropertyChanged += OnGroupUnreadPropertyChanged;
+        }
+
+        RaiseUnreadDisplayChanged();
+    }
+
+    private void OnGroupUnreadPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(GroupViewModel.UnreadAttentionCount))
+        {
+            RaiseUnreadDisplayChanged();
+        }
+    }
+
     /// <summary>
     /// Design-time only: used by the <c>&lt;Design.DataContext&gt;</c> in
     /// MainWindow.axaml so the XAML previewer has something to bind against.
@@ -193,6 +283,7 @@ public partial class MainWindowViewModel : ViewModelBase
     /// root, which resolves this view model (and its dependencies) from the
     /// DI container as explicit singletons instead.
     /// </summary>
+
     public MainWindowViewModel()
         : this(new PersistenceService(), CreateDesignTimeConnectionManager(), new MultiworldTrackerService(), new UpdateService())
     {
@@ -212,8 +303,9 @@ public partial class MainWindowViewModel : ViewModelBase
     /// Also directly usable by tests that need to substitute either
     /// dependency with a fake/mock.
     /// </summary>
-    public MainWindowViewModel(IPersistenceService persistenceService, IConnectionManager connectionManager, IMultiworldTrackerService multiworldTrackerService, IUpdateService? updateService = null, IDiagnosticLogger? diagnosticLogger = null)
+    public MainWindowViewModel(IPersistenceService persistenceService, IConnectionManager connectionManager, IMultiworldTrackerService multiworldTrackerService, IUpdateService? updateService = null, IDiagnosticLogger? diagnosticLogger = null, IAttentionTracker? attentionTracker = null)
     {
+        _attentionTracker = attentionTracker;
         _persistenceService = persistenceService;
         _connectionManager = connectionManager;
         _multiworldTrackerService = multiworldTrackerService;
@@ -259,9 +351,15 @@ public partial class MainWindowViewModel : ViewModelBase
         FilterLayout = LoadFilterLayout(_persistenceService.LoadSettings());
         FilterLayout.PropertyChanged += (_, _) => SaveFilterLayout();
 
+        var startupSettings = _persistenceService.LoadSettings();
+        _showUnreadInTitle = startupSettings.ShowUnreadInTitle;
+        _showUnreadBadge = startupSettings.ShowUnreadBadge;
+        Groups.CollectionChanged += OnGroupsChanged;
+        DockedGroups.CollectionChanged += (_, _) => RaiseUnreadDisplayChanged();
+
         foreach (var group in _persistenceService.LoadGroups())
         {
-            var groupViewModel = new GroupViewModel(group, _connectionManager, _multiworldTrackerService, FilterLayout);
+            var groupViewModel = CreateGroupViewModel(group);
             Groups.Add(groupViewModel);
             DockedGroups.Add(groupViewModel);
         }
@@ -382,9 +480,9 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Keeps each group's IsSelected flag in sync with the active tab so
-    /// that only the active tab's incoming events are excluded from the
-    /// unread marker (see <see cref="GroupViewModel.HasUnreadEvents"/>).
+    /// Keeps each group's IsSelected flag in sync with the active tab, and
+    /// lets <see cref="IAttentionTracker"/> reset the newly visible tab's
+    /// unread count (see <see cref="GroupViewModel.UnreadAttentionCount"/>).
     /// </summary>
     partial void OnSelectedGroupChanged(GroupViewModel? oldValue, GroupViewModel? newValue)
     {
@@ -397,6 +495,8 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             newValue.IsSelected = true;
         }
+
+        _attentionTracker?.RefreshSeenState();
     }
 
     private async Task InitializeGroupsAsync()
@@ -595,7 +695,7 @@ public partial class MainWindowViewModel : ViewModelBase
             group.PreferredLeaderSlotId = slot.Id;
         }
 
-        var groupViewModel = new GroupViewModel(group, _connectionManager, _multiworldTrackerService, FilterLayout);
+        var groupViewModel = CreateGroupViewModel(group);
         Groups.Add(groupViewModel);
         DockedGroups.Add(groupViewModel);
         SelectedGroup = groupViewModel;
@@ -703,7 +803,7 @@ public partial class MainWindowViewModel : ViewModelBase
     public async Task UpdateGroup(
         GroupViewModel groupViewModel, string name, string host, int port, string password, bool autoConnect,
         Guid? preferredLeaderSlotId, string? color = null, IReadOnlyList<SlotProfile>? slotsToRemove = null,
-        string? trackerReferenceInput = null, string? trackerId = null)
+        string? trackerReferenceInput = null, string? trackerId = null, bool? notificationsMuted = null)
     {
         groupViewModel.Group.Name = name;
         groupViewModel.Group.Host = host;
@@ -713,6 +813,13 @@ public partial class MainWindowViewModel : ViewModelBase
         groupViewModel.Group.PreferredLeaderSlotId = preferredLeaderSlotId;
         groupViewModel.Group.TrackerReferenceInput = trackerReferenceInput;
         groupViewModel.Group.TrackerId = trackerId;
+
+        // Null only for call sites that predate the mute toggle - leaves it
+        // untouched, same as color below.
+        if (notificationsMuted is { } muted)
+        {
+            ApplyNotificationsMuted(groupViewModel, muted);
+        }
 
         // Null/empty only for call sites that predate the color picker
         // (e.g. tests exercising slot removal that don't care about color) -
@@ -735,6 +842,28 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         PersistGroups();
+    }
+
+    /// <summary>
+    /// The tab/Dashboard-row context menu's "Mute/Unmute notifications" -
+    /// same flag as Edit server's checkbox (see
+    /// <see cref="ServerConnectionGroup.NotificationsMuted"/>), just one click
+    /// away for a server that's suddenly noisy.
+    /// </summary>
+    public void ToggleNotificationsMuted(GroupViewModel groupViewModel)
+    {
+        ApplyNotificationsMuted(groupViewModel, !groupViewModel.Group.NotificationsMuted);
+        PersistGroups();
+    }
+
+    /// <summary>Muting also clears whatever was already counted - a muted server shows no unread count at all.</summary>
+    private static void ApplyNotificationsMuted(GroupViewModel groupViewModel, bool muted)
+    {
+        groupViewModel.Group.NotificationsMuted = muted;
+        if (muted)
+        {
+            groupViewModel.UnreadAttentionCount = 0;
+        }
     }
 
     /// <summary>
@@ -839,6 +968,8 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         _persistenceService.SaveSettings(settings);
         DensityService.Apply(settings.UiDensity);
+        _attentionTracker?.ApplySettings(settings);
+        ApplyUnreadDisplaySettings(settings);
     }
 
     /// <summary>Full contents of the diagnostic log, for <see cref="Views.SettingsWindow"/>'s export button - see <see cref="IDiagnosticLogger"/>.</summary>
@@ -1042,6 +1173,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         OpenDetachedWindow?.Invoke(group);
+        _attentionTracker?.RefreshSeenState();
     }
 
     /// <summary>
@@ -1081,6 +1213,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         CloseDetachedWindow?.Invoke(group);
+        _attentionTracker?.RefreshSeenState();
     }
 
     private void PersistGroups() => _persistenceService.SaveGroups(GetAllGroups());

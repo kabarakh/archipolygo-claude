@@ -32,24 +32,24 @@ internal sealed class SessionEventTranslator
 
     /// <summary>
     /// Optional - see <see cref="HintService"/>'s own doc comment on its
-    /// matching field for the "purely additive dependency" reasoning. Both
-    /// item-related trigger points for Feature-Plaene/Tab-Eigenes-Fenster.md's
-    /// window flash (a slot's own live receipt, and a sibling's passively
-    /// observed one) live in this class, not <see cref="IMessageHistoryService"/> -
-    /// see <see cref="OnItemReceived"/>/<see cref="OnLeaderMessageReceived"/>.
+    /// matching field for the "purely additive dependency" reasoning. The
+    /// item- and chat-related attention triggers (a slot's own live receipt,
+    /// a sibling's passively observed one, player chat) live in this class,
+    /// not <see cref="IMessageHistoryService"/> - see
+    /// <see cref="OnItemReceived"/>/<see cref="OnLeaderMessageReceived"/>.
     /// </summary>
-    private readonly IWindowAttentionService? _windowAttentionService;
+    private readonly IAttentionTracker? _attentionTracker;
 
     // Keyed by SlotProfile.Id; that slot's most recently learned "missing
     // locations" for the Hint picker's Location mode. See Umsetzungsplan.md,
     // section "_missingLocationsBySlot: bewusst nur im Speicher".
     private readonly ConcurrentDictionary<Guid, IReadOnlyList<HintableLocation>> _missingLocationsBySlot = new();
 
-    public SessionEventTranslator(IMessageHistoryService messageHistoryService, IHintService hintService, IWindowAttentionService? windowAttentionService = null)
+    public SessionEventTranslator(IMessageHistoryService messageHistoryService, IHintService hintService, IAttentionTracker? attentionTracker = null)
     {
         _messageHistoryService = messageHistoryService;
         _hintService = hintService;
-        _windowAttentionService = windowAttentionService;
+        _attentionTracker = attentionTracker;
     }
 
     /// <summary>
@@ -106,8 +106,16 @@ internal sealed class SessionEventTranslator
         {
             if (matchedSlot.Id == newSlot.Id)
             {
+                // The leader is already past its grace period here, so the
+                // first callback (retrieveCurrentlyUnlockedHints' replay of
+                // this slot's existing hints) is the only backlog to skip.
+                var replayDelivered = false;
                 leaderSession.Hints.TrackHints(
-                    hints => OnHintsUpdated(group, leaderSession, hints),
+                    hints =>
+                    {
+                        OnHintsUpdated(group, leaderSession, hints, isLive: replayDelivered);
+                        replayDelivered = true;
+                    },
                     retrieveCurrentlyUnlockedHints: true,
                     slot: numericSlotId);
                 return;
@@ -166,6 +174,20 @@ internal sealed class SessionEventTranslator
         };
         _messageHistoryService.HandleChatMessage(group, logMessage.ToString(), segments, slotId, eventType);
 
+        // Only genuine player chat - server lines (ServerChatLogMessage),
+        // join/leave/goal notices and "[Hint]: ..." lines are separate
+        // LogMessage types (checked against Archipelago.MultiClient.Net
+        // 6.7.1's source), so a hint line can never double as a mention.
+        if (logMessage is ChatLogMessage chat)
+        {
+            var ownNames = roster.Values.SelectMany(configured => new[] { configured.SlotName, configured.Alias });
+            var category = ChatAttentionClassifier.Classify(roster.ContainsKey(chat.Player.Slot), chat.Message, ownNames);
+            if (category is not null)
+            {
+                _attentionTracker?.Report(group, category.Value);
+            }
+        }
+
         if (logMessage is HintItemSendLogMessage hintMessage)
         {
             // A hint is not a received item - never mirror it into a sibling
@@ -188,15 +210,11 @@ internal sealed class SessionEventTranslator
                 itemSend.Item.ItemDisplayName, itemSend.Item.LocationDisplayName, itemSend.Item.Flags,
                 senderName, senderKind);
 
-            // Feature-Plaene/Tab-Eigenes-Fenster.md, Phase 2: a sibling slot's
-            // item is only ever observed here while the room's chat is live
-            // (no backlog concept for passive coverage), so no separate
-            // "isLive" gate is needed - see OnItemReceived's own gate for the
-            // directly-connected-slot equivalent.
-            if (EventSegmentBuilder.ClassifyItemFlags(itemSend.Item.Flags) == EventTextSegmentKind.ItemProgression)
-            {
-                _windowAttentionService?.RequestAttention(group.Group.Id);
-            }
+            // A sibling slot's item is only ever observed here while the
+            // room's chat is live (no backlog concept for passive coverage),
+            // so no separate "isLive" gate is needed - see OnItemReceived's
+            // own gate for the directly-connected-slot equivalent.
+            _attentionTracker?.Report(group, ItemAttentionCategory(itemSend.Item.Flags));
         }
     }
 
@@ -276,15 +294,13 @@ internal sealed class SessionEventTranslator
             var siblingIds = SiblingIdsExcludingOwn(roster, session.ConnectionInfo.Slot);
             senderKind = EventSegmentBuilder.ClassifyPlayerSlot(latest.Player, session.ConnectionInfo.Slot, siblingIds);
 
-            // Feature-Plaene/Tab-Eigenes-Fenster.md, Phase 2: gated on isLive,
-            // not just "is this a progression item" - a catch-up sync
-            // (isLive false) always treats its whole backlog as "the latest
-            // item" too, and flashing for every item a slot missed while the
-            // app was closed would be exactly the noisy-at-startup behavior
-            // this feature's own trigger set was chosen to avoid.
-            if (isLive && EventSegmentBuilder.ClassifyItemFlags(latest.Flags) == EventTextSegmentKind.ItemProgression)
+            // Gated on isLive - a catch-up sync (isLive false) always treats
+            // its whole backlog as "the latest item" too, and reporting every
+            // item a slot missed while the app was closed would be exactly the
+            // noisy-at-startup behavior the attention triggers avoid.
+            if (isLive)
             {
-                _windowAttentionService?.RequestAttention(group.Group.Id);
+                _attentionTracker?.Report(group, ItemAttentionCategory(latest.Flags));
             }
         }
 
@@ -304,7 +320,14 @@ internal sealed class SessionEventTranslator
     /// "Warum die Leader-Session pro Sibling-Slot ein eigenes TrackHints
     /// braucht".
     /// </summary>
-    public void OnHintsUpdated(GroupViewModel group, IArchipelagoSession session, Hint[] hints)
+    /// <param name="isLive">
+    /// False for a catch-up session, and for the leader's own initial
+    /// replay of already-unlocked hints (before its backlog grace period
+    /// elapsed) - such hints are still added and flagged as new, but never
+    /// reported as needing attention (see the feature-plan archive's
+    /// <c>Benachrichtigungen.md</c>, "nur live").
+    /// </param>
+    public void OnHintsUpdated(GroupViewModel group, IArchipelagoSession session, Hint[] hints, bool isLive)
     {
         var roster = BuildSlotRoster(session, group.Group);
         if (roster.Count == 0 || hints.Length == 0)
@@ -359,9 +382,14 @@ internal sealed class SessionEventTranslator
 
         if (snapshots.Count > 0)
         {
-            _hintService.SyncHints(group, snapshots);
+            _hintService.SyncHints(group, snapshots, isLive);
         }
     }
+
+    private static AttentionCategory ItemAttentionCategory(Archipelago.MultiClient.Net.Enums.ItemFlags flags) =>
+        EventSegmentBuilder.ClassifyItemFlags(flags) == EventTextSegmentKind.ItemProgression
+            ? AttentionCategory.ProgressionItem
+            : AttentionCategory.OtherItem;
 
     /// <summary>
     /// Reads <paramref name="session"/>'s current "X of Y locations checked"

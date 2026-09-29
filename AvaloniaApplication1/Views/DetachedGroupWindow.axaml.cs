@@ -15,8 +15,11 @@ namespace Archipolygo.Views;
 /// uses, so this window has no Events/Hints/Items logic of its own to keep
 /// in sync.
 /// </summary>
-public partial class DetachedGroupWindow : Window
+public partial class DetachedGroupWindow : Window, IGroupHostWindow
 {
+    /// <summary>Always true for its one group - this window shows nothing else.</summary>
+    public bool IsShowingGroup(Guid groupId) => _group?.Group.Id == groupId;
+
     private GroupViewModel? _group;
     private Action<GroupViewModel>? _redockRequested;
 
@@ -34,12 +37,37 @@ public partial class DetachedGroupWindow : Window
     /// a plain user close does not, but either way nothing should keep
     /// resolving to a window that no longer exists.
     /// </summary>
-    public static DetachedGroupWindow Create(GroupViewModel group, IGroupWindowLocator locator, Action<GroupViewModel> redockRequested)
+    /// <param name="unreadBadge">
+    /// Optional (Benachrichtigungen.md step 4): keeps this window's own
+    /// Windows taskbar overlay in sync with <see cref="GroupViewModel.DetachedWindowBadgeCount"/> -
+    /// re-applied on Opened/ScalingChanged for the same reasons as
+    /// MainWindow's own badge.
+    /// </param>
+    public static DetachedGroupWindow Create(GroupViewModel group, IGroupWindowLocator locator, Action<GroupViewModel> redockRequested,
+                                             IUnreadBadgeService? unreadBadge = null)
     {
         var window = new DetachedGroupWindow { DataContext = group, _group = group, _redockRequested = redockRequested };
 
         locator.RegisterDetachedWindow(group.Group.Id, window);
         window.Closed += (_, _) => locator.UnregisterDetachedWindow(group.Group.Id);
+
+        if (unreadBadge is not null)
+        {
+            void Apply() => unreadBadge.SetWindowBadge(window, group.DetachedWindowBadgeCount);
+
+            void OnGroupPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+            {
+                if (e.PropertyName == nameof(GroupViewModel.DetachedWindowBadgeCount))
+                {
+                    Apply();
+                }
+            }
+
+            group.PropertyChanged += OnGroupPropertyChanged;
+            window.Opened += (_, _) => Apply();
+            window.ScalingChanged += (_, _) => Apply();
+            window.Closed += (_, _) => group.PropertyChanged -= OnGroupPropertyChanged;
+        }
 
         return window;
     }
