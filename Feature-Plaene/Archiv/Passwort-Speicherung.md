@@ -148,7 +148,7 @@ durchlaufen:
 
 ## Noch offen
 
-- **Überschneidung mit ["Config-Export/Import"](../Config-Export-Import.md)**:
+- **Überschneidung mit ["Config-Verwaltung"](../Config-Verwaltung.md) (damals noch "Config-Export/Import")**:
   falls diese Idee zuerst umgesetzt wird, enthält `groups.json` keine
   Passwörter mehr, was einen Export automatisch "sicherer" macht - die
   beiden Ideen sollten nicht unabhängig voneinander geplant werden.

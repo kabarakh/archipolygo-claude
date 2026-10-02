@@ -72,7 +72,7 @@ still just an idea, not built:
 
 - **Better item/trap icons** - game-specific icons instead of just color and text (see `Item-Trap-Icons.md` in that directory).
 - **Tray icon / log export** - visibility options for running the app in the background, deliberately dropped early on and worth revisiting (see `Tray-Icon.md`, `Log-Export.md`).
-- **Config export/import** - no backup/restore flow for `groups.json` yet (see `Config-Export-Import.md`).
+- **Config management** - no backup/restore flow for `groups.json` yet, and no portable mode for the zip download that keeps its data next to the executable (see `Config-Verwaltung.md`).
 - **Keyboard shortcuts** (see `Tastenkuerzel.md`).
 
 ## Tech stack
