@@ -22,6 +22,23 @@ namespace Archipolygo.Views;
 /// </summary>
 public static class ClipboardCopyHelper
 {
+    /// <summary>
+    /// Copies one plain string (e.g. a server's "host:port") to the
+    /// clipboard. Returns <c>false</c> if no clipboard could be resolved.
+    /// </summary>
+    /// <param name="anchor">Any control in a window's visual tree - pass the hosting view rather than a <see cref="MenuItem"/>, whose own TopLevel is the popup, not the window.</param>
+    public static async Task<bool> CopyTextAsync(Visual anchor, string text)
+    {
+        var clipboard = TopLevel.GetTopLevel(anchor)?.Clipboard;
+        if (clipboard is null)
+        {
+            return false;
+        }
+
+        await clipboard.SetTextAsync(text);
+        return true;
+    }
+
     public static bool IsCopyShortcut(KeyEventArgs e) =>
         e.Key == Key.C && (e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta));
 

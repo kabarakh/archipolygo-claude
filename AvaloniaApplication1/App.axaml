@@ -59,6 +59,9 @@
         <StyleInclude Source="avares://Archipolygo/Styles/FilterStyles.axaml"/>
         <!-- Opaque look for buttons floating over a list (Button.floating-overlay). -->
         <StyleInclude Source="avares://Archipolygo/Styles/OverlayStyles.axaml"/>
+        <!-- Small flat icon buttons (Button.icon-button) - Dashboard row
+             actions, GroupDetailView's copy-host:port icon. -->
+        <StyleInclude Source="avares://Archipolygo/Styles/IconButtonStyles.axaml"/>
         <!-- Required for the ColorPicker control used by the Connection
              Editor's server color picker - without this, ColorPicker/
              ColorView render completely unstyled (see the

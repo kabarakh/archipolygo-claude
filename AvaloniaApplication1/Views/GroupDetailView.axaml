@@ -53,7 +53,26 @@
                      within that stretched bounds - which visibly
                      sits higher than the button's own (centered)
                      label. -->
-                <TextBlock Text="{Binding Group.HostPort}" VerticalAlignment="Center"/>
+                <!-- Click the host:port text (or the copy icon next to it)
+                     to copy it, e.g. for pasting into a game client's
+                     connect dialog. The TextBlock itself stays a direct
+                     child of this StackPanel (not wrapped in a Button) so
+                     HorizontalStackPanelAlignmentTests still measures it
+                     against the Disconnect button in one coordinate space;
+                     Background="Transparent" makes the whole text box
+                     hit-testable, not just the glyphs. -->
+                <TextBlock x:Name="HostPortText" Text="{Binding Group.HostPort}" VerticalAlignment="Center"
+                           Background="Transparent" Cursor="Hand" PointerReleased="OnHostPortTextPointerReleased"
+                           ToolTip.Tip="Click to copy host:port"/>
+                <Button x:Name="CopyHostPortButton" Classes="icon-button" Click="OnCopyHostPortClick" VerticalAlignment="Center"
+                        ToolTip.Tip="Copy host:port">
+                    <!-- Two overlapping rectangles, the usual "copy" glyph -
+                         drawn by hand like the other icons here (see
+                         SharedTemplates.axaml's BellOffGeometry). -->
+                    <Path Data="M5,5 L13,5 L13,14 L5,14 Z M3,11 L3,2 L10,2" Stroke="{Binding $parent[Button].Foreground}"
+                          StrokeThickness="1.4" Width="12" Height="12" Stretch="Uniform"/>
+                </Button>
+                <TextBlock x:Name="HostPortCopiedText" Text="Copied" Opacity="0.6" VerticalAlignment="Center" IsVisible="False"/>
                 <TextBlock Text="-" VerticalAlignment="Center"/>
                 <TextBlock Text="{Binding ConnectionState}" FontWeight="Bold" VerticalAlignment="Center"/>
                 <!-- Connect/Disconnect are mutually exclusive rather than one

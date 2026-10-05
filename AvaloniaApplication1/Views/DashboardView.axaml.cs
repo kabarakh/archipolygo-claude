@@ -87,6 +87,20 @@ public partial class DashboardView : UserControl
         }
     }
 
+    /// <summary>
+    /// The row's "Copy host:port" context-menu item - handled right here
+    /// rather than bubbled up like the other row actions, since copying
+    /// needs nothing beyond the row's own group. Anchored on this view, not
+    /// the MenuItem (whose TopLevel is the context menu's popup).
+    /// </summary>
+    private async void OnCopyHostPortMenuClick(object? sender, RoutedEventArgs e)
+    {
+        if (GroupOf(sender) is { } group)
+        {
+            await ClipboardCopyHelper.CopyTextAsync(this, group.Group.HostPort);
+        }
+    }
+
     private void OnOpenInNewWindowMenuClick(object? sender, RoutedEventArgs e)
     {
         if (GroupOf(sender) is { } group)

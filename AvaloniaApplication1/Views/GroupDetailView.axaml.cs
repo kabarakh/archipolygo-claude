@@ -1,7 +1,9 @@
+using System;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Threading;
 using Archipolygo.Models;
 using Archipolygo.ViewModels;
 
@@ -19,9 +21,49 @@ namespace Archipolygo.Views;
 /// </summary>
 public partial class GroupDetailView : UserControl
 {
+    /// <summary>Hides <c>HostPortCopiedText</c> again shortly after a copy; restarted on every copy so repeated clicks keep it visible.</summary>
+    private readonly DispatcherTimer _hostPortCopiedTimer = new() { Interval = TimeSpan.FromSeconds(1.5) };
+
     public GroupDetailView()
     {
         InitializeComponent();
+        _hostPortCopiedTimer.Tick += (_, _) =>
+        {
+            _hostPortCopiedTimer.Stop();
+            HostPortCopiedText.IsVisible = false;
+        };
+    }
+
+    /// <summary>
+    /// Left-click on the status row's host:port text copies it - released
+    /// rather than pressed, so a drag-select gesture elsewhere that happens
+    /// to end here doesn't count, and only the left button (right-click is
+    /// reserved for context menus throughout the app).
+    /// </summary>
+    private async void OnHostPortTextPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (e.InitialPressMouseButton != MouseButton.Left)
+        {
+            return;
+        }
+
+        await CopyHostPortAsync();
+    }
+
+    /// <summary>The copy icon next to the host:port text - same action as clicking the text itself.</summary>
+    private async void OnCopyHostPortClick(object? sender, RoutedEventArgs e) => await CopyHostPortAsync();
+
+    private async Task CopyHostPortAsync()
+    {
+        if (DataContext is not GroupViewModel group
+            || !await ClipboardCopyHelper.CopyTextAsync(this, group.Group.HostPort))
+        {
+            return;
+        }
+
+        HostPortCopiedText.IsVisible = true;
+        _hostPortCopiedTimer.Stop();
+        _hostPortCopiedTimer.Start();
     }
 
     /// <summary>
