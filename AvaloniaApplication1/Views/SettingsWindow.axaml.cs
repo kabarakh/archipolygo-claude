@@ -81,6 +81,7 @@ public partial class SettingsWindow : Window
     public static Task<AppSettings?> ShowDialogAsync(Window owner, SettingsViewModel viewModel)
     {
         var window = new SettingsWindow { DataContext = viewModel };
+        DialogScreenFit.Apply(window, owner);
         return window.ShowDialog<AppSettings?>(owner);
     }
 }

@@ -275,6 +275,14 @@ way first - each was a real bug with a specific root cause.
   own default already matches). `DashboardView.axaml`'s `Border.drag-handle`
   style (added for that same feature's reordering grip) follows this
   correctly and is a good live reference.
+- **A `SizeToContent="Height"`/`CanResize="False"` dialog can grow taller
+  than a short screen** (real case: a 2560x720 ultrawide, window-snapped to
+  half), with its Save button off-screen and no way to resize. Settings and
+  the connection editor handle this with `Views/DialogScreenFit.cs` (called
+  from their `ShowDialogAsync`). It caps the height to the owner's screen
+  and moves the window back onto it. In their XAML, the buttons are docked
+  at the bottom of a `DockPanel` and the body sits in a `ScrollViewer`. A
+  new tall dialog should do the same.
 - **`CommunityToolkit.Mvvm`'s `[RelayCommand]` strips a trailing `Async`
   from the generated command name.** `RemoveConfiguredSlotAsync()` →
   `RemoveConfiguredSlotCommand`, not `RemoveConfiguredSlotAsyncCommand`. Easy

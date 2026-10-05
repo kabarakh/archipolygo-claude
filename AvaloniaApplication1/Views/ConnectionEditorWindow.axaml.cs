@@ -102,6 +102,7 @@ public partial class ConnectionEditorWindow : Window
     public static Task<ConnectionEditorResult?> ShowDialogAsync(Window owner, ConnectionEditorViewModel viewModel)
     {
         var window = new ConnectionEditorWindow { DataContext = viewModel };
+        DialogScreenFit.Apply(window, owner);
         return window.ShowDialog<ConnectionEditorResult?>(owner);
     }
 }

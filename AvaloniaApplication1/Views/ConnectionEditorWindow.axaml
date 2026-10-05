@@ -1,6 +1,6 @@
-<!-- Width is 460, not 440 - the extra 20px offsets the "dialog-list"
-     ScrollViewer's right padding (see Styles/DialogStyles.axaml) so its
-     content column isn't any narrower than before that padding grew. -->
+<!-- Width is 460, not 440 - originally to offset the "dialog-list" padding
+     of the slot lists' own ScrollViewers (since removed, see below); kept
+     so long slot names and the per-row buttons keep their room. -->
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:Archipolygo.ViewModels"
@@ -19,207 +19,26 @@
         <vm:ConnectionEditorViewModel/>
     </Design.DataContext>
 
-    <StackPanel Margin="16" Spacing="8">
-        <TextBlock Text="Name" IsVisible="{Binding !IsServerReadOnly}"/>
-        <TextBox Text="{Binding Name}" IsVisible="{Binding !IsServerReadOnly}"/>
-
-        <!-- Host and port combined into one field (host:port) so the whole
-             address can be copy/pasted in one piece; TryBuildResult splits
-             it back apart on the last colon. Also accepts a room link/id
-             instead - resolved into an actual host:port (and, in passing,
-             the Tracker field below) when Save is clicked, see
-             ConnectionEditorViewModel.TryResolveHostPortAsync and
-             ConnectionEditorWindow.axaml.cs. -->
-        <TextBlock Text="Server (host:port, or room link/id)" IsVisible="{Binding !IsServerReadOnly}"/>
-        <TextBox Text="{Binding HostPortInput}" IsVisible="{Binding !IsServerReadOnly}"
-                 Watermark="archipelago.gg:38281, or a room link"
-                 IsEnabled="{Binding !IsResolvingHostPort}"/>
-        <TextBlock Text="Resolving room..." Opacity="0.6" IsVisible="{Binding IsResolvingHostPort}"/>
-        <TextBlock Text="A room link/id only works if the room is hosted via a webhost - a self-hosted server with no webhost still needs host:port typed directly."
-                   Opacity="0.6" TextWrapping="Wrap" IsVisible="{Binding !IsServerReadOnly}"/>
-
-        <!-- Shown for NewGroup and EditGroup alike - the color is a
-             server-wide setting, same as AutoConnect/the tracker field below
-             (see ConnectionEditorViewModel.ShowColorPicker). "Reset" gives a
-             fresh automatic suggestion, not a restore of a previous value -
-             see ResetColorToAutomatic's own doc comment. -->
-        <StackPanel IsVisible="{Binding ShowColorPicker}" Spacing="4">
-            <TextBlock Text="Color"/>
-            <Grid ColumnDefinitions="*,Auto">
-                <ColorPicker Grid.Column="0" Color="{Binding SelectedColor, Mode=TwoWay}" HorizontalAlignment="Left"/>
-                <Button Grid.Column="1" Content="Reset to automatic" Command="{Binding ResetColorToAutomaticCommand}"/>
-            </Grid>
-        </StackPanel>
-
-        <!-- When adding a slot to an existing server, the server is shown
-             read-only above (for context) rather than hidden entirely, so
-             the user can see which server they're adding to. -->
-        <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsServerReadOnly}">
-            <TextBlock Text="Server:"/>
-            <TextBlock Text="{Binding HostPortInput}"/>
-        </StackPanel>
-
-        <!-- New server: no room roster exists yet to pick from, so the first
-             slot's name has to be typed. -->
-        <TextBlock Text="Slot name" IsVisible="{Binding ShowSlotName}"/>
-        <TextBox Text="{Binding SlotName}" IsVisible="{Binding ShowSlotName}"/>
-
-        <!-- Adding slot(s) to an existing server: filter the room's player
-             roster by name, check as many as needed at once (instead of one
-             ComboBox pick + "Add to list" click per slot), and optionally
-             give any individual one its own password via its 🔒 override -
-             see Umsetzungsplan.md, "Add slot"-Dialog: Mehrfachauswahl mit
-             Suche. -->
-        <StackPanel IsVisible="{Binding ShowPlayerPicker}" Spacing="8">
-            <TextBlock Text="Slot"/>
-            <TextBox Text="{Binding SearchText}" Watermark="Type to filter..."/>
-
-            <StackPanel Orientation="Horizontal" Spacing="8">
-                <Button Content="Select visible" Command="{Binding SelectVisibleCommand}"/>
-                <Button Content="Deselect visible" Command="{Binding DeselectVisibleCommand}"/>
-            </StackPanel>
-
-            <!-- Capped height + internal scrolling, same reasoning as the
-                 configured-slots list below - a big room's roster must not
-                 push the window itself past the screen. "dialog-list" (see
-                 Styles/DialogStyles.axaml) leaves room for the scrollbar so
-                 it doesn't overlap the 🔒 button on every row once the list
-                 actually scrolls. -->
-            <ScrollViewer MaxHeight="220" Classes="dialog-list">
-                <ItemsControl ItemsSource="{Binding FilteredSlotRows}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate DataType="m:SelectableSlotRow">
-                            <StackPanel Margin="0,2" Spacing="2">
-                                <Grid ColumnDefinitions="Auto,*,Auto">
-                                    <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected}"/>
-                                    <TextBlock Grid.Column="1" Text="{Binding Player.DisplayText}"
-                                               VerticalAlignment="Center" Margin="6,0"/>
-                                    <ToggleButton Grid.Column="2" Content="🔒" Padding="6,0"
-                                                  IsChecked="{Binding ShowOverride}"
-                                                  ToolTip.Tip="This slot needs its own password"/>
-                                </Grid>
-                                <!-- Rare-case escape hatch, collapsed by
-                                     default - see
-                                     SelectableSlotRow.ShowOverride. -->
-                                <TextBox Text="{Binding OverridePassword}" PasswordChar="*"
-                                         IsVisible="{Binding ShowOverride}"
-                                         Watermark="Password just for this slot"
-                                         Margin="24,0,0,4"/>
-                            </StackPanel>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </ScrollViewer>
-
-            <TextBlock Text="No slots match." Opacity="0.6" IsVisible="{Binding HasNoFilteredResults}"/>
-        </StackPanel>
-
-        <!-- Editing an existing server: manage its already-configured slots
-             - which one auto-connects at startup by default, and remove one
-             entirely. "✕" asks for confirmation (re-adding a removed slot
-             later means re-syncing its whole history from scratch) and then
-             only stages the removal - the row disappears from this list
-             right away, but the actual removal (and any disconnect it may
-             trigger) is deferred to Save, so Cancel can still back out of it.
-             See OnRemoveConfiguredSlotClick and
-             ConnectionEditorViewModel.RemoveConfiguredSlot's own doc comments. -->
-        <StackPanel IsVisible="{Binding ShowSlotManagement}" Spacing="4">
-            <TextBlock Text="Slots"/>
-            <!-- Capped height + internal scrolling instead of letting this
-                 grow with the room's slot count - the window is
-                 SizeToContent/CanResize="False", so an uncapped list of many
-                 slots used to push the window itself past the top/bottom of
-                 the screen instead of just scrolling in place. "dialog-list"
-                 (see Styles/DialogStyles.axaml) leaves room for the
-                 scrollbar so it doesn't overlap the "Make default"/"✕"
-                 buttons once the list actually scrolls. -->
-            <ScrollViewer MaxHeight="220" Classes="dialog-list">
-                <ItemsControl ItemsSource="{Binding ConfiguredSlotRows}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate DataType="m:ConfiguredSlotRow">
-                            <StackPanel Margin="0,2" Spacing="2">
-                                <Grid ColumnDefinitions="*,Auto,Auto">
-                                    <TextBlock Grid.Column="0" Text="{Binding Slot.DisplayName}" VerticalAlignment="Center"/>
-                                    <TextBlock Grid.Column="1" Text="Default leader" Opacity="0.6" VerticalAlignment="Center"
-                                               Margin="0,0,8,0" IsVisible="{Binding IsDefaultLeader}"/>
-                                    <!-- Click (not Command), same reason as
-                                         OnUnstageSlotClick above: this template's own
-                                         DataContext is the ConfiguredSlotRow, not the
-                                         window's ConnectionEditorViewModel. -->
-                                    <Button Grid.Column="1" Content="Make default" Margin="0,0,8,0"
-                                            IsVisible="{Binding !IsDefaultLeader}" Click="OnMakeDefaultLeaderClick"/>
-                                    <Button Grid.Column="2" Content="✕" Padding="6,0" Click="OnRemoveConfiguredSlotClick"/>
-                                </Grid>
-
-                                <!-- Tier 1 of Feature-Plaene/Archiv/Fortschrittsanzeigen.md:
-                                     "X of Y locations checked" for this one
-                                     configured slot - null (no row shown at
-                                     all) until it has synced at least once,
-                                     see SlotProfile.HasLocationProgress. -->
-                                <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding Slot.HasLocationProgress}">
-                                    <ProgressBar Grid.Column="0" Height="6" VerticalAlignment="Center"
-                                                 Minimum="0" Maximum="{Binding Slot.LocationsTotalValue}"
-                                                 Value="{Binding Slot.LocationsCheckedValue}"/>
-                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="8,0,0,0">
-                                        <TextBlock Opacity="0.6" FontSize="11" Text="{Binding Slot.LocationsChecked}"/>
-                                        <TextBlock Opacity="0.6" FontSize="11" Text="{Binding Slot.LocationsTotal, StringFormat='/{0}'}"/>
-                                    </StackPanel>
-                                </Grid>
-                            </StackPanel>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </ScrollViewer>
-        </StackPanel>
-
-        <!-- The room's shared password (NewGroup/EditGroup only) - AddSlot
-             instead has its own per-slot password field inline with the
-             picker above. -->
-        <TextBlock Text="Password" IsVisible="{Binding !ShowPlayerPicker}"/>
-        <TextBox Text="{Binding Password}" PasswordChar="*" IsVisible="{Binding !ShowPlayerPicker}"/>
-
-        <CheckBox Content="Auto-connect" IsChecked="{Binding AutoConnect}" IsVisible="{Binding ShowAutoConnect}"/>
-
-        <!-- Benachrichtigungen.md: overrides every global notification
-             setting for this one server. -->
-        <CheckBox Content="Mute notifications (no blinking, no unread count)" IsChecked="{Binding NotificationsMuted}"
-                  IsVisible="{Binding ShowNotificationsMuted}"/>
-
-        <!-- Admin-Funktionen.md (feature-plan archive): only unlocks the
-             Admin view in this server's tab - the admin password is asked
-             for there, never here, and never saved. -->
-        <StackPanel IsVisible="{Binding ShowIsAdmin}" Spacing="2">
-            <CheckBox Content="I'm the admin" IsChecked="{Binding IsAdmin}"/>
-            <TextBlock Text="Adds an Admin view next to Hints/Items in this server's tab. The admin password is asked for there and never saved."
-                       Opacity="0.6" FontSize="12" TextWrapping="Wrap" Margin="28,0,0,0"/>
-        </StackPanel>
-
-        <!-- Tier 2 of Feature-Plaene/Archiv/Fortschrittsanzeigen.md: whole-multiworld
-             progress via the room's webhost tracker - optional, only usable
-             for a room hosted through a webhost (archipelago.gg or a
-             self-hosted instance). Accepts a bare tracker id, a tracker URL,
-             or a room URL - see Services/TrackerReferenceParser.cs. Resolved
-             (a room URL needs an actual network call) when Save is clicked,
-             not on every keystroke - see ConnectionEditorWindow.axaml.cs. -->
-        <StackPanel IsVisible="{Binding ShowMultiworldTracker}" Spacing="4">
-            <TextBlock Text="Multiworld tracker (optional)"/>
-            <TextBox Text="{Binding TrackerReferenceInput}"
-                     Watermark="Room- or tracker URL, or tracker id"
-                     IsEnabled="{Binding !IsResolvingTracker}"/>
-            <TextBlock Text="Resolving tracker..." Opacity="0.6" IsVisible="{Binding IsResolvingTracker}"/>
-        </StackPanel>
-
-        <TextBlock Text="{Binding ValidationError}"
-                   Foreground="Red"
-                   IsVisible="{Binding ValidationError, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"
-                   TextWrapping="Wrap"/>
-
+    <!-- Body scrolls, buttons + validation error stay docked below it - on a
+         short screen DialogScreenFit (see ConnectionEditorWindow.ShowDialogAsync)
+         caps the window's height, and Save must never be what gets cut off.
+         The 16px side margin lives inside the ScrollViewer so its scrollbar
+         sits in that margin instead of over right-aligned buttons. This is
+         the dialog's only scrolling area: the slot lists (player picker,
+         configured slots) used to cap themselves at 220px with their own
+         ScrollViewer, which together with this one meant two nested
+         scrollbars - they now just grow and scroll along with the rest. -->
+    <DockPanel>
         <!-- Hint text on its own row above the buttons, not sharing a row
              with them - at 380-440px window width, "Select at least one
              slot to continue" plus both buttons never fit on one line
              together, which used to clip the Save button clean off the
              visible window instead of just wrapping. -->
-        <StackPanel Spacing="4" Margin="0,8,0,0">
+        <StackPanel DockPanel.Dock="Bottom" Margin="16,8,16,16" Spacing="4">
+            <TextBlock Text="{Binding ValidationError}"
+                       Foreground="Red"
+                       IsVisible="{Binding ValidationError, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"
+                       TextWrapping="Wrap"/>
             <TextBlock Text="Select at least one slot to continue" Opacity="0.6" HorizontalAlignment="Right"
                        IsVisible="{Binding !CanApplyNow}"/>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
@@ -227,5 +46,179 @@
                 <Button Content="{Binding SaveButtonText}" Click="OnSaveClick" IsEnabled="{Binding CanApplyNow}" IsDefault="True"/>
             </StackPanel>
         </StackPanel>
-    </StackPanel>
+        <ScrollViewer>
+            <StackPanel Margin="16,16,16,0" Spacing="8">
+                <TextBlock Text="Name" IsVisible="{Binding !IsServerReadOnly}"/>
+                <TextBox Text="{Binding Name}" IsVisible="{Binding !IsServerReadOnly}"/>
+
+                <!-- Host and port combined into one field (host:port) so the whole
+                     address can be copy/pasted in one piece; TryBuildResult splits
+                     it back apart on the last colon. Also accepts a room link/id
+                     instead - resolved into an actual host:port (and, in passing,
+                     the Tracker field below) when Save is clicked, see
+                     ConnectionEditorViewModel.TryResolveHostPortAsync and
+                     ConnectionEditorWindow.axaml.cs. -->
+                <TextBlock Text="Server (host:port, or room link/id)" IsVisible="{Binding !IsServerReadOnly}"/>
+                <TextBox Text="{Binding HostPortInput}" IsVisible="{Binding !IsServerReadOnly}"
+                         Watermark="archipelago.gg:38281, or a room link"
+                         IsEnabled="{Binding !IsResolvingHostPort}"/>
+                <TextBlock Text="Resolving room..." Opacity="0.6" IsVisible="{Binding IsResolvingHostPort}"/>
+                <TextBlock Text="A room link/id only works if the room is hosted via a webhost - a self-hosted server with no webhost still needs host:port typed directly."
+                           Opacity="0.6" TextWrapping="Wrap" IsVisible="{Binding !IsServerReadOnly}"/>
+
+                <!-- Shown for NewGroup and EditGroup alike - the color is a
+                     server-wide setting, same as AutoConnect/the tracker field below
+                     (see ConnectionEditorViewModel.ShowColorPicker). "Reset" gives a
+                     fresh automatic suggestion, not a restore of a previous value -
+                     see ResetColorToAutomatic's own doc comment. -->
+                <StackPanel IsVisible="{Binding ShowColorPicker}" Spacing="4">
+                    <TextBlock Text="Color"/>
+                    <Grid ColumnDefinitions="*,Auto">
+                        <ColorPicker Grid.Column="0" Color="{Binding SelectedColor, Mode=TwoWay}" HorizontalAlignment="Left"/>
+                        <Button Grid.Column="1" Content="Reset to automatic" Command="{Binding ResetColorToAutomaticCommand}"/>
+                    </Grid>
+                </StackPanel>
+
+                <!-- When adding a slot to an existing server, the server is shown
+                     read-only above (for context) rather than hidden entirely, so
+                     the user can see which server they're adding to. -->
+                <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsServerReadOnly}">
+                    <TextBlock Text="Server:"/>
+                    <TextBlock Text="{Binding HostPortInput}"/>
+                </StackPanel>
+
+                <!-- New server: no room roster exists yet to pick from, so the first
+                     slot's name has to be typed. -->
+                <TextBlock Text="Slot name" IsVisible="{Binding ShowSlotName}"/>
+                <TextBox Text="{Binding SlotName}" IsVisible="{Binding ShowSlotName}"/>
+
+                <!-- Adding slot(s) to an existing server: filter the room's player
+                     roster by name, check as many as needed at once (instead of one
+                     ComboBox pick + "Add to list" click per slot), and optionally
+                     give any individual one its own password via its 🔒 override -
+                     see Umsetzungsplan.md, "Add slot"-Dialog: Mehrfachauswahl mit
+                     Suche. -->
+                <StackPanel IsVisible="{Binding ShowPlayerPicker}" Spacing="8">
+                    <TextBlock Text="Slot"/>
+                    <TextBox Text="{Binding SearchText}" Watermark="Type to filter..."/>
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Content="Select visible" Command="{Binding SelectVisibleCommand}"/>
+                        <Button Content="Deselect visible" Command="{Binding DeselectVisibleCommand}"/>
+                    </StackPanel>
+
+                    <ItemsControl ItemsSource="{Binding FilteredSlotRows}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="m:SelectableSlotRow">
+                                <StackPanel Margin="0,2" Spacing="2">
+                                    <Grid ColumnDefinitions="Auto,*,Auto">
+                                        <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected}"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Player.DisplayText}"
+                                                   VerticalAlignment="Center" Margin="6,0"/>
+                                        <ToggleButton Grid.Column="2" Content="🔒" Padding="6,0"
+                                                      IsChecked="{Binding ShowOverride}"
+                                                      ToolTip.Tip="This slot needs its own password"/>
+                                    </Grid>
+                                    <!-- Rare-case escape hatch, collapsed by
+                                         default - see
+                                         SelectableSlotRow.ShowOverride. -->
+                                    <TextBox Text="{Binding OverridePassword}" PasswordChar="*"
+                                             IsVisible="{Binding ShowOverride}"
+                                             Watermark="Password just for this slot"
+                                             Margin="24,0,0,4"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <TextBlock Text="No slots match." Opacity="0.6" IsVisible="{Binding HasNoFilteredResults}"/>
+                </StackPanel>
+
+                <!-- Editing an existing server: manage its already-configured slots
+                     - which one auto-connects at startup by default, and remove one
+                     entirely. "✕" asks for confirmation (re-adding a removed slot
+                     later means re-syncing its whole history from scratch) and then
+                     only stages the removal - the row disappears from this list
+                     right away, but the actual removal (and any disconnect it may
+                     trigger) is deferred to Save, so Cancel can still back out of it.
+                     See OnRemoveConfiguredSlotClick and
+                     ConnectionEditorViewModel.RemoveConfiguredSlot's own doc comments. -->
+                <StackPanel IsVisible="{Binding ShowSlotManagement}" Spacing="4">
+                    <TextBlock Text="Slots"/>
+                    <ItemsControl ItemsSource="{Binding ConfiguredSlotRows}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="m:ConfiguredSlotRow">
+                                <StackPanel Margin="0,2" Spacing="2">
+                                    <Grid ColumnDefinitions="*,Auto,Auto">
+                                        <TextBlock Grid.Column="0" Text="{Binding Slot.DisplayName}" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1" Text="Default leader" Opacity="0.6" VerticalAlignment="Center"
+                                                   Margin="0,0,8,0" IsVisible="{Binding IsDefaultLeader}"/>
+                                        <!-- Click (not Command), same reason as
+                                             OnUnstageSlotClick above: this template's own
+                                             DataContext is the ConfiguredSlotRow, not the
+                                             window's ConnectionEditorViewModel. -->
+                                        <Button Grid.Column="1" Content="Make default" Margin="0,0,8,0"
+                                                IsVisible="{Binding !IsDefaultLeader}" Click="OnMakeDefaultLeaderClick"/>
+                                        <Button Grid.Column="2" Content="✕" Padding="6,0" Click="OnRemoveConfiguredSlotClick"/>
+                                    </Grid>
+
+                                    <!-- Tier 1 of Feature-Plaene/Archiv/Fortschrittsanzeigen.md:
+                                         "X of Y locations checked" for this one
+                                         configured slot - null (no row shown at
+                                         all) until it has synced at least once,
+                                         see SlotProfile.HasLocationProgress. -->
+                                    <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding Slot.HasLocationProgress}">
+                                        <ProgressBar Grid.Column="0" Height="6" VerticalAlignment="Center"
+                                                     Minimum="0" Maximum="{Binding Slot.LocationsTotalValue}"
+                                                     Value="{Binding Slot.LocationsCheckedValue}"/>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="8,0,0,0">
+                                            <TextBlock Opacity="0.6" FontSize="11" Text="{Binding Slot.LocationsChecked}"/>
+                                            <TextBlock Opacity="0.6" FontSize="11" Text="{Binding Slot.LocationsTotal, StringFormat='/{0}'}"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+
+                <!-- The room's shared password (NewGroup/EditGroup only) - AddSlot
+                     instead has its own per-slot password field inline with the
+                     picker above. -->
+                <TextBlock Text="Password" IsVisible="{Binding !ShowPlayerPicker}"/>
+                <TextBox Text="{Binding Password}" PasswordChar="*" IsVisible="{Binding !ShowPlayerPicker}"/>
+
+                <CheckBox Content="Auto-connect" IsChecked="{Binding AutoConnect}" IsVisible="{Binding ShowAutoConnect}"/>
+
+                <!-- Benachrichtigungen.md: overrides every global notification
+                     setting for this one server. -->
+                <CheckBox Content="Mute notifications (no blinking, no unread count)" IsChecked="{Binding NotificationsMuted}"
+                          IsVisible="{Binding ShowNotificationsMuted}"/>
+
+                <!-- Admin-Funktionen.md (feature-plan archive): only unlocks the
+                     Admin view in this server's tab - the admin password is asked
+                     for there, never here, and never saved. -->
+                <StackPanel IsVisible="{Binding ShowIsAdmin}" Spacing="2">
+                    <CheckBox Content="I'm the admin" IsChecked="{Binding IsAdmin}"/>
+                    <TextBlock Text="Adds an Admin view next to Hints/Items in this server's tab. The admin password is asked for there and never saved."
+                               Opacity="0.6" FontSize="12" TextWrapping="Wrap" Margin="28,0,0,0"/>
+                </StackPanel>
+
+                <!-- Tier 2 of Feature-Plaene/Archiv/Fortschrittsanzeigen.md: whole-multiworld
+                     progress via the room's webhost tracker - optional, only usable
+                     for a room hosted through a webhost (archipelago.gg or a
+                     self-hosted instance). Accepts a bare tracker id, a tracker URL,
+                     or a room URL - see Services/TrackerReferenceParser.cs. Resolved
+                     (a room URL needs an actual network call) when Save is clicked,
+                     not on every keystroke - see ConnectionEditorWindow.axaml.cs. -->
+                <StackPanel IsVisible="{Binding ShowMultiworldTracker}" Spacing="4">
+                    <TextBlock Text="Multiworld tracker (optional)"/>
+                    <TextBox Text="{Binding TrackerReferenceInput}"
+                             Watermark="Room- or tracker URL, or tracker id"
+                             IsEnabled="{Binding !IsResolvingTracker}"/>
+                    <TextBlock Text="Resolving tracker..." Opacity="0.6" IsVisible="{Binding IsResolvingTracker}"/>
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
 </Window>

@@ -15,104 +15,111 @@
         <vm:SettingsViewModel/>
     </Design.DataContext>
 
-    <StackPanel Margin="16" Spacing="8">
-        <CheckBox Content="Auto-connect new profiles by default" IsChecked="{Binding DefaultAutoConnect}"/>
-
-        <!-- Kompakteres-Layout.md, Teil A - applied as soon as
-             Save is clicked (see MainWindowViewModel.SaveSettings), no restart. -->
-        <CheckBox Content="Compact layout (denser lists and controls)" IsChecked="{Binding CompactDensity}"/>
-
-        <TextBlock Text="Event history limit per tab"/>
-        <NumericUpDown Value="{Binding EventHistoryLimit}" Minimum="1" Maximum="100000" FormatString="0"/>
-
-        <!-- Benachrichtigungen.md (feature-plan archive): what counts toward the unread
-             count (tab badge, Dashboard, window title) and what blinks the
-             taskbar button - per category, both independent. Applied as soon
-             as Save is clicked (see MainWindowViewModel.SaveSettings). -->
-        <Border Height="1" Background="Gray" Opacity="0.3" Margin="0,8,0,0"/>
-        <TextBlock Text="Notifications" FontWeight="SemiBold"/>
-
-        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" ColumnSpacing="8" RowSpacing="6">
-            <TextBlock Grid.Row="0" Grid.Column="0" Text="Taskbar blink" VerticalAlignment="Center"/>
-            <ComboBox Grid.Row="0" Grid.Column="1" HorizontalAlignment="Stretch"
-                      ItemsSource="{Binding BlinkModes}" SelectedItem="{Binding SelectedBlinkMode}"/>
-            <!-- Windows only - see SettingsViewModel.SupportsBlinkCount. -->
-            <TextBlock Grid.Row="1" Grid.Column="0" Text="Times" VerticalAlignment="Center"
-                       IsVisible="{Binding ShowBlinkCount}"/>
-            <NumericUpDown Grid.Row="1" Grid.Column="1" Minimum="1" Maximum="20" FormatString="0"
-                           Value="{Binding BlinkCount}" IsVisible="{Binding ShowBlinkCount}"/>
-        </Grid>
-
-        <Grid ColumnDefinitions="*,56,56" Margin="0,4,0,0">
-            <TextBlock Grid.Column="0" Text="Event" Opacity="0.6" FontSize="12"/>
-            <TextBlock Grid.Column="1" Text="Count" Opacity="0.6" FontSize="12" HorizontalAlignment="Center"/>
-            <TextBlock Grid.Column="2" Text="Blink" Opacity="0.6" FontSize="12" HorizontalAlignment="Center"/>
-        </Grid>
-        <ItemsControl ItemsSource="{Binding AttentionCategories}">
-            <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="vm:AttentionCategoryRowViewModel">
-                    <Grid ColumnDefinitions="*,56,56">
-                        <TextBlock Grid.Column="0" Text="{Binding Label}" VerticalAlignment="Center"/>
-                        <CheckBox Grid.Column="1" IsChecked="{Binding Count}" HorizontalAlignment="Center"/>
-                        <CheckBox Grid.Column="2" IsChecked="{Binding Blink}" HorizontalAlignment="Center"/>
-                    </Grid>
-                </DataTemplate>
-            </ItemsControl.ItemTemplate>
-        </ItemsControl>
-        <TextBlock Text="Count: shown on the tab, the Dashboard and in the window title. Blink: flash the taskbar button while the window isn't focused. Individual servers can be muted in Edit server."
-                   Opacity="0.6" FontSize="12" TextWrapping="Wrap"/>
-        <CheckBox Content="Show unread count in window title" IsChecked="{Binding ShowUnreadInTitle}"/>
-        <!-- Windows taskbar overlay / macOS Dock badge - not offered where
-             no native badge exists (Linux), see SettingsViewModel.SupportsUnreadBadge. -->
-        <CheckBox Content="Show unread count as taskbar/Dock badge" IsChecked="{Binding ShowUnreadBadge}"
-                  IsVisible="{Binding SupportsUnreadBadge}"/>
-
-        <TextBlock Text="{Binding ValidationError}"
-                   Foreground="Red"
-                   IsVisible="{Binding ValidationError, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"
-                   TextWrapping="Wrap"/>
-
-        <!-- Feature-Plaene/Archiv/Auto-Update.md: manual equivalent of the app's own
-             startup update check. Status text appears below once a check
-             completes; the app also does this same check automatically at
-             startup (see MainWindowViewModel.CheckForUpdatesAsync), showing
-             a small dot next to "Settings..." instead if it finds one.
-             Replaced entirely by an explanatory hint (below) on a manually
-             downloaded/unzipped install, which can never auto-update no
-             matter how many releases come out - a check there would only
-             ever silently find nothing, which would misleadingly read as
-             "you're up to date" rather than "this install can't check at
-             all". Not shown on macOS either way - see ShowUnmanagedInstallHint's
-             own doc comment (no Velopack package exists there at all, so
-             the distinction "managed vs. unmanaged" doesn't apply). -->
-        <Grid ColumnDefinitions="*,Auto" Margin="0,8,0,0" IsVisible="{Binding !ShowUnmanagedInstallHint}">
-            <TextBlock Grid.Column="0" Text="{Binding AppVersion, StringFormat='Version {0}'}"
-                       Opacity="0.5" VerticalAlignment="Center"/>
-            <Button Grid.Column="1" Content="Check for updates" Command="{Binding CheckForUpdatesCommand}"
-                    IsEnabled="{Binding !IsCheckingForUpdates}"/>
-        </Grid>
-        <TextBlock Text="{Binding UpdateCheckStatusText}" Opacity="0.7" FontSize="12"
-                   IsVisible="{Binding UpdateCheckStatusText, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"/>
-
-        <StackPanel Spacing="2" IsVisible="{Binding ShowUnmanagedInstallHint}">
-            <TextBlock Text="{Binding AppVersion, StringFormat='Version {0}'}"
-                       Opacity="0.5"/>
-            <TextBlock Text="This is a manually downloaded build, so it can't check for updates on its own. Grab the installer from the latest release on GitHub instead to enable automatic updates."
-                       Opacity="0.7" FontSize="12" TextWrapping="Wrap"/>
-        </StackPanel>
-
-        <Grid ColumnDefinitions="*,Auto" Margin="0,8,0,0">
-            <TextBlock Grid.Column="0" Text="Diagnostic log" Opacity="0.5" VerticalAlignment="Center"/>
-            <Button Grid.Column="1" Content="Export..." Click="OnExportDiagnosticLogClick"/>
-        </Grid>
-        <TextBlock Text="{Binding ExportStatusText}" Opacity="0.7" FontSize="12"
-                   IsVisible="{Binding ExportStatusText, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"/>
-
-        <Grid ColumnDefinitions="*,Auto" Margin="0,8,0,0">
-            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+    <!-- Body scrolls, buttons + validation error stay docked below it - on a
+         short screen DialogScreenFit (see SettingsWindow.ShowDialogAsync)
+         caps the window's height, and Save must never be what gets cut off.
+         The 16px side margin lives inside the ScrollViewer so its scrollbar
+         sits in that margin instead of over the right-aligned buttons. -->
+    <DockPanel>
+        <StackPanel DockPanel.Dock="Bottom" Margin="16,8,16,16" Spacing="8">
+            <TextBlock Text="{Binding ValidationError}"
+                       Foreground="Red"
+                       IsVisible="{Binding ValidationError, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"
+                       TextWrapping="Wrap"/>
+            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
                 <Button Content="Cancel" Click="OnCancelClick"/>
                 <Button Content="Save" Click="OnSaveClick" IsDefault="True"/>
             </StackPanel>
-        </Grid>
-    </StackPanel>
+        </StackPanel>
+        <ScrollViewer>
+            <StackPanel Margin="16,16,16,0" Spacing="8">
+                <CheckBox Content="Auto-connect new profiles by default" IsChecked="{Binding DefaultAutoConnect}"/>
+
+                <!-- Kompakteres-Layout.md, Teil A - applied as soon as
+                     Save is clicked (see MainWindowViewModel.SaveSettings), no restart. -->
+                <CheckBox Content="Compact layout (denser lists and controls)" IsChecked="{Binding CompactDensity}"/>
+
+                <TextBlock Text="Event history limit per tab"/>
+                <NumericUpDown Value="{Binding EventHistoryLimit}" Minimum="1" Maximum="100000" FormatString="0"/>
+
+                <!-- Benachrichtigungen.md (feature-plan archive): what counts toward the unread
+                     count (tab badge, Dashboard, window title) and what blinks the
+                     taskbar button - per category, both independent. Applied as soon
+                     as Save is clicked (see MainWindowViewModel.SaveSettings). -->
+                <Border Height="1" Background="Gray" Opacity="0.3" Margin="0,8,0,0"/>
+                <TextBlock Text="Notifications" FontWeight="SemiBold"/>
+
+                <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" ColumnSpacing="8" RowSpacing="6">
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Taskbar blink" VerticalAlignment="Center"/>
+                    <ComboBox Grid.Row="0" Grid.Column="1" HorizontalAlignment="Stretch"
+                              ItemsSource="{Binding BlinkModes}" SelectedItem="{Binding SelectedBlinkMode}"/>
+                    <!-- Windows only - see SettingsViewModel.SupportsBlinkCount. -->
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Times" VerticalAlignment="Center"
+                               IsVisible="{Binding ShowBlinkCount}"/>
+                    <NumericUpDown Grid.Row="1" Grid.Column="1" Minimum="1" Maximum="20" FormatString="0"
+                                   Value="{Binding BlinkCount}" IsVisible="{Binding ShowBlinkCount}"/>
+                </Grid>
+
+                <Grid ColumnDefinitions="*,56,56" Margin="0,4,0,0">
+                    <TextBlock Grid.Column="0" Text="Event" Opacity="0.6" FontSize="12"/>
+                    <TextBlock Grid.Column="1" Text="Count" Opacity="0.6" FontSize="12" HorizontalAlignment="Center"/>
+                    <TextBlock Grid.Column="2" Text="Blink" Opacity="0.6" FontSize="12" HorizontalAlignment="Center"/>
+                </Grid>
+                <ItemsControl ItemsSource="{Binding AttentionCategories}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:AttentionCategoryRowViewModel">
+                            <Grid ColumnDefinitions="*,56,56">
+                                <TextBlock Grid.Column="0" Text="{Binding Label}" VerticalAlignment="Center"/>
+                                <CheckBox Grid.Column="1" IsChecked="{Binding Count}" HorizontalAlignment="Center"/>
+                                <CheckBox Grid.Column="2" IsChecked="{Binding Blink}" HorizontalAlignment="Center"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Text="Count: shown on the tab, the Dashboard and in the window title. Blink: flash the taskbar button while the window isn't focused. Individual servers can be muted in Edit server."
+                           Opacity="0.6" FontSize="12" TextWrapping="Wrap"/>
+                <CheckBox Content="Show unread count in window title" IsChecked="{Binding ShowUnreadInTitle}"/>
+                <!-- Windows taskbar overlay / macOS Dock badge - not offered where
+                     no native badge exists (Linux), see SettingsViewModel.SupportsUnreadBadge. -->
+                <CheckBox Content="Show unread count as taskbar/Dock badge" IsChecked="{Binding ShowUnreadBadge}"
+                          IsVisible="{Binding SupportsUnreadBadge}"/>
+
+                <!-- Feature-Plaene/Archiv/Auto-Update.md: manual equivalent of the app's own
+                     startup update check. Status text appears below once a check
+                     completes; the app also does this same check automatically at
+                     startup (see MainWindowViewModel.CheckForUpdatesAsync), showing
+                     a small dot next to "Settings..." instead if it finds one.
+                     Replaced entirely by an explanatory hint (below) on a manually
+                     downloaded/unzipped install, which can never auto-update no
+                     matter how many releases come out - a check there would only
+                     ever silently find nothing, which would misleadingly read as
+                     "you're up to date" rather than "this install can't check at
+                     all". Not shown on macOS either way - see ShowUnmanagedInstallHint's
+                     own doc comment (no Velopack package exists there at all, so
+                     the distinction "managed vs. unmanaged" doesn't apply). -->
+                <Grid ColumnDefinitions="*,Auto" Margin="0,8,0,0" IsVisible="{Binding !ShowUnmanagedInstallHint}">
+                    <TextBlock Grid.Column="0" Text="{Binding AppVersion, StringFormat='Version {0}'}"
+                               Opacity="0.5" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" Content="Check for updates" Command="{Binding CheckForUpdatesCommand}"
+                            IsEnabled="{Binding !IsCheckingForUpdates}"/>
+                </Grid>
+                <TextBlock Text="{Binding UpdateCheckStatusText}" Opacity="0.7" FontSize="12"
+                           IsVisible="{Binding UpdateCheckStatusText, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"/>
+
+                <StackPanel Spacing="2" IsVisible="{Binding ShowUnmanagedInstallHint}">
+                    <TextBlock Text="{Binding AppVersion, StringFormat='Version {0}'}"
+                               Opacity="0.5"/>
+                    <TextBlock Text="This is a manually downloaded build, so it can't check for updates on its own. Grab the installer from the latest release on GitHub instead to enable automatic updates."
+                               Opacity="0.7" FontSize="12" TextWrapping="Wrap"/>
+                </StackPanel>
+
+                <Grid ColumnDefinitions="*,Auto" Margin="0,8,0,0">
+                    <TextBlock Grid.Column="0" Text="Diagnostic log" Opacity="0.5" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" Content="Export..." Click="OnExportDiagnosticLogClick"/>
+                </Grid>
+                <TextBlock Text="{Binding ExportStatusText}" Opacity="0.7" FontSize="12"
+                           IsVisible="{Binding ExportStatusText, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"/>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
 </Window>
