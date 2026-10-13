@@ -12,23 +12,8 @@ using Avalonia.Threading;
 namespace AvaloniaApplication1.Tests;
 
 /// <summary>
-/// Kategorie A (Test-Umsetzungsplan.md): <see cref="HintService"/>'s
-/// IsNewSinceLastSession computation, and <see cref="GroupViewModel.VisibleHints"/>'s
-/// filtering.
-///
-/// The <c>SyncHints</c>-based tests below need <c>[AvaloniaFact]</c>, not
-/// plain <c>[Fact]</c>, despite <see cref="HintService.SyncHints"/> itself
-/// never touching a Control - <see cref="Dispatcher.UIThread"/>'s job queue
-/// can be drained manually via <see cref="Dispatcher.RunJobs"/> without a
-/// running Avalonia Application (true before Kategorie C's
-/// AvaloniaTestApplication assembly attribute existed - verified at the
-/// time), but once that attribute is present, Dispatcher enforces real
-/// thread ownership for the whole assembly, and a plain <c>[Fact]</c> runs on
-/// a different thread than the one <c>[AvaloniaFact]</c> tests (and their
-/// Dispatcher) get - see <c>VerifyAccess</c>'s
-/// "calling thread cannot access this object" failure this produced. The
-/// pure <c>VisibleHints</c> filter tests further down never touch
-/// <see cref="Dispatcher"/> at all and correctly stay plain <c>[Fact]</c>.
+/// SyncHints tests need [AvaloniaFact] although no Control is involved: with AvaloniaTestApplication present, Dispatcher
+/// enforces thread ownership and a plain [Fact] runs on another thread (VerifyAccess fails).
 /// </summary>
 public class HintServiceFilterTests
 {
@@ -54,16 +39,13 @@ public class HintServiceFilterTests
         ReceivingPlayerName = "Bob",
         FindingPlayerName = "Alice",
         ItemName = "Sword",
-        // Per-key location: finder + location identifies a hint (see
-        // HintService.AddOrUpdate), so two distinct test hints must not share both.
+        // Finder + location identifies a hint, so test hints must not share both.
         LocationName = $"Chest ({key})",
         Found = found,
         ItemFlags = ItemFlags.None,
         ReceivingPlayerKind = receivingKind,
         FindingPlayerKind = findingKind,
     };
-
-    // --- IsNewSinceLastSession (HintService.SyncHints) -----------------
 
     [AvaloniaFact]
     public void SyncHints_HintNotInSeenHintIds_IsMarkedNewSinceLastSession()
@@ -82,8 +64,7 @@ public class HintServiceFilterTests
     [AvaloniaFact]
     public void SyncHints_HintAlreadyInSeenHintIds_IsNotMarkedNew()
     {
-        // Models a hint that was already shown in an earlier session (e.g.
-        // before the app was closed and reopened).
+        // Already shown in an earlier session.
         var groupViewModel = MakeGroup(out var slot);
         var syncStateStore = new InMemoryProfileSyncStateStore();
         syncStateStore.Seed(new ProfileSyncState { ProfileId = slot.Id, SeenHintIds = { "already-seen" } });
@@ -99,9 +80,7 @@ public class HintServiceFilterTests
     [AvaloniaFact]
     public void SyncHints_HintsThatArrivedWhileAway_AreMarkedNew_AndPersistedAsSeenAfterwards()
     {
-        // "While away" = not in SeenHintIds yet, even though the batch also
-        // contains an older, already-seen hint - each snapshot in the same
-        // batch is judged independently against SeenHintIds.
+        // Each snapshot in a batch is judged independently against SeenHintIds.
         var groupViewModel = MakeGroup(out var slot);
         var syncStateStore = new InMemoryProfileSyncStateStore();
         syncStateStore.Seed(new ProfileSyncState { ProfileId = slot.Id, SeenHintIds = { "old-hint" } });
@@ -119,7 +98,7 @@ public class HintServiceFilterTests
         Assert.False(oldEntry.IsNewSinceLastSession);
         Assert.True(newEntry.IsNewSinceLastSession);
 
-        // Persisted so a later resync of the same hints doesn't call it "new" again.
+        // Persisted so a later resync doesn't call it "new" again.
         var persisted = syncStateStore.Get(slot.Id);
         Assert.Contains("hint-that-arrived-while-away", persisted.SeenHintIds);
     }
@@ -144,8 +123,6 @@ public class HintServiceFilterTests
         Assert.True(updatedEntry.Found);
         Assert.True(updatedEntry.IsNewSinceLastSession); // init-only, unaffected by the Found update
     }
-
-    // --- VisibleHints filtering (GroupViewModel) ------------------------
 
     [Fact]
     public void VisibleHints_UnfoundFilter_ExcludesFoundHints()

@@ -5,18 +5,11 @@ using System.Linq;
 namespace Archipolygo.Services;
 
 /// <summary>
-/// Real <see cref="IDiagnosticLogger"/> - appends plain-text lines to one
-/// file per app run under <c>%AppData%/Archipolygo/logs</c>, alongside
-/// <see cref="PersistenceService"/>'s own files. Registered as a singleton
-/// (see App.axaml.cs) so every service instrumented with one writes to the
-/// same file through the same lock - the design-time/test constructors of
-/// those services fall back to <see cref="NullDiagnosticLogger"/> instead of
-/// each creating their own instance here, precisely to avoid several
-/// uncoordinated instances appending to the same file at once.
+/// One log file per app run. Must be a singleton so all writers share one lock; design-time/test
+/// constructors use <see cref="NullDiagnosticLogger"/> instead of creating extra instances.
 /// </summary>
 public sealed class DiagnosticLogger : IDiagnosticLogger
 {
-    /// <summary>How many of the most recent runs' log files are kept - see <see cref="PruneOldLogFiles"/>.</summary>
     private const int MaxLogFiles = 10;
 
     private const string FilePrefix = "diagnostic-";
@@ -24,12 +17,7 @@ public sealed class DiagnosticLogger : IDiagnosticLogger
 
     private readonly string _logDirectory;
 
-    /// <summary>
-    /// One file for this whole app run, named after the moment this
-    /// singleton was constructed (i.e. app start) - not one file per day or
-    /// per size threshold. Sortable lexicographically the same as
-    /// chronologically, which <see cref="PruneOldLogFiles"/> relies on.
-    /// </summary>
+    /// <summary>One file per app run; the timestamped name sorts chronologically, which pruning relies on.</summary>
     private readonly string _logFilePath;
 
     private readonly object _lock = new();
@@ -39,7 +27,7 @@ public sealed class DiagnosticLogger : IDiagnosticLogger
     {
     }
 
-    /// <summary>Test-only entry point, same reasoning as <see cref="PersistenceService"/>'s internal string constructor.</summary>
+    /// <summary>Test-only entry point.</summary>
     internal DiagnosticLogger(string appDataDirectory)
     {
         _logDirectory = Path.Combine(appDataDirectory, "logs");
@@ -68,20 +56,12 @@ public sealed class DiagnosticLogger : IDiagnosticLogger
             }
             catch (Exception)
             {
-                // The diagnostic logger must never itself be the reason
-                // something else throws - a failed write here is simply lost.
+                // The logger must never make anything else throw; a failed write is simply lost.
             }
         }
     }
 
-    /// <summary>
-    /// Keeps at most <see cref="MaxLogFiles"/> of this run's own file plus
-    /// however many earlier runs' files are still on disk, deleting the
-    /// oldest ones first - so a long history of app starts doesn't grow
-    /// <c>logs/</c> forever. Runs once, right after this run's own filename
-    /// is decided, leaving room for that not-yet-created file rather than
-    /// pruning down to the full cap and then going one over.
-    /// </summary>
+    /// <summary>Leaves room for this run's not-yet-created file within <see cref="MaxLogFiles"/>.</summary>
     private void PruneOldLogFiles()
     {
         try
@@ -97,7 +77,7 @@ public sealed class DiagnosticLogger : IDiagnosticLogger
         }
         catch (Exception)
         {
-            // Best-effort - a leftover old file is harmless clutter, not worth failing startup over.
+            // Best-effort; a leftover old file is harmless.
         }
     }
 

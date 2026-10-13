@@ -4,16 +4,13 @@ using Archipelago.MultiClient.Net.Enums;
 namespace Archipolygo.Models;
 
 /// <summary>
-/// Plain data carrier for a single hint with already-resolved display names,
-/// passed from <see cref="Services.ConnectionManager"/> (which has access to
-/// the session's name-lookup helpers) to <see cref="Services.IHintService"/>
-/// (which only deals with persistence/diffing, not the Archipelago session).
+/// A hint with already-resolved display names, handed from ConnectionManager (which has the session's
+/// name lookups) to <see cref="Services.IHintService"/> (which never touches the session).
 /// </summary>
 public class HintSnapshot
 {
     public required string Key { get; init; }
 
-    /// <summary>Id of the <see cref="SlotProfile"/> this hint snapshot is for.</summary>
     public Guid SlotId { get; init; }
 
     public int ReceivingPlayer { get; init; }
@@ -32,9 +29,7 @@ public class HintSnapshot
 
     public ItemFlags ItemFlags { get; init; }
 
-    /// <summary>Own/connected/other classification of <see cref="ReceivingPlayer"/>, for log/hint-list coloring.</summary>
     public EventTextSegmentKind ReceivingPlayerKind { get; init; }
 
-    /// <summary>Own/connected/other classification of <see cref="FindingPlayer"/>, for log/hint-list coloring.</summary>
     public EventTextSegmentKind FindingPlayerKind { get; init; }
 }

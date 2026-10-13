@@ -4,12 +4,6 @@ using Archipolygo.ViewModels;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie A (Test-Umsetzungsplan.md): the Settings dialog's "Check for
-/// updates" button (Feature-Plaene/Archiv/Auto-Update.md) - plain callback-reaction
-/// logic, no Avalonia/Velopack involved, same pattern as
-/// <see cref="ConnectionEditorViewModelTrackerTests"/>.
-/// </summary>
 public class SettingsViewModelUpdateTests
 {
     [Fact]
@@ -43,13 +37,7 @@ public class SettingsViewModelUpdateTests
         Assert.Null(viewModel.UpdateCheckStatusText);
     }
 
-    /// <summary>
-    /// On an unmanaged install, the command is a guaranteed no-op even if
-    /// somehow invoked (the button that normally triggers it is hidden - see
-    /// SettingsWindowTests - but this keeps the two in sync regardless of
-    /// how it ends up called) - a check there would only ever silently find
-    /// nothing anyway, which would misleadingly print "you're up to date."
-    /// </summary>
+    /// <summary>The button is hidden there anyway; a check would only find nothing and misleadingly report "up to date".</summary>
     [Fact]
     public async Task CheckForUpdatesCommand_UnmanagedInstall_NeverRunsEvenWithACallbackWiredUp()
     {

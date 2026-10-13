@@ -7,16 +7,7 @@ using Archipolygo.ViewModels;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie A (Test-Umsetzungsplan.md): <see cref="MainWindowViewModel.DetachGroup"/>/
-/// <see cref="MainWindowViewModel.RedockGroup"/>'s own bookkeeping - the
-/// ViewModel-side half of Feature-Plaene/Tab-Eigenes-Fenster.md. Same
-/// documented gap as <see cref="GroupReorderTests"/>: the actual drag
-/// gesture that calls these (GroupReorderDragDrop, MainWindow.axaml.cs's
-/// OnMainAreaDrop/OnGroupTabDrop, DetachedGroupWindow's own drag handle)
-/// isn't exercised here - Avalonia.Headless has no drag-gesture simulation,
-/// see that class's own doc comment for why.
-/// </summary>
+/// <summary>View-model bookkeeping only; the drag gesture can't be simulated headless.</summary>
 public sealed class TabDetachTests : IDisposable
 {
     private readonly string _tempDirectory;
@@ -82,7 +73,6 @@ public sealed class TabDetachTests : IDisposable
         Assert.Equal(0, openCount);
     }
 
-    /// <summary>Detaching the currently selected (active) tab must move the selection to another still-docked tab rather than leaving it pointing at a group the TabControl no longer renders.</summary>
     [Fact]
     public void DetachGroup_DetachingTheSelectedGroup_ReassignsSelectedGroupToAnotherDockedGroup()
     {
@@ -98,7 +88,6 @@ public sealed class TabDetachTests : IDisposable
         Assert.Same(bravo, mainWindowViewModel.SelectedGroup);
     }
 
-    /// <summary>The last remaining docked group's own tab being detached leaves nothing left to select.</summary>
     [Fact]
     public void DetachGroup_DetachingTheOnlyDockedGroup_LeavesSelectedGroupNull()
     {
@@ -112,7 +101,6 @@ public sealed class TabDetachTests : IDisposable
         Assert.Null(mainWindowViewModel.SelectedGroup);
     }
 
-    /// <summary>Detaching the very last docked tab would otherwise leave the TabControl empty - switch to the Dashboard automatically instead of a blank pane.</summary>
     [Fact]
     public void DetachGroup_DetachingTheOnlyDockedGroup_SwitchesToDashboard()
     {
@@ -126,7 +114,6 @@ public sealed class TabDetachTests : IDisposable
         Assert.True(mainWindowViewModel.IsDashboardVisible);
     }
 
-    /// <summary>Detaching one of several still-docked tabs leaves a perfectly usable TabControl behind - no reason to force a view switch.</summary>
     [Fact]
     public void DetachGroup_DetachingOneOfSeveralDockedGroups_DoesNotSwitchToDashboard()
     {
@@ -175,7 +162,7 @@ public sealed class TabDetachTests : IDisposable
         Assert.Single(mainWindowViewModel.DockedGroups);
     }
 
-    /// <summary>Mirrors DetachGroup's own auto-switch: re-docking the only tab (nothing else was docked) switches back to Tab View so the user actually sees it land.</summary>
+    /// <summary>Re-docking the only tab switches back to Tab View so the user sees it land.</summary>
     [Fact]
     public void RedockGroup_WhenNothingElseWasDocked_SwitchesBackToTabView()
     {
@@ -189,7 +176,7 @@ public sealed class TabDetachTests : IDisposable
         Assert.False(mainWindowViewModel.IsDashboardVisible);
     }
 
-    /// <summary>A user deliberately viewing the Dashboard while another tab stays docked shouldn't be yanked away from it just because an unrelated detached window closed.</summary>
+    /// <summary>A user deliberately on the Dashboard isn't yanked away by an unrelated window closing.</summary>
     [Fact]
     public void RedockGroup_WhenAnotherGroupWasAlreadyDocked_DoesNotForceSwitchToTabView()
     {
@@ -205,7 +192,6 @@ public sealed class TabDetachTests : IDisposable
         Assert.True(mainWindowViewModel.IsDashboardVisible);
     }
 
-    /// <summary>Removing a server entirely while its tab is detached must also close that orphaned window, not just drop it from Groups.</summary>
     [Fact]
     public async System.Threading.Tasks.Task RemoveGroupAsync_WhileDetached_ClosesTheDetachedWindowToo()
     {
@@ -222,7 +208,7 @@ public sealed class TabDetachTests : IDisposable
         Assert.Equal(1, closedWindows);
     }
 
-    /// <summary>DockedGroups must follow the exact same Move as Groups, so the TabControl visually reflects a tab-header drag - see MainWindowViewModel.ReorderGroup's own doc comment.</summary>
+    /// <summary>Keeps the TabControl in sync with a tab-header drag.</summary>
     [Fact]
     public void ReorderGroup_AlsoReordersDockedGroups_InLockstepWithGroups()
     {
@@ -240,7 +226,7 @@ public sealed class TabDetachTests : IDisposable
             mainWindowViewModel.DockedGroups.Select(g => g.Group.Name));
     }
 
-    /// <summary>A detached group reordered via the Dashboard (which shows every group, not just docked ones) has nothing to visually reorder in DockedGroups - Groups' own order still changes, but DockedGroups is left untouched rather than throwing.</summary>
+    /// <summary>A detached group reordered via the Dashboard has nothing to move in DockedGroups.</summary>
     [Fact]
     public void ReorderGroup_SourceIsDetached_StillReordersGroups_ButLeavesDockedGroupsUnchanged()
     {

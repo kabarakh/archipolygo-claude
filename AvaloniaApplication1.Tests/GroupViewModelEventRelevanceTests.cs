@@ -6,14 +6,6 @@ using Archipolygo.ViewModels;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie A (Test-Umsetzungsplan.md): <see cref="GroupViewModel.VisibleEvents"/>'s
-/// <see cref="EventRelevanceFilter.FoundByMe"/> branch (Feature-Plaene/Log-Export.md) -
-/// pure LINQ filtering over a plain <see cref="EventEntry"/> list, no
-/// Dispatcher/Avalonia involvement, so plain <c>[Fact]</c> is correct here
-/// (see <see cref="HintServiceFilterTests"/>'s own doc comment for when that
-/// stops being true).
-/// </summary>
 public class GroupViewModelEventRelevanceTests
 {
     private static GroupViewModel MakeGroup()
@@ -82,9 +74,7 @@ public class GroupViewModelEventRelevanceTests
     [Fact]
     public void FoundByMe_ExcludesThisSlotsOwnDirectlyReceivedItem()
     {
-        // BuildItemReceivedSegments' "Received " line - the finder here is
-        // irrelevant to the *receiving* slot's own log, so its first segment
-        // is never a classified player name and must not count as a find.
+        // A "Received " line's first segment is never a classified player name, so it must not count as a find.
         var groupViewModel = MakeGroup();
         groupViewModel.Events.Add(MakeDirectlyReceivedLine("direct-receive"));
         groupViewModel.SelectedEventRelevanceFilter = EventRelevanceFilter.FoundByMe;

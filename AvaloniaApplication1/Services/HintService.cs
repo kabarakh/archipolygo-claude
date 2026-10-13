@@ -9,13 +9,6 @@ public class HintService : IHintService
 {
     private readonly IProfileSyncStateStore _syncStateStore;
 
-    /// <summary>
-    /// Optional - null in every existing test construction site that
-    /// doesn't care about attention reporting (window flash, see
-    /// <see cref="IAttentionTracker"/>), same "purely additive dependency"
-    /// reasoning as this app's other optional services (e.g.
-    /// <see cref="ViewModels.MainWindowViewModel"/>'s own <c>IUpdateService?</c>).
-    /// </summary>
     private readonly IAttentionTracker? _attentionTracker;
 
     public HintService(IProfileSyncStateStore syncStateStore, IAttentionTracker? attentionTracker = null)
@@ -26,15 +19,9 @@ public class HintService : IHintService
 
     public void SyncHints(GroupViewModel group, IReadOnlyList<HintSnapshot> hints, bool isLive)
     {
-        // The whole diff runs on the UI thread: group.Hints is owned by the UI and
-        // must not be enumerated from a background thread while a previous,
-        // still-pending dispatched Add for the same group could be applied
-        // concurrently (TrackHints can fire again in quick succession).
+        // Diff on the UI thread: TrackHints can fire in quick succession while a previous Add is still pending.
         Dispatcher.UIThread.Post(() =>
         {
-            // A hint batch covers the whole room; different snapshots can
-            // concern different configured slots, so the "already seen"
-            // sync state is looked up per snapshot rather than once per call.
             var changedStates = new HashSet<ProfileSyncState>();
             var index = new HintIndex(group.Hints);
 
@@ -56,11 +43,7 @@ public class HintService : IHintService
         {
             var changedStates = new HashSet<ProfileSyncState>();
 
-            // No event entry of its own: the chat line this came from is
-            // already in the log (typed HintReceived, see
-            // SessionEventTranslator.OnLeaderMessageReceived).
-            // Always live: chat lines only ever reach the leader's message
-            // log in real time, never as replayed backlog.
+            // The chat line itself is already in the log; chat lines are never replayed backlog, so always live.
             AddOrUpdate(group, new HintIndex(group.Hints), snapshot, addEventEntry: false, reportAttention: true, changedStates);
 
             foreach (var state in changedStates)
@@ -71,12 +54,7 @@ public class HintService : IHintService
     }
 
     /// <summary>
-    /// The one place a hint enters <see cref="GroupViewModel.Hints"/>, whether
-    /// it came from TrackHints or from a "[Hint]: ..." chat line. An existing
-    /// entry for the same hint - same <see cref="HintEntry.Key"/>, or same
-    /// finder + location (a location holds exactly one item, so that pair
-    /// alone identifies a hint) - is only updated in place, never duplicated.
-    /// Must run on the UI thread.
+    /// Dedups by key or by finder + location (a location holds exactly one item). Must run on the UI thread.
     /// </summary>
     private void AddOrUpdate(GroupViewModel group, HintIndex index, HintSnapshot snapshot, bool addEventEntry, bool reportAttention, HashSet<ProfileSyncState> changedStates)
     {
@@ -86,10 +64,6 @@ public class HintService : IHintService
         {
             if (existing.Found != snapshot.Found)
             {
-                // HintEntry is an ObservableObject, so this updates the UI in
-                // place without needing to remove/re-add the item. The
-                // VisibleHints filter on GroupViewModel will hide it automatically
-                // when the hint filter is set to Unfound.
                 existing.Found = snapshot.Found;
             }
 
@@ -98,11 +72,7 @@ public class HintService : IHintService
 
         var syncState = _syncStateStore.Get(snapshot.SlotId);
 
-        // First time we've seen this hint. Always add it to group.Hints so
-        // the "show found" button can reveal it - VisibleHints filters by
-        // Found at display time. Only generate an event-log entry for
-        // unfound hints though: already-found hints at login time are
-        // historical noise with nothing left to act on.
+        // Found hints are still added (filtered at display time) but get no event entry: nothing left to act on.
         var isNew = !syncState.SeenHintIds.Contains(snapshot.Key);
 
         var itemKind = EventSegmentBuilder.ClassifyItemFlags(snapshot.ItemFlags);
@@ -143,22 +113,12 @@ public class HintService : IHintService
                         newEntry.ReceivingPlayerName, snapshot.ReceivingPlayerKind,
                         newEntry.LocationName),
                     IsNewSinceLastSession = newEntry.IsNewSinceLastSession,
-                    // Only a hint where one of this group's configured slots is
-                    // the one receiving the item or the one who has to find it
-                    // actually concerns "me" - TrackHints reports every hint in
-                    // the room, including ones between two unrelated players.
+                    // TrackHints also reports hints between unrelated players.
                     ConcernsOwnSlot = snapshot.ReceivingPlayerKind is EventTextSegmentKind.OwnSlotName or EventTextSegmentKind.ConnectedSlotName ||
                                       snapshot.FindingPlayerKind is EventTextSegmentKind.OwnSlotName or EventTextSegmentKind.ConnectedSlotName
                 });
             }
 
-            // A genuinely new, still-unfound hint is exactly the condition
-            // already guarding the event-log entry above - reuse it rather
-            // than re-deriving "is this worth attention" separately. Applies
-            // to a chat-sourced hint too, since whichever source arrives
-            // first is the only one that ever gets this far. Every hint that
-            // reaches this service already concerns one of this group's
-            // slots (SessionEventTranslator only snapshots those).
             if (reportAttention)
             {
                 _attentionTracker?.Report(group, AttentionCategory.OwnHint);
@@ -171,12 +131,7 @@ public class HintService : IHintService
         }
     }
 
-    /// <summary>
-    /// Lookup of a group's existing hints by <see cref="HintEntry.Key"/> and by
-    /// finder + location - see <see cref="AddOrUpdate"/>. A TrackHints batch
-    /// can carry the room's whole hint list, so this avoids a linear scan of
-    /// <see cref="GroupViewModel.Hints"/> per snapshot.
-    /// </summary>
+    /// <summary>Avoids a linear scan per snapshot, since a TrackHints batch can carry the whole room's hints.</summary>
     private sealed class HintIndex
     {
         private readonly Dictionary<string, HintEntry> _byKey = new();

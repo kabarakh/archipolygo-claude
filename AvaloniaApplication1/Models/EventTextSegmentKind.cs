@@ -1,39 +1,29 @@
 namespace Archipolygo.Models;
 
-/// <summary>
-/// Categorizes a single <see cref="EventTextSegment"/> so the UI can color it
-/// without re-deriving the classification from raw Archipelago data.
-/// </summary>
+/// <summary>Classifies an <see cref="EventTextSegment"/> so the UI can color it without the raw Archipelago data.</summary>
 public enum EventTextSegmentKind
 {
-    /// <summary>No special meaning; rendered in the default text color.</summary>
     PlainText,
 
     /// <summary>The slot name of the profile this event log belongs to.</summary>
     OwnSlotName,
 
-    /// <summary>
-    /// A player's slot name where that player is currently being tracked by
-    /// another tab of this app connected to the same Archipelago server
-    /// instance (same host+port).
-    /// </summary>
+    /// <summary>Another of this app's configured slots on the same server (same host+port).</summary>
     ConnectedSlotName,
 
-    /// <summary>Any other player's slot name.</summary>
     OtherSlotName,
 
-    /// <summary>An item with the Trap flag.</summary>
+    /// <summary>Item with the Trap flag.</summary>
     ItemTrap,
 
-    /// <summary>An item with the Advancement (progression) flag.</summary>
+    /// <summary>Item with the Advancement flag.</summary>
     ItemProgression,
 
-    /// <summary>An item with the NeverExclude (useful) flag.</summary>
+    /// <summary>Item with the NeverExclude flag.</summary>
     ItemUseful,
 
     /// <summary>Any other item (filler).</summary>
     ItemOther,
 
-    /// <summary>An incoming DeathLink (see Feature-Plaene/Archiv/DeathLink.md).</summary>
     DeathLink
 }

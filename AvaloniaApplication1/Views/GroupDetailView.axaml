@@ -11,19 +11,8 @@
              x:Class="Archipolygo.Views.GroupDetailView"
              x:DataType="vm:GroupViewModel">
 
-    <!-- One server's whole Events/Hints/Items content - shared between
-         MainWindow's TabControl.ContentTemplate (one instance per open tab)
-         and DetachedGroupWindow (a single group living in its own window,
-         see Feature-Plaene/Tab-Eigenes-Fenster.md). Self-contained
-         (declares every converter it needs itself, see UserControl.Resources
-         below) rather than relying on a host Window to have already
-         declared them - a DetachedGroupWindow is a real standalone Window,
-         not guaranteed to share MainWindow's own resource declarations.
-         Split out of MainWindow.axaml verbatim; only each button/list
-         event handler's own code-behind changed (see GroupDetailView.axaml.cs) -
-         every handler now resolves its owning Window from its own visual
-         tree (TopLevel.GetTopLevel(this)) instead of MainWindow's "this",
-         since this content can now live in either kind of window. -->
+    <!-- Hosted by both MainWindow's tabs and DetachedGroupWindow, so it declares its own converters
+         and handlers resolve their Window via TopLevel.GetTopLevel(this). -->
     <UserControl.Resources>
         <conv:EnumEqualsConverter x:Key="EnumEqualsConverter"/>
         <conv:ConnectionStateToBrushConverter x:Key="ConnectionStateToBrushConverter"/>
@@ -32,77 +21,31 @@
     </UserControl.Resources>
 
     <Grid Margin="12" RowDefinitions="Auto,*,Auto">
-        <!-- Connection status and the one action that affects it
-             (Disconnect) - the account dropdown that actually
-             switches the live connection lives down by the message
-             box instead, where it's used (see Grid.Row="2" below). -->
-        <!-- Wraps the original horizontal status row plus the
-             two Fortschrittsanzeigen.md progress sections
-             below it, still all inside Grid.Row="0" (Auto
-             height) - deliberately not a new outer Grid row,
-             so nothing else in this Grid needs its Grid.Row
-             index shifted. -->
         <StackPanel Grid.Row="0" Spacing="4">
             <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                <!-- Explicit VerticalAlignment="Center" on each text
-                     element: without it, a horizontal StackPanel
-                     stretches every child to the row's full height
-                     (set by the tallest child, the Button, whose
-                     padding makes it taller than plain text), and
-                     TextBlock content defaults to top-aligned
-                     within that stretched bounds - which visibly
-                     sits higher than the button's own (centered)
-                     label. -->
-                <!-- Click the host:port text (or the copy icon next to it)
-                     to copy it, e.g. for pasting into a game client's
-                     connect dialog. The TextBlock itself stays a direct
-                     child of this StackPanel (not wrapped in a Button) so
-                     HorizontalStackPanelAlignmentTests still measures it
-                     against the Disconnect button in one coordinate space;
-                     Background="Transparent" makes the whole text box
-                     hit-testable, not just the glyphs. -->
+                <!-- Explicit VerticalAlignment="Center" on each text element: a horizontal StackPanel stretches
+                     children to the Button's height and TextBlocks would otherwise sit top-aligned. -->
+                <!-- TextBlock stays a direct child (not inside a Button) so HorizontalStackPanelAlignmentTests can
+                     measure it; Background="Transparent" makes the whole text box hit-testable. -->
                 <TextBlock x:Name="HostPortText" Text="{Binding Group.HostPort}" VerticalAlignment="Center"
                            Background="Transparent" Cursor="Hand" PointerReleased="OnHostPortTextPointerReleased"
                            ToolTip.Tip="Click to copy host:port"/>
                 <Button x:Name="CopyHostPortButton" Classes="icon-button" Click="OnCopyHostPortClick" VerticalAlignment="Center"
                         ToolTip.Tip="Copy host:port">
-                    <!-- Two overlapping rectangles, the usual "copy" glyph -
-                         drawn by hand like the other icons here (see
-                         SharedTemplates.axaml's BellOffGeometry). -->
                     <Path Data="M5,5 L13,5 L13,14 L5,14 Z M3,11 L3,2 L10,2" Stroke="{Binding $parent[Button].Foreground}"
                           StrokeThickness="1.4" Width="12" Height="12" Stretch="Uniform"/>
                 </Button>
                 <TextBlock x:Name="HostPortCopiedText" Text="Copied" Opacity="0.6" VerticalAlignment="Center" IsVisible="False"/>
                 <TextBlock Text="-" VerticalAlignment="Center"/>
                 <TextBlock Text="{Binding ConnectionState}" FontWeight="Bold" VerticalAlignment="Center"/>
-                <!-- Connect/Disconnect are mutually exclusive rather than one
-                     button that's just disabled sometimes - picking a leader via
-                     the "Chat as" dropdown to get connected in the first place
-                     wasn't discoverable, so the offline state gets its own
-                     explicit affirmative action instead. See CanConnect/CanDisconnect. -->
+                <!-- Separate Connect button: connecting via the "Chat as" dropdown wasn't discoverable. -->
                 <Button Content="Connect" Command="{Binding ConnectCommand}" Margin="8,0,0,0"
                         IsVisible="{Binding CanConnect}"/>
                 <Button Content="Disconnect" Command="{Binding DisconnectCommand}" Margin="8,0,0,0"
                         IsVisible="{Binding !CanConnect}"/>
 
-                <!-- "Hint..." picker (see HintPickerViewModel, and
-                     Feature-Plaene/Archiv/Hint-Eingabefeld.md for the
-                     full design history) - a searchable replacement
-                     for typing "!hint <item>"/"!hint_location <loc>"
-                     by hand into the message box down by "Chat as",
-                     which stays untouched (additive, not a
-                     replacement) for anyone who still wants to type
-                     other commands manually. A real titled dialog
-                     (see Views/HintPickerWindow.axaml), same as
-                     "Add slot"/"Edit server", opened from code-behind
-                     since it isn't a Flyout. -->
                 <Button Content="Hint..." Click="OnHintButtonClick" Margin="8,0,0,0"/>
 
-                <!-- Refresh only makes sense once there's a
-                     tracker to poll - the progress bar itself
-                     (below, outside this horizontal row)
-                     always shows regardless, see its own doc
-                     comment. -->
                 <Button Content="Refresh" Command="{Binding RefreshMultiworldProgressCommand}"
                         IsEnabled="{Binding !IsRefreshingMultiworldProgress}"
                         IsVisible="{Binding HasMultiworldTracker}" Margin="16,0,0,0"/>
@@ -112,26 +55,7 @@
                            IsVisible="{Binding MultiworldProgressError, Converter={x:Static avconv:StringConverters.IsNotNullOrEmpty}}"/>
             </StackPanel>
 
-            <!-- Feature-Plaene/Archiv/Fortschrittsanzeigen.md, Tier 1+2
-                 merged into ONE progress bar, not two separate
-                 ones - own-slot progress (this app's own live
-                 connection) always shows this way, with or
-                 without a webhost tracker configured; adding
-                 one (see the "Multiworld tracker" field in the
-                 Edit Server dialog) just adds the two "others"
-                 segments on top, via the same four Star-
-                 weighted Grid columns (see
-                 CountToStarWidthConverter - stands in for
-                 Avalonia's ProgressBar not supporting more
-                 than one fill color). Own-segments first, then
-                 others' - not grouped by done/open - so "how
-                 much is mine" always reads left-to-right
-                 first. No numbers on the bar itself - hover
-                 for the exact counts/percentages instead (see
-                 the tooltip below), which is also where the
-                 no-tracker-configured fallback explains
-                 itself instead of a second permanently-visible
-                 hint text. -->
+            <!-- One bar via four Star-weighted columns: Avalonia's ProgressBar supports only one fill color. -->
             <Grid Height="10" Margin="0,6" ClipToBounds="True" IsVisible="{Binding HasAnyProgress}">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="{Binding OwnChecksDone, Converter={StaticResource CountToStarWidthConverter}}"/>
@@ -139,12 +63,6 @@
                     <ColumnDefinition Width="{Binding OtherChecksDone, Converter={StaticResource CountToStarWidthConverter}}"/>
                     <ColumnDefinition Width="{Binding OtherChecksOpen, Converter={StaticResource CountToStarWidthConverter}}"/>
                 </Grid.ColumnDefinitions>
-                <!-- Green = own, blue = other; saturated =
-                     done, dark desaturated (same hue) = open -
-                     two hues instead of one hue at four
-                     opacities, so "own" vs. "other" reads as
-                     a color difference, not just a shade
-                     difference easy to miss at 10px tall. -->
                 <Border Grid.Column="0" Background="#2F9E44"/>
                 <Border Grid.Column="1" Background="#4B5A4B"/>
                 <Border Grid.Column="2" Background="#1971C2"/>
@@ -168,9 +86,6 @@
                             <Border Width="10" Height="10" Background="#3D4A5C" VerticalAlignment="Center"/>
                             <TextBlock Text="{Binding OtherChecksOpenLegendText}"/>
                         </StackPanel>
-                        <!-- Fallback: no tracker configured for this server at all
-                             - only "own" data exists (the two rows above), point at
-                             where to add one instead of silently showing half a legend. -->
                         <TextBlock Text="Add a multiworld tracker in Edit Server to also see everyone else's progress in this room."
                                    TextWrapping="Wrap" Opacity="0.7" FontStyle="Italic"
                                    IsVisible="{Binding !HasMultiworldTracker}"/>
@@ -179,21 +94,7 @@
             </Grid>
         </StackPanel>
 
-        <!-- RowDefinitions: header row (Auto) + content row (*).
-             The header row holds the Events column's whole filter bar (one
-             WrapPanel, see below) and the Hints/Items panel selector
-             side-by-side - the Events filters sit where a plain "Events"
-             heading used to be (Kompakteres-Layout.md, Teil
-             B/C: the filter buttons already say what the list is, so the
-             heading only cost a row).
-
-             Column 1 (the gap between Events and Hints/Items)
-             holds a GridSplitter instead of a plain spacer, so
-             the user can drag the Events/Hints-Items ratio
-             live; MinWidth on columns 0/2 keeps either side
-             from being dragged down to nothing. The columns
-             are plain Star widths (not persisted) - the ratio
-             resets to 2:1 on every app restart. -->
+        <!-- Star widths aren't persisted; the ratio resets to 2:1 on restart. -->
         <Grid Grid.Row="1" RowDefinitions="Auto,*">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="2*" MinWidth="200"/>
@@ -201,17 +102,6 @@
                 <ColumnDefinition Width="1*" MinWidth="150"/>
             </Grid.ColumnDefinitions>
 
-            <!-- ── Header row ──
-                 Events filter bar: relevance | category | item classes |
-                 slot, all in one WrapPanel (Kompakteres-Layout.md Teil C -
-                 used to be three separate rows: buttons, item-class
-                 checkboxes, "Show:" slot filter + "Copy from here"). Still
-                 wraps onto a second line in a narrow column rather than
-                 overflowing. The item-class checkboxes now live in
-                 ItemClassFilterButton's flyout; "Copy from here" floats over
-                 the list instead (see the content row below). -->
-            <!-- Collapsible to a one-line summary (Kompakteres-Layout.md Teil D);
-                 expanded state shared by every tab, see FilterBarLayoutState. -->
             <views:CollapsibleFilterBar Grid.Row="0" Grid.Column="0"
                                         IsExpanded="{Binding FilterLayout.EventsFiltersExpanded}"
                                         Summary="{Binding EventFilterSummaryText}">
@@ -234,31 +124,15 @@
                     <Button Content="Admin" Classes="filter-toggle" Command="{Binding ShowAdminEventsOnlyCommand}" IsVisible="{Binding ShowAdminButton}"
                             Classes.active="{Binding SelectedEventCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Admin}"/>
                     <Border Classes="filter-separator"/>
-                    <!-- Independent item-category checkboxes (not mutually exclusive
-                         with each other or with the filter-toggle buttons) - narrows
-                         item/hint entries down by category; entries with no item
-                         category (connect/disconnect/chat/error) always stay visible
-                         regardless of these. See GroupViewModel.VisibleEvents. -->
                     <views:ItemClassFilterButton/>
-                    <!-- Width fixed (not MinWidth) so this box doesn't visibly
-                         resize (and reflow the rest of the row) depending on which
-                         slot's name+alias happens to be selected - see the
-                         "Chat as" ComboBox's own, more detailed doc comment further
-                         down. -->
+                    <!-- Fixed Width, not MinWidth, so the box doesn't resize and reflow the row per selected slot. -->
                     <ComboBox Name="EventsSlotFilterComboBox" ItemsSource="{Binding SlotFilterOptions}" SelectedItem="{Binding SelectedEventsSlotFilter}" Width="130">
                         <ComboBox.ItemTemplate>
-                            <!-- Deliberately untyped (no x:DataType): this list's
-                                 first entry is a null placeholder for "All slots"
-                                 (see SlotFilterOptions), and a compiled binding
-                                 typed to SlotProfile would not match a null item. -->
+                            <!-- Deliberately untyped (no x:DataType): the first entry is a null "All slots" placeholder
+                                 a compiled SlotProfile binding wouldn't match. -->
                             <DataTemplate>
-                                <!-- MaxWidth caps this item's OWN measured width - without
-                                     it, TextTrimming has nothing to trim against yet (an
-                                     Auto-sized ComboBoxItem just grows to fit the text
-                                     first), and the open dropdown's popup was visibly
-                                     growing wider as a longer item scrolled into view and
-                                     got measured for the first time (Avalonia only
-                                     realizes/measures virtualized popup items on demand). -->
+                                <!-- MaxWidth caps the item's own width: Avalonia measures virtualized popup items on demand,
+                                     so without it the open popup grows as longer items scroll into view. -->
                                 <TextBlock Text="{Binding Converter={StaticResource SlotFilterDisplayConverter}}"
                                            MaxWidth="110" TextTrimming="CharacterEllipsis"/>
                             </DataTemplate>
@@ -272,33 +146,15 @@
                         Classes.active="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Hints}"/>
                 <Button Content="Items" Classes="filter-toggle" Command="{Binding ShowReceivedItemsPanelCommand}"
                         Classes.active="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ReceivedItems}"/>
-                <!-- Admin-Funktionen.md (feature-plan archive): only for a server
-                     marked "I'm the admin"; asks for the admin password first
-                     while not logged in (see OnAdminButtonClick). Admin
-                     commands go through the live leader connection, hence
-                     IsEnabled. -->
                 <Button Content="Admin" Classes="filter-toggle" Click="OnAdminButtonClick"
                         IsVisible="{Binding ShowAdminButton}" IsEnabled="{Binding IsLeaderConnected}"
                         ToolTip.Tip="Admin tools for this server (needs a live connection)"
                         Classes.active="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Admin}"/>
             </WrapPanel>
 
-            <!-- ── Content row: Events ── just the list; its filters moved up
-                 into the header row (see above). -->
-            <!-- Grid rather than the ListBox alone, so the "jump to
-                 newest" button (below) can float over the bottom-right
-                 corner of the list instead of taking its own row - see
-                 JumpToNewestButton for why the button exists at all: once
-                 a row has ever been selected, Avalonia's own ListBox/
-                 virtualizing panel keeps re-scrolling to keep it in view
-                 on every new event, fighting the auto-scroll-to-end below
-                 no matter how that's scheduled - clearing the selection is
-                 what actually stops it, so the button does that plus a
-                 final ScrollToEnd(). -->
+            <!-- Grid so JumpToNewestButton can float over the list. Once a row is selected, Avalonia keeps
+                 re-scrolling to it on every new event; clearing the selection is what stops that. -->
             <Grid Grid.Row="1" Grid.Column="0">
-                <!-- SelectionMode="Multiple" (ctrl/shift-click, like Explorer)
-                     so several lines can be selected and copied at once - see
-                     OnEventsListKeyDown. -->
                 <ListBox Name="EventsListBox" ItemsSource="{Binding VisibleEvents}" SelectionMode="Multiple"
                          KeyDown="OnEventsListKeyDown" SelectionChanged="OnEventsListSelectionChanged">
                     <ListBox.ContextMenu>
@@ -313,10 +169,6 @@
                                 <TextBlock Text="NEW" FontWeight="Bold" Foreground="OrangeRed"
                                            IsVisible="{Binding IsNewSinceLastSession}"/>
                                 <TextBlock Text="{Binding Type}" Opacity="0.6"/>
-                                <!-- ItemTemplate: shared EventTextSegmentTemplate (see
-                                     App.axaml/Views/SharedTemplates.axaml) - the exact same
-                                     per-segment colored TextBlock DashboardView.axaml's own
-                                     Events list uses, not a re-implemented copy. -->
                                 <ItemsControl ItemsSource="{Binding EffectiveSegments}"
                                               ItemTemplate="{StaticResource EventTextSegmentTemplate}">
                                     <ItemsControl.ItemsPanel>
@@ -332,54 +184,19 @@
 
                 <views:JumpToNewestButton TargetListBox="{Binding #EventsListBox}"/>
 
-                <!-- "Copy from here" (Feature-Plaene/Archiv/Log-Export.md) floats
-                     over the list's bottom-left corner, mirroring
-                     JumpToNewestButton bottom-right, and only shows while a
-                     row is selected (toggled in OnEventsListSelectionChanged) -
-                     it used to sit, mostly disabled, in its own filter row
-                     (Kompakteres-Layout.md Teil C). Also in the list's
-                     context menu. Copies the selected (earliest, if several)
-                     event and every one after it in the current filtered
-                     view - see ClipboardCopyHelper.CopyFromSelectedOnwardsAsync. -->
                 <Button Name="CopyEventsFromHereButton" Content="Copy from here" Classes="floating-overlay"
                         HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="12,0,0,12"
                         Click="OnCopyEventsFromHereClick" IsVisible="False"/>
             </Grid>
 
-            <!-- ── Content row: Hints / Items panels ──
-                 Two rows so both panels share the same layout
-                 skeleton:
-                   Row 0 (Auto) – one collapsible bar: panel-specific filter
-                                  buttons (one WrapPanel per panel), then the
-                                  panel-specific slot filter + shared search box
-                   Row 1 (*)    – list
-                 The Hints panel's item-category buttons share Row 0's
-                 WrapPanel with its found/role buttons (after a separator)
-                 instead of a Hints-only row of their own
-                 (Kompakteres-Layout.md Teil C) - they
-                 stay buttons rather than a dropdown so switching is still
-                 one click, and simply wrap onto another line in a narrow
-                 column. The two panels' category filters
-                 (SelectedHintItemCategoryFilter vs.
-                 SelectedItemCategoryFilter, see GroupViewModel) stay
-                 fully independent. The search box filters by item name in
-                 both modes, so it's shared rather than duplicated
-                 per panel; the slot filter differs per panel
-                 (SelectedHintsSlotFilter/SelectedItemsSlotFilter
-                 are independent too), so that half of the row is
-                 the same toggle-by-panel pair as the filter
-                 buttons above it. -->
             <Grid Grid.Row="1" Grid.Column="2" RowDefinitions="Auto,*">
 
-                <!-- Row 0 – every filter for the active panel, collapsible as one
-                     (Kompakteres-Layout.md Teil D; the Hints/Items switch in the
-                     header row above is navigation and never collapses). -->
+                <!-- The Hints/Items switch in the header row is navigation and never collapses. -->
                 <views:CollapsibleFilterBar Grid.Row="0"
                                             IsVisible="{Binding !IsAdminPanelVisible}"
                                             IsExpanded="{Binding FilterLayout.RightPanelFiltersExpanded}"
                                             Summary="{Binding RightPanelFilterSummaryText}">
                     <StackPanel>
-                        <!-- Hints filters: found | role | item category. -->
                         <WrapPanel Classes="filter-row"
                                    IsVisible="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Hints}">
                             <Button Content="All" Classes="filter-toggle" Command="{Binding ShowAllHintsCommand}"
@@ -394,10 +211,6 @@
                             <Button Content="{Binding HintsIReceiveButtonText}" Classes="filter-toggle" Command="{Binding ShowHintsIReceiveCommand}"
                                     Classes.active="{Binding SelectedHintRoleFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=IReceive}"/>
                             <Border Classes="filter-separator"/>
-                            <!-- Hints-only item-category filter, mirroring the Items panel's
-                                 category buttons but bound to SelectedHintItemCategoryFilter
-                                 instead, so it never affects (or is affected by) the
-                                 received-items list's own category filter. -->
                             <Button Content="All" Classes="filter-toggle" Command="{Binding ShowAllHintItemCategoriesCommand}"
                                     Classes.active="{Binding SelectedHintItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=All}"/>
                             <Button Content="Progress" Classes="filter-toggle" Command="{Binding ShowProgressHintItemsCommand}"
@@ -410,7 +223,6 @@
                                     Classes.active="{Binding SelectedHintItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Trap}"/>
                         </WrapPanel>
 
-                        <!-- Items filters (alternates with the hints filters above) -->
                         <WrapPanel Classes="filter-row"
                                    IsVisible="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ReceivedItems}">
                             <Button Content="All" Classes="filter-toggle" Command="{Binding ShowAllItemCategoriesCommand}"
@@ -425,21 +237,15 @@
                                     Classes.active="{Binding SelectedItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Trap}"/>
                         </WrapPanel>
 
-                        <!-- Slot filter (per-panel) + search box (shared, filters active panel) -->
                         <Grid ColumnDefinitions="Auto,*" Margin="0,0,0,4">
-                            <!-- Width fixed, same reasoning as the Events column's slot filter above. -->
+                            <!-- Fixed Width, same reasoning as the Events column's slot filter above. -->
                             <ComboBox Grid.Column="0" Width="130" Margin="0,0,8,0"
                                       IsVisible="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Hints}"
                                       ItemsSource="{Binding SlotFilterOptions}" SelectedItem="{Binding SelectedHintsSlotFilter}">
                                 <ComboBox.ItemTemplate>
                                     <DataTemplate>
-                                        <!-- MaxWidth caps this item's OWN measured width - without
-                                             it, TextTrimming has nothing to trim against yet (an
-                                             Auto-sized ComboBoxItem just grows to fit the text
-                                             first), and the open dropdown's popup was visibly
-                                             growing wider as a longer item scrolled into view and
-                                             got measured for the first time (Avalonia only
-                                             realizes/measures virtualized popup items on demand). -->
+                                        <!-- MaxWidth caps the item's own width: Avalonia measures virtualized popup items on demand,
+                                             so without it the open popup grows as longer items scroll into view. -->
                                         <TextBlock Text="{Binding Converter={StaticResource SlotFilterDisplayConverter}}"
                                                    MaxWidth="110" TextTrimming="CharacterEllipsis"/>
                                     </DataTemplate>
@@ -450,13 +256,8 @@
                                       ItemsSource="{Binding SlotFilterOptions}" SelectedItem="{Binding SelectedItemsSlotFilter}">
                                 <ComboBox.ItemTemplate>
                                     <DataTemplate>
-                                        <!-- MaxWidth caps this item's OWN measured width - without
-                                             it, TextTrimming has nothing to trim against yet (an
-                                             Auto-sized ComboBoxItem just grows to fit the text
-                                             first), and the open dropdown's popup was visibly
-                                             growing wider as a longer item scrolled into view and
-                                             got measured for the first time (Avalonia only
-                                             realizes/measures virtualized popup items on demand). -->
+                                        <!-- MaxWidth caps the item's own width: Avalonia measures virtualized popup items on demand,
+                                             so without it the open popup grows as longer items scroll into view. -->
                                         <TextBlock Text="{Binding Converter={StaticResource SlotFilterDisplayConverter}}"
                                                    MaxWidth="110" TextTrimming="CharacterEllipsis"/>
                                     </DataTemplate>
@@ -467,12 +268,6 @@
                     </StackPanel>
                 </views:CollapsibleFilterBar>
 
-                <!-- Row 1 – Hints list. SelectionMode="Multiple" + KeyDown, same
-                     copy-selected-lines mechanism as the Events list (see
-                     OnHintsListKeyDown), just with its own selection/clipboard
-                     since the two lists are otherwise unrelated. Wrapped in a
-                     Grid only so "Copy from here" can float over it, same as
-                     the Events list's. -->
                 <Grid Grid.Row="1" IsVisible="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Hints}">
                     <ListBox Name="HintsListBox"
                              ItemsSource="{Binding VisibleHints}" SelectionMode="Multiple"
@@ -507,21 +302,15 @@
                         </ListBox.ItemTemplate>
                     </ListBox>
 
-                    <!-- Same floating "Copy from here" as the Events list's (see
-                         there) - no Items-panel equivalent since Received Items
-                         isn't part of this export feature's scope. -->
                     <Button Name="CopyHintsFromHereButton" Content="Copy from here" Classes="floating-overlay"
                             HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="12,0,0,12"
                             Click="OnCopyHintsFromHereClick" IsVisible="False"/>
                 </Grid>
 
-                <!-- Rows 0+1 – Admin view: brings its own header in place of the
-                     filter bar above (hidden while this is shown). -->
                 <Panel Grid.Row="0" Grid.RowSpan="2" IsVisible="{Binding IsAdminPanelVisible}">
                     <views:AdminPanelView DataContext="{Binding Admin}"/>
                 </Panel>
 
-                <!-- Row 1 – Items list (same row, alternates with hints list) -->
                 <ListBox Grid.Row="1"
                          IsVisible="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ReceivedItems}"
                          ItemsSource="{Binding VisibleReceivedItems}">
@@ -551,43 +340,16 @@
             </Grid>
         </Grid>
 
-        <!-- Account dropdown lives here, right next to the field it
-             actually enables - the ONE control whose change opens/
-             closes a connection: picking a different slot switches
-             which one is the live "leader" for this server (see
-             GroupViewModel.OnSelectedChatSlotChanged / Umsetzungsplan.md
-             Phase 6). -->
         <Grid Grid.Row="2" ColumnDefinitions="Auto,*,Auto" Margin="0,8,0,0">
-            <!-- Loaded="OnChatSlotComboBoxLoaded": a tab that was never
-                 the active one at startup has its content template (and
-                 with it, this ComboBox) materialized for the very first
-                 time only once the user actually clicks that tab - by
-                 then, SelectedChatSlot on the view model has long since
-                 been set correctly (leader connected at startup), but the
-                 brand-new ComboBox's own initial SelectedItem-vs-ItemsSource
-                 resolution can come up empty and never visibly reflect it,
-                 even though the bound value itself is fine. Forcing one
-                 explicit resync once this instance is actually loaded fixes
-                 the display without touching the underlying value. -->
-            <!-- Width fixed (not just MinWidth) so this box's
-                 own closed-state size never changes with
-                 whichever slot happens to be selected - e.g.
-                 the "Chat as" dropdown otherwise visibly grew
-                 and shifted the message box/Send button next
-                 to it every time a longer-named slot (now
-                 also including the alias, see
-                 SlotProfile.DisplayName) became selected.
-                 TextTrimming truncates whatever doesn't fit
-                 instead of the box growing to accommodate it. -->
+            <!-- Loaded="OnChatSlotComboBoxLoaded": a lazily materialized tab's new ComboBox can fail to
+                 resolve its initial SelectedItem, so it's re-assigned once loaded. -->
+            <!-- Fixed Width, not MinWidth, so a longer selected slot name doesn't grow the box and shift
+                 the message box/Send button; TextTrimming truncates instead. -->
             <ComboBox Name="ChatSlotComboBox" Grid.Column="0" ItemsSource="{Binding Slots}" SelectedItem="{Binding SelectedChatSlot}"
                       Width="160" Margin="0,0,8,0" Loaded="OnChatSlotComboBoxLoaded">
                 <ComboBox.ItemTemplate>
                     <DataTemplate DataType="m:SlotProfile">
-                        <!-- MaxWidth caps this item's own measured width - see the
-                             slot filter dropdowns' matching comment for why this,
-                             not just TextTrimming alone, is what actually stops the
-                             open popup from growing wider as a longer item scrolls
-                             into view and gets measured for the first time. -->
+                        <!-- MaxWidth, not just TextTrimming, stops the open popup growing - see the slot filters' comment. -->
                         <TextBlock Text="{Binding DisplayName}" MaxWidth="140" TextTrimming="CharacterEllipsis"/>
                     </DataTemplate>
                 </ComboBox.ItemTemplate>

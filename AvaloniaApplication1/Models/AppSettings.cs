@@ -5,75 +5,46 @@ using System.Text.Json.Serialization;
 
 namespace Archipolygo.Models;
 
-/// <summary>
-/// Global, application-wide settings (not tied to a single profile).
-/// </summary>
+/// <summary>Global, application-wide settings, persisted to settings.json.</summary>
 public class AppSettings
 {
-    /// <summary>
-    /// Default value for <see cref="ServerConnectionGroup.AutoConnect"/> when creating a new server.
-    /// </summary>
+    /// <summary>Default for <see cref="ServerConnectionGroup.AutoConnect"/> on a new server.</summary>
     public bool DefaultAutoConnect { get; set; }
 
-    /// <summary>
-    /// Maximum number of <see cref="EventEntry"/> items kept per tab; oldest entries are
-    /// dropped once the limit is exceeded.
-    /// </summary>
+    /// <summary>Max <see cref="EventEntry"/> items kept per tab; oldest are dropped first.</summary>
     public int EventHistoryLimit { get; set; } = 2000;
 
     /// <summary>
-    /// "System" (follow the OS theme), "Light", or "Dark" - see
-    /// <see cref="Services.ThemeService"/>. Plain string rather than an enum
-    /// so <c>System.Text.Json</c> doesn't need a registered
-    /// <c>JsonStringEnumConverter</c> (which <see cref="Services.PersistenceService"/>
-    /// doesn't otherwise set up). Missing from an older <c>settings.json</c>
-    /// simply deserializes to this default - no migration code needed, same
-    /// as every other additive field here.
+    /// "System", "Light" or "Dark". A plain string rather than an enum so System.Text.Json
+    /// needs no JsonStringEnumConverter (the same applies to the other string settings here).
     /// </summary>
     public string ThemePreference { get; set; } = "System";
 
-    /// <summary>
-    /// "Compact" or "Normal" - see <see cref="Services.DensityService"/>.
-    /// Compact by default, including for an older <c>settings.json</c> that
-    /// predates this field (Kompakteres-Layout.md, decision 1:
-    /// the denser layout was the whole point of adding this, so existing
-    /// installs get it too rather than having to opt in). Plain string for
-    /// the same reason as <see cref="ThemePreference"/>.
-    /// </summary>
+    /// <summary>"Compact" or "Normal"; Compact also for an older settings.json without this field, deliberately.</summary>
     public string UiDensity { get; set; } = Services.DensityService.Compact;
 
-    // Which filter bars are expanded - see ViewModels.FilterBarLayoutState
-    // (Kompakteres-Layout.md, Teil D). Expanded by default,
-    // including for an older settings.json without these fields.
+    // Which filter bars are expanded - see ViewModels.FilterBarLayoutState.
     public bool EventsFiltersExpanded { get; set; } = true;
     public bool RightPanelFiltersExpanded { get; set; } = true;
     public bool DashboardEventsFiltersExpanded { get; set; } = true;
     public bool DashboardHintsFiltersExpanded { get; set; } = true;
 
-    /// <summary>
-    /// "Off", "Count", or "UntilFocus" - see <see cref="Models.AttentionBlinkMode"/>
-    /// and <see cref="BlinkMode"/>. Plain string for the same reason as
-    /// <see cref="ThemePreference"/>; an unrecognized value reads as the
-    /// default rather than failing.
-    /// </summary>
+    /// <summary>"Off", "Count" or "UntilFocus"; read via <see cref="BlinkMode"/>, where an unrecognized value reads as the default.</summary>
     public string AttentionBlinkMode { get; set; } = nameof(Models.AttentionBlinkMode.Count);
 
-    /// <summary>How many times a Windows taskbar button blinks per attention request in "Count" mode (macOS has no equivalent - it bounces once).</summary>
+    /// <summary>Windows taskbar blinks per attention request in "Count" mode (macOS bounces once).</summary>
     public int AttentionBlinkCount { get; set; } = 4;
 
     /// <summary>
-    /// Keyed by <see cref="AttentionCategory"/> name. Read through
-    /// <see cref="GetAttentionCategorySetting"/>, never directly: a key
-    /// missing here (an older <c>settings.json</c>, or a category added in a
-    /// later version) must fall back to that category's own default, not
-    /// silently read as "off".
+    /// Keyed by <see cref="AttentionCategory"/> name. Read only through <see cref="GetAttentionCategorySetting"/>:
+    /// a missing key (older file, newer category) must fall back to the category's default, not "off".
     /// </summary>
     public Dictionary<string, AttentionCategorySetting> AttentionCategories { get; set; } = AttentionCategorySetting.CreateDefaults();
 
-    /// <summary>Prefix window titles with the unread attention count, e.g. "(3) Archipolygo" - see <see cref="ViewModels.MainWindowViewModel.MainWindowTitle"/>.</summary>
+    /// <summary>Prefix window titles with the unread attention count, e.g. "(3) Archipolygo".</summary>
     public bool ShowUnreadInTitle { get; set; } = true;
 
-    /// <summary>Show the same count as a native badge - Windows taskbar-button overlay, macOS Dock badge (see <see cref="Services.IUnreadBadgeService"/>).</summary>
+    /// <summary>Show the same count as a native badge (Windows taskbar overlay, macOS Dock badge).</summary>
     public bool ShowUnreadBadge { get; set; } = true;
 
     [JsonIgnore]
@@ -86,12 +57,8 @@ public class AppSettings
             : AttentionCategorySetting.DefaultFor(category);
 
     /// <summary>
-    /// Shallow copy - lets an editor (see <see cref="ViewModels.SettingsViewModel"/>)
-    /// change only the fields it owns and carry every other one through
-    /// untouched, instead of having to remember to copy each new field by hand.
-    /// Reference-typed fields are the exception: <see cref="AttentionCategories"/>
-    /// gets its own copy, so editing the clone can't leak into the original
-    /// before the dialog is actually saved.
+    /// Shallow copy so an editor carries untouched fields through automatically; <see cref="AttentionCategories"/>
+    /// is deep-copied so edits can't leak into the original before the dialog is saved.
     /// </summary>
     public AppSettings Clone()
     {

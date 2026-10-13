@@ -9,16 +9,7 @@ using Archipolygo.ViewModels;
 
 namespace Archipolygo.Views;
 
-/// <summary>
-/// Code-behind for <see cref="GroupDetailView"/> - see that XAML file's own
-/// doc comment for why this content is a standalone UserControl rather than
-/// living inline in MainWindow.axaml. Every handler below used to live in
-/// MainWindow.axaml.cs and assumed "this" was the owning Window directly;
-/// now resolved per-call via <see cref="TopLevel.GetTopLevel"/> instead,
-/// since this content can be hosted by either MainWindow (inside its
-/// TabControl.ContentTemplate) or a DetachedGroupWindow (see
-/// Feature-Plaene/Tab-Eigenes-Fenster.md).
-/// </summary>
+/// <summary>Hosted by MainWindow or a DetachedGroupWindow, so owner windows are resolved per call via TopLevel.</summary>
 public partial class GroupDetailView : UserControl
 {
     /// <summary>Hides <c>HostPortCopiedText</c> again shortly after a copy; restarted on every copy so repeated clicks keep it visible.</summary>
@@ -34,12 +25,7 @@ public partial class GroupDetailView : UserControl
         };
     }
 
-    /// <summary>
-    /// Left-click on the status row's host:port text copies it - released
-    /// rather than pressed, so a drag-select gesture elsewhere that happens
-    /// to end here doesn't count, and only the left button (right-click is
-    /// reserved for context menus throughout the app).
-    /// </summary>
+    // Copies on release, so a drag-select ending here doesn't count; left button only, right-click is for context menus.
     private async void OnHostPortTextPointerReleased(object? sender, PointerReleasedEventArgs e)
     {
         if (e.InitialPressMouseButton != MouseButton.Left)
@@ -50,7 +36,6 @@ public partial class GroupDetailView : UserControl
         await CopyHostPortAsync();
     }
 
-    /// <summary>The copy icon next to the host:port text - same action as clicking the text itself.</summary>
     private async void OnCopyHostPortClick(object? sender, RoutedEventArgs e) => await CopyHostPortAsync();
 
     private async Task CopyHostPortAsync()
@@ -66,13 +51,6 @@ public partial class GroupDetailView : UserControl
         _hostPortCopiedTimer.Start();
     }
 
-    /// <summary>
-    /// Copies every selected event's text (without the timestamp), one per
-    /// line, to the clipboard on Ctrl+C (Windows/Linux) or Cmd+C (macOS,
-    /// where the physical key reports as <see cref="KeyModifiers.Meta"/>).
-    /// The Events ListBox uses <c>SelectionMode="Multiple"</c> so several
-    /// lines can be selected (ctrl/shift-click) before copying.
-    /// </summary>
     private async void OnEventsListKeyDown(object? sender, KeyEventArgs e)
     {
         if (!ClipboardCopyHelper.IsCopyShortcut(e) || sender is not ListBox listBox)
@@ -86,12 +64,6 @@ public partial class GroupDetailView : UserControl
         }
     }
 
-    /// <summary>
-    /// Same mechanism as <see cref="OnEventsListKeyDown"/>, for the Hints
-    /// list instead - its own selection and clipboard content, unrelated to
-    /// the Events list's. Each copied line reproduces what's shown for that
-    /// hint (item, finder/receiver, location) as a single line of text.
-    /// </summary>
     private async void OnHintsListKeyDown(object? sender, KeyEventArgs e)
     {
         if (!ClipboardCopyHelper.IsCopyShortcut(e) || sender is not ListBox listBox)
@@ -107,55 +79,29 @@ public partial class GroupDetailView : UserControl
         }
     }
 
-    /// <summary>
-    /// "Copy from here" for the Events list - copies the earliest selected
-    /// event and everything after it in the current filtered view (see
-    /// <see cref="ClipboardCopyHelper.CopyFromSelectedOnwardsAsync{T}"/>),
-    /// same per-line text as <see cref="OnEventsListKeyDown"/>.
-    /// </summary>
     private async void OnCopyEventsFromHereClick(object? sender, RoutedEventArgs e)
     {
         await ClipboardCopyHelper.CopyFromSelectedOnwardsAsync<EventEntry>(this, EventsListBox, entry => entry.Text);
     }
 
-    /// <summary>
-    /// Same mechanism as <see cref="OnCopyEventsFromHereClick"/>, for the
-    /// Hints list - same per-line text as <see cref="OnHintsListKeyDown"/>.
-    /// </summary>
     private async void OnCopyHintsFromHereClick(object? sender, RoutedEventArgs e)
     {
         await ClipboardCopyHelper.CopyFromSelectedOnwardsAsync<HintEntry>(this, HintsListBox,
             hint => $"{hint.ItemName}: {hint.FindingPlayerName} -> {hint.ReceivingPlayerName} : {hint.LocationName}");
     }
 
-    /// <summary>
-    /// Shows the Events list's floating "Copy from here" button only while a
-    /// row is selected - it needs an anchor row, and hiding it otherwise keeps
-    /// it from covering the list for nothing (Kompakteres-Layout.md Teil C;
-    /// it used to be a permanently visible, mostly disabled button). Code-behind-driven rather than a bound view-model property,
-    /// matching this list's existing selection handling (see
-    /// <see cref="OnEventsListKeyDown"/>).
-    /// </summary>
+    // Hidden without a selection: it needs an anchor row and would otherwise just cover the list.
     private void OnEventsListSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         CopyEventsFromHereButton.IsVisible = EventsListBox.SelectedItems is { Count: > 0 };
     }
 
-    /// <summary>Same mechanism as <see cref="OnEventsListSelectionChanged"/>, for the Hints list.</summary>
     private void OnHintsListSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         CopyHintsFromHereButton.IsVisible = HintsListBox.SelectedItems is { Count: > 0 };
     }
 
-    /// <summary>
-    /// Up/Down-arrow recall for the message TextBox, mirroring a terminal's
-    /// command history - Up steps back through <see cref="GroupViewModel"/>'s
-    /// recently sent messages, Down steps forward again (and eventually
-    /// restores whatever was being typed before the first Up-press). Mainly
-    /// useful for resending the same !hint text for an item several times in
-    /// a row without retyping it. A single-line TextBox has no native use for
-    /// Up/Down, so intercepting them here doesn't take anything away.
-    /// </summary>
+    // Terminal-style history recall; a single-line TextBox has no native use for Up/Down.
     private void OnMessageTextBoxKeyDown(object? sender, KeyEventArgs e)
     {
         if (sender is not TextBox { DataContext: GroupViewModel group } textBox)
@@ -180,22 +126,8 @@ public partial class GroupDetailView : UserControl
     }
 
     /// <summary>
-    /// Forces the "Chat as:" ComboBox to display the view model's actual
-    /// current <see cref="GroupViewModel.SelectedChatSlot"/> once this
-    /// particular ComboBox instance has finished loading.
-    ///
-    /// A tab that was never the active one when the app started has this
-    /// whole content template - this ComboBox included - materialized for
-    /// the very first time only when the user actually clicks that tab,
-    /// long after <see cref="GroupViewModel.SelectedChatSlot"/> was already
-    /// set correctly (the leader connected back at startup). A brand-new
-    /// ComboBox reconciling its initial SelectedItem against its ItemsSource
-    /// can come up with no visible selection despite the bound value being
-    /// perfectly fine, the same kind of rebinding artifact already handled
-    /// at the view-model level in <c>GroupViewModel.OnSelectedChatSlotChanged</c>
-    /// - this just also re-asserts it on the view once, so the dropdown
-    /// itself shows the right thing without the user having to reselect it
-    /// by hand.
+    /// A never-selected tab materializes this ComboBox lazily, and a brand-new ComboBox can resolve its
+    /// initial SelectedItem wrongly even though the bound value is correct - so re-assert it once on Loaded.
     /// </summary>
     private void OnChatSlotComboBoxLoaded(object? sender, RoutedEventArgs e)
     {
@@ -205,18 +137,7 @@ public partial class GroupDetailView : UserControl
         }
     }
 
-    /// <summary>
-    /// Opens the "Hint..." picker as a real dialog (see
-    /// <see cref="HintPickerWindow"/>), owned by whichever window currently
-    /// hosts this control - MainWindow for a docked tab, a
-    /// <see cref="DetachedGroupWindow"/> for a detached one (see
-    /// Feature-Plaene/Tab-Eigenes-Fenster.md).
-    /// </summary>
-    /// <summary>
-    /// The right column's "Admin" button (Admin-Funktionen.md in the
-    /// feature-plan archive): asks for the admin password first while not
-    /// logged in, and only switches to the Admin view once that succeeded.
-    /// </summary>
+    // Asks for the admin password first if not yet logged in.
     private async void OnAdminButtonClick(object? sender, RoutedEventArgs e)
     {
         if (sender is not Button { DataContext: GroupViewModel group } || TopLevel.GetTopLevel(this) is not Window owner)

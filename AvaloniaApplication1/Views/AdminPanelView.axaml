@@ -1,7 +1,3 @@
-<!-- The Admin view (Admin-Funktionen.md in the feature-plan archive): the
-     third panel in GroupDetailView's right column next to Hints/Items, only
-     reachable for a server marked "I'm the admin". Its own header replaces
-     the Hints/Items filter bar while shown. -->
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Archipolygo.ViewModels"
@@ -13,7 +9,7 @@
             <Setter Property="CornerRadius" Value="3"/>
             <Setter Property="Padding" Value="4,0"/>
         </Style>
-        <!-- Decided 2026-09-29: yellow from 3 days without a new check, red from 5. -->
+        <!-- Yellow from 3 days without a new check, red from 5. -->
         <Style Selector="Border.inactive-badge.warning">
             <Setter Property="Background" Value="#55FFC107"/>
         </Style>
@@ -23,8 +19,6 @@
     </UserControl.Styles>
 
     <Grid>
-        <!-- Logged out (reconnect without a remembered password, Log out, a
-             failed automatic re-login): no player data without a login. -->
         <StackPanel IsVisible="{Binding !IsLoggedIn}" Spacing="8" Margin="0,4,0,0">
             <TextBlock Text="{Binding LoginStatusText}" FontWeight="SemiBold"/>
             <Button Content="Log in..." Click="OnLoginClick" HorizontalAlignment="Left"/>
@@ -51,7 +45,6 @@
                             Command="{Binding RefreshPlayersCommand}" IsEnabled="{Binding !IsRefreshing}"/>
                     <TextBlock Text="{Binding TrackerAgeText}" Opacity="0.6" VerticalAlignment="Center" FontSize="11" Margin="4,0,0,4"/>
                 </WrapPanel>
-                <!-- Decided 2026-09-29: without a tracker id a hint is enough. -->
                 <Border IsVisible="{Binding !HasTracker}" Background="#22888888" CornerRadius="4" Padding="8,6" Margin="0,0,0,6">
                     <TextBlock TextWrapping="Wrap" FontSize="12"
                                Text="No tracker set for this server - status, checks and inactivity come from the room's tracker. Add it via Edit server → Multiworld tracker."/>

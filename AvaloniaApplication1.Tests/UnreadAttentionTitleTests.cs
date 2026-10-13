@@ -9,16 +9,6 @@ using Avalonia.Headless.XUnit;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// The unread attention count in window titles and the "is this group on
-/// screen" rule that resets it (feature-plan archive's
-/// <c>Benachrichtigungen.md</c>, step 2). Kategorie A for the view-model
-/// side (<see cref="MainWindowViewModel.MainWindowTitle"/>,
-/// <see cref="GroupViewModel.DetachedWindowTitle"/>, which view changes ask
-/// <see cref="IAttentionTracker"/> to re-check), Kategorie C for the real
-/// <see cref="MainWindow"/>'s <see cref="IGroupHostWindow.IsShowingGroup"/>
-/// and title binding.
-/// </summary>
 public sealed class UnreadAttentionTitleTests : IDisposable
 {
     private readonly string _tempDirectory;
@@ -71,7 +61,6 @@ public sealed class UnreadAttentionTitleTests : IDisposable
         Assert.Equal(2, changes);
     }
 
-    /// <summary>A detached group's count belongs to its own window's title, not the main window's.</summary>
     [Fact]
     public void DetachedGroup_CountsTowardItsOwnTitle_NotMainWindowTitle()
     {
@@ -84,12 +73,12 @@ public sealed class UnreadAttentionTitleTests : IDisposable
         Assert.Equal("(1) Archipolygo", vm.MainWindowTitle);
         Assert.Equal("(4) Beta", beta.DetachedWindowTitle);
 
-        // No longer subscribed once undocked - and resubscribed once back.
+        // Unsubscribed while undocked, resubscribed once back.
         vm.RedockGroup(beta);
         Assert.Equal("(5) Archipolygo", vm.MainWindowTitle);
     }
 
-    /// <summary>[AvaloniaFact]: SaveSettings also applies the UI density to the Fluent theme, which needs the UI thread.</summary>
+    /// <summary>[AvaloniaFact]: SaveSettings applies the density to the Fluent theme, which needs the UI thread.</summary>
     [AvaloniaFact]
     public void ShowUnreadInTitleOff_KeepsPlainTitles_ForMainAndDetachedWindows()
     {
@@ -102,7 +91,7 @@ public sealed class UnreadAttentionTitleTests : IDisposable
         Assert.Equal("Alpha", alpha.DetachedWindowTitle);
     }
 
-    /// <summary>[AvaloniaFact]: SaveSettings also applies the UI density to the Fluent theme, which needs the UI thread.</summary>
+    /// <summary>[AvaloniaFact]: SaveSettings applies the density to the Fluent theme, which needs the UI thread.</summary>
     [AvaloniaFact]
     public void ShowUnreadInTitleOff_AppliesToGroupsCreatedLater_AndAfterRestart()
     {
@@ -132,8 +121,6 @@ public sealed class UnreadAttentionTitleTests : IDisposable
         vm.RedockGroup(beta);
         Assert.True(_tracker.RefreshSeenStateCalls >= beforeDetach + 2);
     }
-
-    // --- Kategorie C: the real MainWindow -----------------------------
 
     [AvaloniaFact]
     public void MainWindow_ShowsOnlyTheSelectedTab_AndNothingWhileDashboardIsVisible()

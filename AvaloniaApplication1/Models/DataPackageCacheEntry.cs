@@ -3,21 +3,8 @@ using System.Collections.Generic;
 namespace Archipolygo.Models;
 
 /// <summary>
-/// On-disk cache of one game's full item-name vocabulary (the server's
-/// DataPackage <c>item_name_to_id</c> table for that game - see
-/// Feature-Plaene/Archiv/Hint-Eingabefeld.md), so the "Hint..." picker's Item
-/// mode doesn't have to re-request the whole DataPackage every time it opens.
-/// <see cref="Checksum"/> is the game's <c>RoomInfo.datapackage_checksums</c>
-/// entry at the time this was cached - a later connect whose own checksum for
-/// this game still matches can skip the re-fetch entirely and just use
-/// <see cref="ItemNames"/> as-is; a changed checksum means the game's item
-/// data itself changed (a new Archipelago release, a modified apworld, ...)
-/// and this entry is stale. Scoped per <see cref="ServerConnectionGroup"/>
-/// (see <see cref="Services.IPersistenceService.SaveDataPackageCache"/>)
-/// rather than shared globally across every configured server, purely so
-/// removing a server can simply delete its own cache folder - at the minor
-/// cost of re-fetching once per group for a game two different rooms happen
-/// to share.
+/// On-disk cache of one game's DataPackage names, valid while <see cref="Checksum"/> still matches the room's
+/// <c>datapackage_checksums</c> entry. Scoped per group (not global) so removing a server can delete its own cache folder.
 /// </summary>
 public class DataPackageCacheEntry
 {
@@ -25,12 +12,6 @@ public class DataPackageCacheEntry
 
     public List<string> ItemNames { get; set; } = new();
 
-    /// <summary>
-    /// Location name -> id for the same game, added for the Admin view's
-    /// "Send location" (Admin-Funktionen.md in the feature-plan archive).
-    /// Null in a cache file written before that - treated as a cache miss by
-    /// <see cref="Services.IConnectionManager.GetGameDataAsync"/>, which
-    /// refetches and rewrites the entry with both halves.
-    /// </summary>
+    /// <summary>Location name -> id. Null in older cache files, which is treated as a cache miss and refetched.</summary>
     public Dictionary<string, long>? LocationIds { get; set; }
 }

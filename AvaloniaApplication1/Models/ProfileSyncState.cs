@@ -3,24 +3,13 @@ using System.Collections.Generic;
 
 namespace Archipolygo.Models;
 
-/// <summary>
-/// Persisted sync state per profile: used to detect, after a new login,
-/// which items/hints have arrived since the last logout
-/// (see Phase 2/4 in the implementation plan).
-/// </summary>
+/// <summary>Persisted per-slot record of what was already shown, to detect items/hints that arrived since the last session.</summary>
 public class ProfileSyncState
 {
     public Guid ProfileId { get; set; }
 
-    /// <summary>
-    /// Highest item index that has already been shown to the user.
-    /// </summary>
     public int LastSeenItemIndex { get; set; }
 
-    /// <summary>
-    /// Synthetic keys (see <see cref="HintEntry.Key"/>) of all hints that have
-    /// already been shown to the user. Archipelago hints have no native id,
-    /// so a composite key is used instead of a single sequential index.
-    /// </summary>
+    /// <summary><see cref="HintEntry.Key"/>s already shown - hints have no sequential index to track instead.</summary>
     public HashSet<string> SeenHintIds { get; set; } = new();
 }

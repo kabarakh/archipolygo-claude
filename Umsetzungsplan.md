@@ -203,7 +203,7 @@ Der Server schickt den initialen `ReceivedItems`-Rückstand als separate
 WebSocket-Nachricht *nach* dem `Connected`-Paket. Das bedeutet, `LoginAsync()`
 kann zurückkehren (und die await-Fortsetzung weiterlaufen), bevor alle
 Backlog-Items ihr `ItemReceived`-Event gefeuert haben. Würde
-`hasAnnouncedConnection` sofort auf `true` gesetzt, könnte die Fortsetzung
+`BacklogState.HasAnnouncedConnection` sofort auf `true` gesetzt, könnte die Fortsetzung
 mitten in einem Burst von `ItemReceived`-Aufrufen laufen und den Rest des
 Bursts fälschlich als "live" statt "Backlog" einstufen. Die zwei Sekunden
 Grace-Period stellen sicher, dass der synchrone Burst vollständig durch ist,
@@ -281,7 +281,7 @@ bekommt.
 ### Sibling-Catch-up-Sweep: wann er läuft und wann er abbricht
 
 Läuft nur, wenn ein Leader-Connect die *Gruppe* tatsächlich online bringt
-(`previousLeaderId is null`) – also beim Start (`InitializeGroupAsync`) oder
+(`groupJustCameOnline`, d. h. `previousLeaderId is null`) – also beim Start (`InitializeGroupAsync`) oder
 nach einem manuellen Reconnect/unerwarteten Drop. Eine offline Gruppe hat
 null Netzwerkaktivität (siehe `InitializeGroupAsync`); der Moment des
 tatsächlichen Connects ist also genau der Moment, in dem "jeden
@@ -609,7 +609,7 @@ kostenlos sind.
 `TrackHintsForSiblingOnLeader` deckt den Fall ab, dass ein Slot erst
 *nachdem* der Leader schon verbunden ist, zur Gruppe hinzugefügt wird ("Add
 slot" bei bereits verbundener Gruppe) – der Sibling-Loop in
-`ConnectSlotSessionAsync` läuft nur einmal, im Moment des Leader-Connects
+`TrackSiblingHintsOnLeader` (aus `ActivateConnectedSession`) läuft nur einmal, im Moment des Leader-Connects
 selbst, ein später hinzugefügter Slot würde also sonst unsichtbar bleiben,
 solange er nicht selbst Leader wird.
 
@@ -640,7 +640,7 @@ raumweites Geplänkel zwischen unbeteiligten Spielern.
 Eine Catch-up-Session behandelt grundsätzlich alles als Backlog – ihr ganzer
 Zweck ist ein einmaliger "gib mir deinen vollständigen aktuellen Stand"-
 Resync, keine fortlaufende Live-Verbindung. Für die Leader-Session gilt
-"live" erst, sobald `hasAnnouncedConnection` (nach der Backlog-Grace-Period)
+"live" erst, sobald `BacklogState.HasAnnouncedConnection` (nach der Backlog-Grace-Period)
 wahr ist; davor übernimmt die Chat-Log-Zeile "X sent Y to Z" schon die
 Anzeige, hier wird nur der persistierte Index weitergezählt.
 

@@ -11,14 +11,8 @@ using Avalonia.Layout;
 namespace TestHarness;
 
 /// <summary>
-/// Plain code-built (no .axaml) auxiliary window - see
-/// .claude/skills/ui-feature-prototyp/SKILL.md, TestHarness's own purpose.
-/// Most buttons inject synthetic data directly into <see cref="GroupViewModel"/>'s
-/// public collections, bypassing IConnectionManager entirely, to drive the real
-/// Events/Hints/Items panels without a network connection. The "Hint routing"
-/// section is the exception - it goes through <see cref="FakeConnectionManager"/>'s
-/// fake hint room, because that's the part that actually models the
-/// leader/non-leader subscription behavior fixed in ConnectionManager.cs.
+/// Code-built auxiliary window that injects synthetic data straight into GroupViewModel's collections; only the
+/// "Hint routing" section goes through FakeConnectionManager's fake hint room.
 /// </summary>
 public sealed class ControlPanelWindow : Window
 {
@@ -126,7 +120,6 @@ public sealed class ControlPanelWindow : Window
         Content = new ScrollViewer { Content = panel };
     }
 
-    /// <summary>Admin-Funktionen.md - simulated server-side conditions for TestServer's Admin view.</summary>
     private static void AddAdminSection(StackPanel panel, GroupViewModel group, FakeConnectionManager connectionManager)
     {
         panel.Children.Add(new TextBlock { Text = "Admin (Admin-Funktionen.md)", FontWeight = Avalonia.Media.FontWeight.Bold });
@@ -265,16 +258,7 @@ public sealed class ControlPanelWindow : Window
         _leaderStatusText.Text = $"Current leader: {leaderName}";
     }
 
-    /// <summary>
-    /// Finds whichever of the two demo slots is currently NOT the leader and
-    /// simulates it running "!hint_location" for a hint whose receiving
-    /// player is an external, unconfigured room player - i.e. neither side of
-    /// the hint is the leader. Before the ConnectionManager.cs fix, this
-    /// hint would never have reached the leader's session at all (see
-    /// FakeConnectionManager.SimulateHintLocation); after the fix, it should
-    /// show up in this slot's Hints/Events even though it never itself
-    /// connects.
-    /// </summary>
+    /// <summary>Neither side of the hint is the leader; with the fix it still reaches this slot's Hints/Events.</summary>
     private void SimulateHintAsNonLeader()
     {
         var nonLeader = _group.Group.Slots.FirstOrDefault(s => s.Id != _group.LeaderSlotId) ?? _siblingSlot;

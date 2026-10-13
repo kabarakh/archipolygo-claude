@@ -8,15 +8,7 @@ using Avalonia.Threading;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Step 4 of the feature-plan archive's <c>Benachrichtigungen.md</c>: which
-/// number each native badge gets, and that the windows keep the badge
-/// service in sync. The real platform calls (ITaskbarList3 overlay, NSDockTile
-/// badge) aren't exercised headlessly - by design nothing hands the real
-/// <see cref="UnreadBadgeService"/> to a window in tests (see
-/// <see cref="MainWindow.UnreadBadgeService"/>) - so they need a manual check
-/// on each OS.
-/// </summary>
+/// <summary>The real platform calls (ITaskbarList3 overlay, NSDockTile badge) aren't exercised headless and need a manual check per OS.</summary>
 public class UnreadBadgeTests
 {
     private static MainWindowViewModel WithTwoGroups(out GroupViewModel alpha, out GroupViewModel beta)
@@ -55,7 +47,7 @@ public class UnreadBadgeTests
         Assert.Equal(5, beta.DetachedWindowBadgeCount);
     }
 
-    /// <summary>A detached group's count must still reach the app-wide (Dock) badge - so the main view model watches every group, not only docked ones.</summary>
+    /// <summary>The main view model watches every group, not only docked ones.</summary>
     [Fact]
     public void DetachedGroupCountChange_RaisesAppBadgeCount()
     {
@@ -117,7 +109,6 @@ public class UnreadBadgeTests
         alpha.UnreadAttentionCount = 3;
         Assert.Equal(3, badges.WindowBadges[window]);
 
-        // No longer tracked once closed.
         window.Close();
         alpha.UnreadAttentionCount = 8;
         Assert.Equal(3, badges.WindowBadges[window]);

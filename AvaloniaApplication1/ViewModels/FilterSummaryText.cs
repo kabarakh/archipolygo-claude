@@ -4,11 +4,8 @@ using Archipolygo.Models;
 namespace Archipolygo.ViewModels;
 
 /// <summary>
-/// Pieces of a collapsed filter bar's one-line summary
-/// (Kompakteres-Layout.md, Teil D) - each returns null for a
-/// filter's "show everything" value, so the summary only names what actually
-/// narrows the list. Shared by <see cref="GroupViewModel"/> and
-/// <see cref="DashboardViewModel"/>; labels match the filter buttons' own.
+/// Pieces of a collapsed filter bar's one-line summary. Each returns null for "show everything", so the
+/// summary only names what actually narrows the list; labels match the filter buttons.
 /// </summary>
 public static class FilterSummaryText
 {

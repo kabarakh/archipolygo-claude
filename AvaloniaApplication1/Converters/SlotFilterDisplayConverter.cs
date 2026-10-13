@@ -5,11 +5,7 @@ using Archipolygo.Models;
 
 namespace Archipolygo.Converters;
 
-/// <summary>
-/// Displays a <see cref="SlotProfile"/>'s name (plus alias, see
-/// <see cref="SlotProfile.DisplayName"/>), or "All slots" for the null entry
-/// that represents "no filter" in <see cref="ViewModels.GroupViewModel.SlotFilterOptions"/>.
-/// </summary>
+/// <summary>Shows a slot's display name, or "All slots" for the null "no filter" entry.</summary>
 public class SlotFilterDisplayConverter : IValueConverter
 {
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>

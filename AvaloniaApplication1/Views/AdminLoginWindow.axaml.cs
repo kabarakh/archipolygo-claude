@@ -13,11 +13,7 @@ public partial class AdminLoginWindow : Window
         Opened += (_, _) => PasswordBox.Focus();
     }
 
-    /// <summary>
-    /// Shows the dialog modally; true once "!admin login" succeeded, false if
-    /// cancelled/closed. Shared by the tab's "Admin" button and the Admin
-    /// view's own "Log in..." fallback.
-    /// </summary>
+    /// <summary>True once "!admin login" succeeded, false if cancelled/closed.</summary>
     public static async Task<bool> ShowDialogAsync(Window owner, AdminPanelViewModel admin)
     {
         var window = new AdminLoginWindow { DataContext = new AdminLoginViewModel(admin) };

@@ -16,12 +16,7 @@ using Avalonia.VisualTree;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie C (Test-Umsetzungsplan.md): copying a server's "host:port" to
-/// the clipboard - from the tab's status row (clicking the text itself, or
-/// the copy icon next to it) and from the Dashboard row's context menu.
-/// Real <see cref="MainWindow"/>, same setup style as <see cref="CopyFromHereTests"/>.
-/// </summary>
+/// <summary>Kategorie C: copying "host:port" from the tab's status row and the Dashboard row's context menu.</summary>
 public class CopyHostPortTests
 {
     private static (MainWindow window, MainWindowViewModel viewModel) SetUp()
@@ -38,8 +33,7 @@ public class CopyHostPortTests
 
     private static Control ShowTabAndFind(MainWindow window, MainWindowViewModel viewModel, string name)
     {
-        // Tab content only materializes once visible - see MainWindow.axaml's
-        // lazy ContentTemplate gotcha (CLAUDE.md).
+        // Tab content only materializes once visible (lazy ContentTemplate).
         viewModel.IsDashboardVisible = false;
         Dispatcher.UIThread.RunJobs();
         return window.GetVisualDescendants().OfType<Control>().First(c => c.Name == name);
@@ -85,10 +79,7 @@ public class CopyHostPortTests
     {
         var (window, _) = SetUp();
 
-        // The Dashboard is the default view on startup. Open the row's
-        // context menu as a right-click would (its items only pick up the
-        // row's GroupViewModel as DataContext once it's open), then raise
-        // the item's Click directly.
+        // The menu items only get the row's GroupViewModel as DataContext once the menu is open.
         var contextMenu = window.GetVisualDescendants().OfType<Border>()
             .Select(b => (border: b, menu: b.ContextMenu))
             .First(x => x.menu is not null && x.menu.Items.OfType<MenuItem>().Any(i => Equals(i.Header, "Copy host:port")));

@@ -8,40 +8,19 @@ using Archipolygo.Models;
 
 namespace Archipolygo.Services;
 
-/// <summary>
-/// Loads/saves server connection groups (and the sync state - last seen
-/// item/hint progress - per slot) as JSON under %AppData%/Archipolygo.
-/// </summary>
+/// <summary>Loads/saves groups, per-slot sync state and settings as JSON under %AppData%/Archipolygo.</summary>
 public class PersistenceService : IPersistenceService
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
 
-        // ServerConnectionGroup.Slots is a get-only ObservableCollection
-        // property (no setter, so the deserialized list's own slots can't
-        // just be assigned wholesale - the existing GroupViewModel/UI
-        // bindings need to keep observing the same collection instance).
-        // Without this, System.Text.Json's default behaviour for a
-        // get-only collection property is to serialize it fine but silently
-        // skip populating it back on deserialize, i.e. every group would
-        // come back from disk with zero slots and (since InitializeGroupAsync
-        // requires Slots.Count > 0) never auto-connect either. Populate
-        // fills the already-constructed collection in place instead of
-        // trying to replace it.
+        // Without Populate, System.Text.Json silently skips get-only collections like ServerConnectionGroup.Slots on deserialize.
         PreferredObjectCreationHandling = JsonObjectCreationHandling.Populate
     };
 
     private readonly string _appDataDirectory;
     private readonly string _groupsFilePath;
-
-    /// <summary>
-    /// Pre-Phase-6 flat profile list ("one ServerProfile = one independent
-    /// connection, Host+Port+SlotName+Password all on one record"). Only
-    /// ever read once, by <see cref="MigrateLegacyProfilesIfNeeded"/>, to
-    /// build the new group/slot shape the first time this version of the app
-    /// runs against an older data directory.
-    /// </summary>
     private readonly string _legacyProfilesFilePath;
 
     private readonly string _syncStateDirectory;
@@ -49,26 +28,12 @@ public class PersistenceService : IPersistenceService
     private readonly string _dataPackageCacheDirectory;
     private readonly IDiagnosticLogger _diagnosticLogger;
 
-    /// <param name="diagnosticLogger">
-    /// Resolved via DI in the real app (the shared singleton - see
-    /// App.axaml.cs), so corrupted-file/failed-save catches below end up in
-    /// the same diagnostic log every other instrumented service writes to.
-    /// Defaults to <see cref="NullDiagnosticLogger"/> for design-time
-    /// construction, which doesn't go through DI.
-    /// </param>
     public PersistenceService(IDiagnosticLogger? diagnosticLogger = null)
         : this(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Archipolygo"), diagnosticLogger)
     {
     }
 
-    /// <summary>
-    /// Test-only entry point (see AvaloniaApplication1.Tests'
-    /// PersistenceServiceTests) that points every file this service reads/
-    /// writes at <paramref name="appDataDirectory"/> instead of the real
-    /// %AppData%/Archipolygo - so a round-trip test never touches the user's
-    /// actual groups.json/sync-state/settings.json. The parameterless
-    /// constructor above is what the real app always uses.
-    /// </summary>
+    /// <summary>Test-only: redirects all files to <paramref name="appDataDirectory"/>.</summary>
     internal PersistenceService(string appDataDirectory, IDiagnosticLogger? diagnosticLogger = null)
     {
         _appDataDirectory = appDataDirectory;
@@ -81,9 +46,7 @@ public class PersistenceService : IPersistenceService
 
         Directory.CreateDirectory(_appDataDirectory);
         Directory.CreateDirectory(_syncStateDirectory);
-        // Not _dataPackageCacheDirectory itself - created lazily per group in
-        // SaveDataPackageCache, since most groups never end up needing one
-        // (Item mode in the Hint picker may never be opened for them).
+        // The data-package cache directory is created lazily; most groups never need one.
     }
 
     public List<ServerConnectionGroup> LoadGroups()
@@ -117,18 +80,7 @@ public class PersistenceService : IPersistenceService
         }
     }
 
-    /// <summary>
-    /// Feature-Plaene/Server-Farben.md's migration for a <c>groups.json</c>
-    /// written before <see cref="ServerConnectionGroup.Color"/> existed (or
-    /// any other group that somehow ended up without one): walks the groups
-    /// in file order and assigns each colorless one the next color via
-    /// <see cref="ServerColorPalette.AssignColor"/>, counted against every
-    /// other group's color already decided in this same pass (all the ones
-    /// still colorless at that point contribute nothing, exactly like a
-    /// brand-new group being added one at a time) - so this produces the
-    /// exact same deterministic assignment as if every group had been
-    /// created fresh, one after another, in this file's order.
-    /// </summary>
+    /// <summary>Assigns colors in file order, giving the same result as if each group had been created fresh one after another.</summary>
     private static void AssignMissingColors(List<ServerConnectionGroup> groups)
     {
         foreach (var group in groups)
@@ -141,30 +93,9 @@ public class PersistenceService : IPersistenceService
     }
 
     /// <summary>
-    /// Feature-Plaene/Passwort-Speicherung.md's migration for a
-    /// <c>groups.json</c> written before passwords stopped being persisted:
-    /// <see cref="SlotProfile.Password"/>/<see cref="ServerConnectionGroup.Password"/>
-    /// are now <c>[JsonIgnore]</c>d, so an old file's real "Password" text is
-    /// silently dropped by the normal typed <see cref="JsonSerializer.Deserialize"/>
-    /// above with no trace of it ever having needed one. This raw pre-pass
-    /// over the very same JSON text (a plain <see cref="JsonDocument"/> walk,
-    /// not the strongly-typed model, since the typed shape can no longer see
-    /// that property at all) checks whether each group/slot's raw "Password"
-    /// property was non-empty, and if so forces that already-deserialized
-    /// slot's <see cref="SlotProfile.RequiresPassword"/> true - so the very
-    /// next connect attempt asks for it via the normal password-prompt flow
-    /// (<see cref="ConnectionManager.PasswordRequested"/>) instead of
-    /// silently trying an empty password first and failing.
-    ///
-    /// Needs no "already migrated" flag/gate: once <see cref="SaveGroups"/>
-    /// writes this file again - which happens the moment anything else about
-    /// a group changes, or as soon as this same startup's own connect
-    /// attempts update <see cref="SlotProfile.RequiresPassword"/> and raise
-    /// <see cref="ConnectionManager.GroupPersistNeeded"/> - the file never
-    /// contains "Password" text again, so this becomes a permanent no-op for
-    /// that group from then on. Positional, not by id: the raw array and the
-    /// deserialized list were both just read from the exact same JSON text,
-    /// so their order and count are always identical.
+    /// Passwords are <c>[JsonIgnore]</c>d now, so an old file's "Password" text is only visible via a raw JSON walk;
+    /// a non-empty one sets <see cref="SlotProfile.RequiresPassword"/>. Becomes a no-op once the file is saved again.
+    /// Matched by position, since both lists come from the same JSON text.
     /// </summary>
     private static void ApplyLegacyPasswordRequirement(string json, List<ServerConnectionGroup> groups)
     {
@@ -207,10 +138,7 @@ public class PersistenceService : IPersistenceService
                         break;
                     }
 
-                    // A slot needed *a* password if either its own override
-                    // or the group's shared password was on file - the old
-                    // effectivePassword fallback rule means either one could
-                    // have been what actually made its login succeed.
+                    // Either the slot override or the group's shared password could have been the one used.
                     if (groupHadPassword || HasNonEmptyLegacyPassword(slotElement))
                     {
                         group.Slots[slotIndex].RequiresPassword = true;
@@ -222,10 +150,7 @@ public class PersistenceService : IPersistenceService
         }
         catch (Exception)
         {
-            // Best-effort only - the normal typed Deserialize above already
-            // succeeded (or this method wouldn't have been called), so
-            // there's nothing to recover here beyond simply not migrating
-            // this one load.
+            // Best-effort; the typed load already succeeded.
         }
     }
 
@@ -332,20 +257,13 @@ public class PersistenceService : IPersistenceService
         }
         catch (Exception)
         {
-            // Best-effort cleanup - an orphaned cache folder is harmless
-            // clutter, not worth failing the actual group removal over.
+            // Best-effort; an orphaned cache folder is harmless.
         }
     }
 
     /// <summary>
-    /// One file per (group, game) rather than one shared file per group, so a
-    /// single corrupted/partially-written entry (e.g. app killed mid-write)
-    /// can't take down every other cached game for that same server -
-    /// consistent with <see cref="LoadDataPackageCache"/>/<see cref="LoadSyncState"/>
-    /// both tolerating a corrupt file by falling back rather than throwing.
-    /// <paramref name="game"/> is sanitized since it's server-controlled,
-    /// arbitrary text (an Archipelago game name), not something this app
-    /// generates itself the way a <see cref="Guid"/> is.
+    /// One file per (group, game) so one corrupt entry can't take down the others.
+    /// <paramref name="game"/> is server-controlled text, hence sanitized.
     /// </summary>
     private string GetDataPackageCacheFilePath(Guid groupId, string game) =>
         Path.Combine(_dataPackageCacheDirectory, groupId.ToString(), $"{SanitizeFileName(game)}.json");
@@ -362,18 +280,8 @@ public class PersistenceService : IPersistenceService
     }
 
     /// <summary>
-    /// One-time migration from the pre-Phase-6 flat profile list to the new
-    /// group/slot shape: profiles sharing the same Host+Port (case-insensitive
-    /// host) become one <see cref="ServerConnectionGroup"/>, each keeping its
-    /// original <c>Id</c> as its new <see cref="SlotProfile.Id"/> so the
-    /// already-persisted <see cref="ProfileSyncState"/> per profile (last
-    /// seen item index, seen hint ids) still applies without any changes.
-    /// The group takes the Name/Password of the first profile in each
-    /// Host+Port bucket (order as read from the old file); if profiles in the
-    /// same bucket happened to have different passwords, the others are
-    /// silently dropped in favour of the first - room passwords realistically
-    /// don't differ per slot on the same server. Returns null if there is no
-    /// legacy file to migrate (fresh install, or already migrated before).
+    /// Migrates the old flat profiles.json into groups by Host+Port. Old profile Ids become the
+    /// <see cref="SlotProfile.Id"/>s so existing per-slot sync state still applies. Null if there is no legacy file.
     /// </summary>
     private List<ServerConnectionGroup>? MigrateLegacyProfilesIfNeeded()
     {
@@ -422,14 +330,7 @@ public class PersistenceService : IPersistenceService
                     Id = legacy.Id,
                     GroupId = group.Id,
                     SlotName = legacy.SlotName,
-                    // See Feature-Plaene/Passwort-Speicherung.md: this legacy
-                    // format's own Password is about to become
-                    // [JsonIgnore]d too (never written back out by the
-                    // SaveGroups call right after this method returns), so
-                    // the fact that one was on file here is preserved as
-                    // this flag instead, same reasoning as
-                    // ApplyLegacyPasswordRequirement's own migration for the
-                    // newer groups.json format.
+                    // Passwords aren't persisted anymore; keep only the fact that one was needed.
                     RequiresPassword = groupHadPassword || !string.IsNullOrEmpty(legacy.Password)
                 };
                 group.Slots.Add(slot);
@@ -450,7 +351,7 @@ public class PersistenceService : IPersistenceService
     private string GetSyncStateFilePath(Guid slotId) =>
         Path.Combine(_syncStateDirectory, $"{slotId}.json");
 
-    /// <summary>Shape of the pre-Phase-6 <c>profiles.json</c> file, kept only for one-time migration.</summary>
+    /// <summary>Shape of the legacy <c>profiles.json</c>, kept only for migration.</summary>
     private sealed class LegacyServerProfile
     {
         public Guid Id { get; set; }

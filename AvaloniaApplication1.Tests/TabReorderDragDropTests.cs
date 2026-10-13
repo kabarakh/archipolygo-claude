@@ -15,21 +15,8 @@ using Avalonia.VisualTree;
 namespace AvaloniaApplication1.Tests;
 
 /// <summary>
-/// Kategorie C (Test-Umsetzungsplan.md): the actual DragOver/DragLeave/Drop
-/// wiring in the real <c>.axaml</c> (MainWindow's tab headers, DashboardView's
-/// Overview rows) - Feature-Plaene/Tab-Reihenfolge.md. Raises
-/// <see cref="DragDrop"/>'s routed events directly on the target
-/// <see cref="Border"/> with a hand-built <see cref="DataTransfer"/> payload
-/// and an explicit position within the target (to drive the Before/After
-/// insertion-line detection), rather than driving the gesture through
-/// <c>PointerPressed</c>/<c>PointerMoved</c> and a real
-/// <see cref="DragDrop.DoDragDropAsync"/> - see <see cref="GroupReorderTests"/>'s
-/// own class doc comment for why that part is out of scope for a headless
-/// run (no registered <c>IPlatformDragSource</c>). This still exercises the
-/// real code-behind handlers (<see cref="MainWindow"/>'s
-/// <c>OnGroupTabDragOver</c>/<c>Drop</c>, <see cref="DashboardView"/>'s
-/// <c>OnOverviewRowDragOver</c>/<c>Drop</c>) against the real visual tree,
-/// same spirit as <see cref="DashboardTabTests"/>.
+/// Raises DragDrop's routed events directly on the target Border with an explicit position, exercising the real
+/// handlers; the gesture itself can't run headless (no IPlatformDragSource).
 /// </summary>
 public class TabReorderDragDropTests
 {
@@ -55,16 +42,16 @@ public class TabReorderDragDropTests
     private static Border FindTabHeader(MainWindow window, GroupViewModel group) =>
         window.GetVisualDescendants().OfType<Border>().Single(b => (string?)b.Tag == "GroupTabHeader" && b.DataContext == group);
 
-    /// <summary>A point in the left half of <paramref name="control"/>'s own bounds - "insert before" for a horizontally-laid-out tab header.</summary>
+    /// <summary>"Insert before" for a horizontal tab header.</summary>
     private static Point LeftHalf(Control control) => new(2, control.Bounds.Height / 2);
 
-    /// <summary>A point in the right half of <paramref name="control"/>'s own bounds - "insert after" for a horizontally-laid-out tab header.</summary>
+    /// <summary>"Insert after" for a horizontal tab header.</summary>
     private static Point RightHalf(Control control) => new(control.Bounds.Width - 2, control.Bounds.Height / 2);
 
-    /// <summary>A point in the top half of <paramref name="control"/>'s own bounds - "insert before" for a vertically-laid-out Overview row.</summary>
+    /// <summary>"Insert before" for a vertical Overview row.</summary>
     private static Point TopHalf(Control control) => new(control.Bounds.Width / 2, 2);
 
-    /// <summary>A point in the bottom half of <paramref name="control"/>'s own bounds - "insert after" for a vertically-laid-out Overview row.</summary>
+    /// <summary>"Insert after" for a vertical Overview row.</summary>
     private static Point BottomHalf(Control control) => new(control.Bounds.Width / 2, control.Bounds.Height - 2);
 
     private static (MainWindowViewModel viewModel, MainWindow window, GroupViewModel group1, GroupViewModel group2) SetUpTwoGroups()
@@ -76,7 +63,7 @@ public class TabReorderDragDropTests
         var group2 = viewModel.Groups[1];
 
         var window = ShowWindow(viewModel);
-        viewModel.IsDashboardVisible = false; // tab strip only materializes once it's the visible side (CLAUDE.md's lazy-ContentTemplate gotcha).
+        viewModel.IsDashboardVisible = false; // tab strip only materializes once visible
         Dispatcher.UIThread.RunJobs();
 
         return (viewModel, window, group1, group2);
@@ -144,7 +131,7 @@ public class TabReorderDragDropTests
         targetHeader.RaiseEvent(MakeDragEventArgs(DragDrop.DragOverEvent, group1, targetHeader, LeftHalf(targetHeader)));
         targetHeader.RaiseEvent(MakeDragEventArgs(DragDrop.DropEvent, group1, targetHeader, LeftHalf(targetHeader)));
 
-        // group1 was already right before group2 - "insert before" is a no-op move here.
+        // "Insert before" the next group is a no-op move.
         Assert.Equal(new[] { "Server1", "Server2" }, viewModel.Groups.Select(g => g.Group.Name));
         Assert.Equal(DropIndicatorPosition.None, group2.DropIndicator);
     }
@@ -172,7 +159,7 @@ public class TabReorderDragDropTests
         var group2 = viewModel.Groups[1];
 
         var window = ShowWindow(viewModel);
-        viewModel.IsDashboardVisible = true; // Overview is the default view already, but explicit for clarity.
+        viewModel.IsDashboardVisible = true;
         Dispatcher.UIThread.RunJobs();
 
         var dashboardView = window.GetVisualDescendants().OfType<DashboardView>().Single();
@@ -185,9 +172,6 @@ public class TabReorderDragDropTests
 
         Assert.Equal(new[] { "Server2", "Server1" }, viewModel.Groups.Select(g => g.Group.Name));
         Assert.Equal(DropIndicatorPosition.None, group2.DropIndicator);
-        // Dropping must never also navigate away from the Dashboard - that's
-        // OnOverviewRowSelected's job (a plain row click, no drag involved),
-        // untouched by this test.
         Assert.True(viewModel.IsDashboardVisible);
     }
 

@@ -8,15 +8,7 @@ using Avalonia.Threading;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie A (Test-Umsetzungsplan.md): <see cref="AttentionTracker"/>'s
-/// decision logic from the feature-plan archive's
-/// <c>Benachrichtigungen.md</c> - per-category blink toggle, blink mode,
-/// per-server mute, and the "no second blink until the user has looked"
-/// throttling - against a <see cref="FakeWindowAttentionService"/> instead of
-/// real windows. [AvaloniaFact] only because <see cref="AttentionTracker.Report"/>
-/// posts to the UI thread.
-/// </summary>
+/// <summary>[AvaloniaFact] only because Report posts to the UI thread.</summary>
 public class AttentionTrackerTests
 {
     private readonly FakeWindowAttentionService _windows = new();
@@ -147,7 +139,6 @@ public class AttentionTrackerTests
         Assert.Equal(9, request.Count);
     }
 
-    /// <summary>A category that counts but doesn't blink must stay silent - "Count" and "Blink" are independent toggles.</summary>
     [AvaloniaFact]
     public void CategoryCountOnly_DoesNotBlink()
     {
@@ -160,7 +151,7 @@ public class AttentionTrackerTests
         Assert.Empty(_windows.Requests);
     }
 
-    /// <summary>The tracker keeps its own copy - editing the settings object afterwards (like the Settings dialog's working copy) mustn't change behavior until applied again.</summary>
+    /// <summary>The tracker keeps its own copy, like the Settings dialog's working copy.</summary>
     [AvaloniaFact]
     public void AppliedSettings_LaterMutationOfTheSameObject_HasNoEffect()
     {
@@ -183,8 +174,6 @@ public class AttentionTrackerTests
 
         Assert.True(original.GetAttentionCategorySetting(AttentionCategory.OwnHint).Blink);
     }
-
-    // --- Counting / "seen" ---------------------------------------------
 
     [AvaloniaFact]
     public void DefaultCountCategories_NotSeen_RaiseUnreadCount()
@@ -211,7 +200,7 @@ public class AttentionTrackerTests
         Assert.Empty(_windows.Requests);
     }
 
-    /// <summary>Main window focused, but a different tab (or the Dashboard) showing: counts, but no blink - the user is already at the window.</summary>
+    /// <summary>The user is already at the window, so no blink.</summary>
     [AvaloniaFact]
     public void ActiveWindowShowingAnotherTab_CountsButDoesNotBlink()
     {
@@ -254,7 +243,6 @@ public class AttentionTrackerTests
         Assert.Equal(0, group.UnreadAttentionCount);
     }
 
-    /// <summary>Throttling only affects blinking - every event still counts.</summary>
     [AvaloniaFact]
     public void ThrottledReports_StillCount()
     {
@@ -284,7 +272,7 @@ public class AttentionTrackerTests
         Assert.Equal(1, other.UnreadAttentionCount);
     }
 
-    /// <summary>Window activation is picked up by the tracker itself (via WindowAcknowledged), deferred one dispatcher turn - see OnWindowAcknowledged's comment on Avalonia raising Activated before IsActive.</summary>
+    /// <summary>Deferred one dispatcher turn: Avalonia raises Activated before IsActive is true.</summary>
     [AvaloniaFact]
     public void WindowActivation_ResetsTheGroupItShows()
     {

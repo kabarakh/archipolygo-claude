@@ -4,13 +4,6 @@ using Archipolygo.ViewModels;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie A (Test-Umsetzungsplan.md): <see cref="ConnectionEditorViewModel.TryResolveHostPortAsync"/> -
-/// plain async C# logic (no session, no Avalonia layout) letting the
-/// connection editor's host:port field also accept a room link/id, resolved
-/// via a room_status lookup - see the doc comment on that method for the
-/// full rationale.
-/// </summary>
 public class ConnectionEditorViewModelHostPortTests
 {
     private static ConnectionEditorViewModel ForNewGroupWithResolver(System.Func<string, Task<RoomConnectionInfo?>>? resolveRoomConnectionInfo = null) =>

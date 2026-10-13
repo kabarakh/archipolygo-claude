@@ -12,22 +12,8 @@ using Archipelago.MultiClient.Net.Packets;
 namespace Archipolygo.TestSupport;
 
 /// <summary>
-/// Fake <see cref="IArchipelagoSession"/> for Kategorie B (Test-Umsetzungsplan.md) -
-/// exercises <see cref="Archipolygo.Services.ConnectionManager"/>'s real
-/// locking/ordering logic against a fully controllable "connection" instead
-/// of a real Archipelago server. Only implements the members
-/// <c>ConnectionManager</c> actually touches with real behavior; everything
-/// else throws <see cref="NotImplementedException"/> deliberately - add real
-/// behavior there only once a test actually needs it, per the plan's own
-/// guidance, rather than pre-building a full fake of the whole client
-/// library up front.
-///
-/// The one central control point: <see cref="LoginResultSource"/>, a
-/// <see cref="TaskCompletionSource{TResult}"/> a test completes/faults
-/// itself, so it can dictate exactly when (and how) a simulated connect
-/// "finishes" - the basis for testing <c>ConnectionManager</c>'s overlap/
-/// ordering/abort behavior deterministically, without any real
-/// <c>Task.Delay</c>.
+/// Fake session for exercising ConnectionManager's locking/ordering without a server. Members ConnectionManager
+/// doesn't touch throw deliberately; <see cref="LoginResultSource"/> lets a test decide when/how a connect finishes.
 /// </summary>
 public sealed class FakeArchipelagoSession : IArchipelagoSession
 {
@@ -56,20 +42,9 @@ public sealed class FakeArchipelagoSession : IArchipelagoSession
     public FakeHintsHelper Hints { get; } = new();
     IHintsHelper IArchipelagoSession.Hints => Hints;
 
-    /// <summary>
-    /// Every message <see cref="Say"/> was called with, in order - lets a
-    /// test assert <c>ConnectionManager.SendMessageAsync</c> actually reached
-    /// the group's current leader session and no other.
-    /// </summary>
     public List<string> SentMessages { get; } = new();
 
-    /// <summary>
-    /// The externally-controllable result of this session's one
-    /// <see cref="LoginAsync"/> call - see the class doc comment.
-    /// <see cref="TaskCreationOptions.RunContinuationsAsynchronously"/> so a
-    /// test completing this from the same thread that's awaiting
-    /// <c>ConnectionManager</c>'s call doesn't deadlock/reenter synchronously.
-    /// </summary>
+    /// <summary>Completed by the test. RunContinuationsAsynchronously so completing it doesn't reenter ConnectionManager synchronously.</summary>
     public TaskCompletionSource<LoginResult> LoginResultSource { get; } =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -78,29 +53,11 @@ public sealed class FakeArchipelagoSession : IArchipelagoSession
         ConnectionInfo = new FakeConnectionInfoProvider(numericSlot);
     }
 
-    /// <summary>
-    /// Settable - what <see cref="ConnectAsync"/> resolves with. Defaults to
-    /// null (every existing Kategorie B test that doesn't care); a test
-    /// exercising <c>ConnectionManager.GetHintableItemsAsync</c>'s checksum
-    /// cache (Feature-Plaene/Archiv/Hint-Eingabefeld.md) sets this to a
-    /// <see cref="RoomInfoPacket"/> with a populated <c>DataPackageChecksums</c>.
-    /// </summary>
     public RoomInfoPacket? RoomInfoToReturn { get; set; }
 
-    /// <summary>
-    /// Always completes immediately - only <see cref="LoginAsync"/> is a
-    /// deliberate control point (see the class doc comment); every Kategorie
-    /// B scenario the plan describes hinges on when *login* resolves, not
-    /// the socket-level connect underneath it.
-    /// </summary>
+    /// <summary>Always completes immediately - only login is a control point.</summary>
     public Task<RoomInfoPacket> ConnectAsync() => Task.FromResult<RoomInfoPacket>(RoomInfoToReturn!);
 
-    /// <summary>
-    /// The <c>password</c> argument <see cref="LoginAsync"/> was last called
-    /// with - lets a test assert what <c>ConnectionManager</c> actually sent
-    /// (e.g. after a password-prompt retry populated a fresh value), not
-    /// just whether the login it requested succeeded or failed. Feature-Plaene/Passwort-Speicherung.md.
-    /// </summary>
     public string? LastPasswordArgument { get; private set; }
 
     public Task<LoginResult> LoginAsync(string game, string name, ItemsHandlingFlags itemsHandlingFlags,
@@ -120,22 +77,11 @@ public sealed class FakeArchipelagoSession : IArchipelagoSession
 
     public void SetGoalAchieved() => throw new NotImplementedException();
 
-    /// <summary>Convenience for the common case - a test that doesn't care about controlling the login outcome, just wants it to succeed.</summary>
     public void CompleteLoginSuccessfully(int team = 0, int slot = 1) =>
         LoginResultSource.TrySetResult(new LoginSuccessful(new ConnectedPacket { Team = team, Slot = slot }));
 }
 
-/// <summary>
-/// Fake <see cref="IArchipelagoSocketHelper"/> - only <see cref="SocketClosed"/>
-/// (a test fires this to simulate an unexpected drop),
-/// <see cref="ErrorReceived"/> (subscribed to but never raised in Kategorie B),
-/// <see cref="DisconnectAsync"/> (recorded via <see cref="DisconnectCallCount"/>,
-/// so a test can assert a session was actually torn down), <see cref="SendPacket"/>
-/// (recorded via <see cref="SentPackets"/> - see
-/// <c>ConnectionManagerDataPackageTests</c>, Feature-Plaene/Archiv/Hint-Eingabefeld.md)
-/// and <see cref="RaisePacketReceived"/> (a test simulating the server's
-/// response to one of those) have real behavior.
-/// </summary>
+/// <summary>Only SocketClosed, DisconnectAsync, SendPacket and PacketReceived have real (recorded/raisable) behavior.</summary>
 public sealed class FakeArchipelagoSocketHelper : IArchipelagoSocketHelper
 {
     public event ArchipelagoSocketHelperDelagates.PacketReceivedHandler? PacketReceived;
@@ -150,14 +96,12 @@ public sealed class FakeArchipelagoSocketHelper : IArchipelagoSocketHelper
 
     public int DisconnectCallCount { get; private set; }
 
-    /// <summary>Every packet <see cref="SendPacket"/> was called with, in order.</summary>
     public List<ArchipelagoPacketBase> SentPackets { get; } = new();
 
     public void SendPacket(ArchipelagoPacketBase packet) => SentPackets.Add(packet);
     public void SendMultiplePackets(List<ArchipelagoPacketBase> packets) => throw new NotImplementedException();
     public void SendMultiplePackets(params ArchipelagoPacketBase[] packets) => throw new NotImplementedException();
 
-    /// <summary>Simulates the server sending a packet (e.g. a <c>DataPackagePacket</c> reply to a <c>GetDataPackagePacket</c>).</summary>
     public void RaisePacketReceived(ArchipelagoPacketBase packet) => PacketReceived?.Invoke(packet);
 
     public Task ConnectAsync() => throw new NotImplementedException();
@@ -173,11 +117,10 @@ public sealed class FakeArchipelagoSocketHelper : IArchipelagoSocketHelper
     public Task SendMultiplePacketsAsync(List<ArchipelagoPacketBase> packets) => throw new NotImplementedException();
     public Task SendMultiplePacketsAsync(params ArchipelagoPacketBase[] packets) => throw new NotImplementedException();
 
-    /// <summary>Simulates the leader's connection dropping unexpectedly - fires the same event a real dropped socket would.</summary>
     public void RaiseSocketClosed(string reason = "simulated drop") => SocketClosed?.Invoke(reason);
 }
 
-/// <summary>Fake <see cref="IReceivedItemsHelper"/> - never actually delivers items in Kategorie B (ordering-only), so only the subscribable event needs to exist.</summary>
+/// <summary>Never delivers items; only the event exists.</summary>
 public sealed class FakeReceivedItemsHelper : IReceivedItemsHelper
 {
     public event ReceivedItemsHelper.ItemReceivedHandler? ItemReceived;
@@ -190,16 +133,7 @@ public sealed class FakeReceivedItemsHelper : IReceivedItemsHelper
     public ItemInfo DequeueItem() => throw new NotImplementedException();
 }
 
-/// <summary>
-/// Fake <see cref="ILocationCheckHelper"/> - <see cref="AllLocations"/>/
-/// <see cref="AllLocationsChecked"/> are plain settable lists (a test
-/// arranges whatever counts it wants <c>ConnectionManager</c> to read after a
-/// simulated login), and <see cref="RaiseCheckedLocationsUpdated"/> lets a
-/// test simulate a live update to the leader's own tracked session. Every
-/// other member (checks/scouting/name lookups) is never exercised by
-/// Kategorie B's ordering-only tests and throws deliberately, same "only what
-/// ConnectionManager actually touches" principle as the other fakes in this file.
-/// </summary>
+/// <summary>Location lists are settable; members ConnectionManager doesn't touch throw deliberately.</summary>
 public sealed class FakeLocationCheckHelper : ILocationCheckHelper
 {
     public ReadOnlyCollection<long> AllLocations { get; set; } = new(Array.Empty<long>());
@@ -211,7 +145,6 @@ public sealed class FakeLocationCheckHelper : ILocationCheckHelper
 
     public event LocationCheckHelper.CheckedLocationsUpdatedHandler? CheckedLocationsUpdated;
 
-    /// <summary>Simulates the server reporting newly-checked locations (e.g. a remote !collect) for this slot's session.</summary>
     public void RaiseCheckedLocationsUpdated(ReadOnlyCollection<long> newlyCheckedLocations) =>
         CheckedLocationsUpdated?.Invoke(newlyCheckedLocations);
 
@@ -227,19 +160,13 @@ public sealed class FakeLocationCheckHelper : ILocationCheckHelper
 
     public long GetLocationIdFromName(string game, string locationName) => throw new NotImplementedException();
 
-    /// <summary>
-    /// Settable location-id -> name map, for
-    /// <c>ConnectionManager.GetHintableLocationsAsync</c> tests (Feature-Plaene/Archiv/Hint-Eingabefeld.md).
-    /// An id with no entry returns null - exercises the real code's own
-    /// <c>?? $"Location #{id}"</c> fallback rather than throwing.
-    /// </summary>
+    /// <summary>An id with no entry returns null, exercising the real <c>?? $"Location #{id}"</c> fallback.</summary>
     public Dictionary<long, string> LocationNames { get; } = new();
 
     public string GetLocationNameFromId(long locationId, string? game = null) =>
         LocationNames.TryGetValue(locationId, out var name) ? name : null!;
 }
 
-/// <summary>Fake <see cref="IPlayerHelper"/> - <see cref="AllPlayers"/> defaults to empty (settable) since <c>ConnectionManager</c>'s roster-building runs unconditionally on every leader connect.</summary>
 public sealed class FakePlayerHelper : IPlayerHelper
 {
     public IEnumerable<PlayerInfo> AllPlayers { get; set; } = Array.Empty<PlayerInfo>();
@@ -251,11 +178,10 @@ public sealed class FakePlayerHelper : IPlayerHelper
     public string GetPlayerAliasAndName(int slot) => throw new NotImplementedException();
     public PlayerInfo GetPlayerInfo(int team, int slot) => throw new NotImplementedException();
 
-    /// <summary>Looks up <see cref="AllPlayers"/> by numeric slot id - used by <c>ConnectionManager.GetHintableLocationsAsync</c> to resolve the connected slot's own game (see <see cref="FakeConnectionInfoProvider.Game"/> always being empty).</summary>
+    /// <summary>Needed because <see cref="FakeConnectionInfoProvider.Game"/> is always empty.</summary>
     public PlayerInfo GetPlayerInfo(int slot) => AllPlayers.FirstOrDefault(p => p.Slot == slot)!;
 }
 
-/// <summary>Fake <see cref="IConnectionInfoProvider"/> - only <see cref="Slot"/> (the numeric slot id used to key roster lookups) has real, settable behavior.</summary>
 public sealed class FakeConnectionInfoProvider : IConnectionInfoProvider
 {
     public FakeConnectionInfoProvider(int slot) => Slot = slot;
@@ -272,19 +198,12 @@ public sealed class FakeConnectionInfoProvider : IConnectionInfoProvider
     public void UpdateConnectionOptions(string[] tags, ItemsHandlingFlags itemsHandlingFlags) => throw new NotImplementedException();
 }
 
-/// <summary>Fake <see cref="IMessageLogHelper"/> - only leader sessions subscribe (see <c>ConnectionManager.ConnectSlotSessionAsync</c>); never raised in Kategorie B's ordering-only tests.</summary>
 public sealed class FakeMessageLogHelper : IMessageLogHelper
 {
     public event MessageLogHelper.MessageReceivedHandler? OnMessageReceived;
 }
 
-/// <summary>
-/// Fake <see cref="IHintsHelper"/> - <see cref="TrackHints"/> just records
-/// every subscription (per <paramref name="slot"/>, matching the real
-/// per-sibling subscriptions <c>ConnectionManager</c> registers) rather than
-/// ever actually invoking a callback; Kategorie B cares about *whether/how
-/// many times* a connect subscribes, not hint content.
-/// </summary>
+/// <summary>TrackHints only records subscriptions per slot and never invokes the callback.</summary>
 public sealed class FakeHintsHelper : IHintsHelper
 {
     public int TrackHintsCallCount { get; private set; }
@@ -292,7 +211,6 @@ public sealed class FakeHintsHelper : IHintsHelper
     public void TrackHints(Action<Hint[]> onHintsUpdated, bool retrieveCurrentlyUnlockedHints = true, int? slot = null, int? team = null) =>
         TrackHintsCallCount++;
 
-    /// <summary>Every <see cref="CreateHints(HintStatus, long[])"/>/<see cref="CreateHints(int, HintStatus, long[])"/> call's location ids, in order - for <c>ConnectionManager.SendHintAsync</c> tests (Feature-Plaene/Archiv/Hint-Eingabefeld.md).</summary>
     public List<long[]> CreateHintsCalls { get; } = new();
 
     public void CreateHints(int player, HintStatus hintStatus = HintStatus.Unspecified, params long[] locationIds) => CreateHintsCalls.Add(locationIds);

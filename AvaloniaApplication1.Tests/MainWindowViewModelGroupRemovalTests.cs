@@ -8,15 +8,7 @@ using Archipolygo.ViewModels;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie A (Test-Umsetzungsplan.md): removing a whole server also cleans
-/// up its Feature-Plaene/Archiv/Hint-Eingabefeld.md DataPackage cache (an
-/// explicit dev requirement - an orphaned cache folder for a server that no
-/// longer exists is just clutter). Uses a real <see cref="PersistenceService"/>
-/// against a temp directory (see <see cref="PersistenceServiceTests"/>'s
-/// identical pattern) since <see cref="FakePersistenceService"/> silently
-/// no-ops every save, which would make this untestable.
-/// </summary>
+/// <summary>Uses a real PersistenceService on a temp directory, since the fake no-ops every save.</summary>
 public sealed class MainWindowViewModelGroupRemovalTests : IDisposable
 {
     private readonly string _tempDirectory;

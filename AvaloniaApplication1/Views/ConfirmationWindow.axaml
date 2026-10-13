@@ -1,6 +1,3 @@
-<!-- The app's one generic "are you sure?" dialog - see ConfirmationViewModel's
-     own doc comment for why this is shared rather than bespoke per call site.
-     Width matches ConnectionEditorWindow/PasswordPromptWindow/SettingsWindow. -->
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:Archipolygo.ViewModels"

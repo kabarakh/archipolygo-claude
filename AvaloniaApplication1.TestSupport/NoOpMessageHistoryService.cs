@@ -10,13 +10,7 @@ using Archipolygo.ViewModels;
 
 namespace Archipolygo.TestSupport;
 
-/// <summary>
-/// No-op <see cref="IMessageHistoryService"/> for Kategorie B (Test-Umsetzungsplan.md) -
-/// those tests exercise <see cref="ConnectionManager"/>'s locking/ordering
-/// logic, not event-log content, so every call here is simply ignored rather
-/// than requiring a real <c>IPersistenceService</c>/<c>IProfileSyncStateStore</c>
-/// backing store just to satisfy the constructor.
-/// </summary>
+/// <summary>Ignores every call so ConnectionManager tests don't need a real persistence/sync-state backing store.</summary>
 public sealed class NoOpMessageHistoryService : IMessageHistoryService
 {
     public void HandleConnected(GroupViewModel group, SlotProfile slot) { }

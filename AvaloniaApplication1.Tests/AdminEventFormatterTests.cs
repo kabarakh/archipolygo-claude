@@ -4,11 +4,6 @@ using Archipolygo.Services;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie A (Test-Umsetzungsplan.md): which leader lines become
-/// <see cref="EventType.Admin"/> entries, and how their plain server text is
-/// colored (Admin-Funktionen.md in the feature-plan archive).
-/// </summary>
 public class AdminEventFormatterTests
 {
     private static readonly (string Name, EventTextSegmentKind Kind)[] Players =

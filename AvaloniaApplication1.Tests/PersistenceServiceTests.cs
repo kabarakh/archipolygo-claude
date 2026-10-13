@@ -8,12 +8,7 @@ using Archipolygo.Services;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie A (Test-Umsetzungsplan.md): reine Datei-Roundtrip-Logik, kein
-/// Avalonia nötig. Jeder Test bekommt sein eigenes Temp-Verzeichnis über die
-/// internal-only <c>PersistenceService(string appDataDirectory)</c>-Konstruktor
-/// (siehe deren Doc-Comment) - niemals das echte %AppData%/Archipolygo.
-/// </summary>
+/// <summary>Each test gets its own temp directory via the internal constructor - never the real %AppData%/Archipolygo.</summary>
 public sealed class PersistenceServiceTests : IDisposable
 {
     private readonly string _tempDirectory;
@@ -36,10 +31,7 @@ public sealed class PersistenceServiceTests : IDisposable
     [Fact]
     public void SaveThenLoadGroups_RoundTripsSlots()
     {
-        // Regression test for the PreferredObjectCreationHandling gotcha
-        // documented in CLAUDE.md: without it, Slots (a get-only
-        // ObservableCollection<SlotProfile> property) silently comes back
-        // empty from disk with no exception.
+        // Guards PreferredObjectCreationHandling.Populate: without it the get-only Slots collection comes back empty.
         var group = new ServerConnectionGroup
         {
             Name = "My Server",
@@ -62,8 +54,6 @@ public sealed class PersistenceServiceTests : IDisposable
         Assert.Equal("My Server", loadedGroup.Name);
         Assert.Equal("archipelago.gg", loadedGroup.Host);
         Assert.Equal(12345, loadedGroup.Port);
-        // Feature-Plaene/Passwort-Speicherung.md: never persisted - see the
-        // two tests below for the actual password-handling behavior.
         Assert.Equal(string.Empty, loadedGroup.Password);
         Assert.True(loadedGroup.AutoConnect);
         Assert.Equal(slot1.Id, loadedGroup.PreferredLeaderSlotId);
@@ -92,11 +82,7 @@ public sealed class PersistenceServiceTests : IDisposable
     [Fact]
     public void SaveGroups_NeverWritesAPasswordKey_EvenWhenOneIsSet()
     {
-        // The actual "don't store passwords" promise, checked against the
-        // raw file text rather than the typed model - a regression here
-        // (e.g. someone removing [JsonIgnore]) wouldn't be caught by the
-        // round-trip test above, since that only asserts what comes back
-        // out, not what's actually sitting on disk in between.
+        // Checked against the raw file text: the round-trip alone wouldn't catch a removed [JsonIgnore].
         var group = new ServerConnectionGroup { Name = "S", Host = "h", Port = 1, Password = "secret" };
         var slot = new SlotProfile { GroupId = group.Id, SlotName = "Alice", Password = "slot-secret" };
         group.Slots.Add(slot);
@@ -108,7 +94,6 @@ public sealed class PersistenceServiceTests : IDisposable
         Assert.DoesNotContain("\"Password\"", rawJson, StringComparison.Ordinal);
     }
 
-    /// <summary>Admin-Funktionen.md (feature-plan archive): after an admin login, nothing written to disk contains the admin password.</summary>
     [Fact]
     public async Task AdminLogin_NeverPersistsTheAdminPassword()
     {
@@ -133,10 +118,7 @@ public sealed class PersistenceServiceTests : IDisposable
     [Fact]
     public void LoadGroups_LegacyFileWithRealPassword_MigratesToRequiresPasswordFlag()
     {
-        // Simulates a groups.json written by a pre-Passwort-Speicherung.md
-        // build: a real "Password" string still on disk. The normal typed
-        // Deserialize silently drops it (now [JsonIgnore]d) - this is what
-        // ApplyLegacyPasswordRequirement's raw pre-pass is for for.
+        // A legacy groups.json with a real "Password" on disk; typed Deserialize drops it, ApplyLegacyPasswordRequirement's raw pre-pass handles it.
         Directory.CreateDirectory(_tempDirectory);
         var groupId = Guid.NewGuid();
         var slotWithGroupPasswordId = Guid.NewGuid();
@@ -172,12 +154,7 @@ public sealed class PersistenceServiceTests : IDisposable
     [Fact]
     public void LoadGroups_GroupsFileWithoutColorField_AssignsDeterministicColorsInFileOrder()
     {
-        // Feature-Plaene/Server-Farben.md's migration: a groups.json written
-        // before ServerConnectionGroup.Color existed has no "Color" field at
-        // all - the normal typed Deserialize just leaves it at its default
-        // (empty string), and AssignMissingColors is what's supposed to fill
-        // it in, in file order, exactly as if each group had been created
-        // fresh one after another.
+        // A groups.json without "Color": AssignMissingColors must fill it in file order, as if created one after another.
         Directory.CreateDirectory(_tempDirectory);
         var firstId = Guid.NewGuid();
         var secondId = Guid.NewGuid();
@@ -209,10 +186,7 @@ public sealed class PersistenceServiceTests : IDisposable
     [Fact]
     public void LoadGroups_MigratesLegacyProfilesWithSameHostAndPort_IntoOneGroup()
     {
-        // Old flat ServerProfile shape (pre-Phase-6) - see PersistenceService's
-        // private LegacyServerProfile. Two profiles share Host+Port and should
-        // merge into one ServerConnectionGroup; a third, on a different port,
-        // should become its own group.
+        // Legacy flat-profile shape: two profiles sharing Host+Port merge into one group, the third becomes its own.
         var aliceId = Guid.NewGuid();
         var bobId = Guid.NewGuid();
         var carolId = Guid.NewGuid();
@@ -242,7 +216,7 @@ public sealed class PersistenceServiceTests : IDisposable
         Assert.Single(roomB.Slots);
         Assert.Equal("Carol", roomB.Slots[0].SlotName);
 
-        // Migration also persists the new-shape groups.json so this only ever runs once.
+        // So the migration only ever runs once.
         Assert.True(File.Exists(Path.Combine(_tempDirectory, "groups.json")));
     }
 
@@ -348,9 +322,7 @@ public sealed class PersistenceServiceTests : IDisposable
     [Fact]
     public void LoadSettings_FileFromBeforeThemePreferenceExisted_DefaultsToSystem()
     {
-        // Simulates an upgrade from an older install: a settings.json
-        // written before ThemePreference existed at all, not just one where
-        // it happens to be unset.
+        // A settings.json written before ThemePreference existed at all.
         Directory.CreateDirectory(_tempDirectory);
         var path = Path.Combine(_tempDirectory, "settings.json");
         File.WriteAllText(path, JsonSerializer.Serialize(new { DefaultAutoConnect = true, EventHistoryLimit = 500 }));
@@ -381,14 +353,7 @@ public sealed class PersistenceServiceTests : IDisposable
         Assert.False(deathLink.Blink);
     }
 
-    /// <summary>
-    /// An older settings.json (or one from before a category was added)
-    /// only lists some categories - every missing one must keep its own
-    /// default instead of silently reading as "off". Also guards how
-    /// PreferredObjectCreationHandling.Populate treats a dictionary property
-    /// with an initializer (the ObservableCollection gotcha from CLAUDE.md's
-    /// sibling case).
-    /// </summary>
+    /// <summary>Missing categories must keep their defaults, not read as "off" (also guards Populate on an initialized dictionary).</summary>
     [Fact]
     public void LoadSettings_OnlySomeAttentionCategoriesStored_OthersKeepTheirDefaults()
     {

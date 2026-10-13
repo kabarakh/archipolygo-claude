@@ -4,13 +4,7 @@ using Avalonia.Styling;
 namespace Archipolygo.Services;
 
 /// <summary>
-/// Turns <see cref="Models.AppSettings.ThemePreference"/> into an actual
-/// applied <see cref="Application.RequestedThemeVariant"/>, and cycles it for
-/// the theme button in MainWindow.axaml - see
-/// Feature-Plaene/Theme-Umschalter-und-Server-Farbwaehler.md. Called both at
-/// startup (<see cref="App"/>, before the main window is even created, so
-/// there's no visible flash of the wrong variant) and from
-/// <see cref="ViewModels.MainWindowViewModel.CycleThemeCommand"/>.
+/// Applied at startup before the main window exists, so there's no flash of the wrong variant.
 /// </summary>
 public static class ThemeService
 {
@@ -29,7 +23,7 @@ public static class ThemeService
         };
     }
 
-    /// <summary>System -&gt; Light -&gt; Dark -&gt; System -&gt; ... - what each click on the theme button advances to.</summary>
+    /// <summary>System -&gt; Light -&gt; Dark -&gt; System.</summary>
     public static string Next(string current) => current switch
     {
         "Light" => "Dark",

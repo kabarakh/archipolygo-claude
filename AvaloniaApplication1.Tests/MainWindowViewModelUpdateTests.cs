@@ -5,14 +5,7 @@ using Archipolygo.ViewModels;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie A/B (Test-Umsetzungsplan.md): Feature-Plaene/Archiv/Auto-Update.md's
-/// own note that only <see cref="MainWindowViewModel"/>'s *reaction* to an
-/// <see cref="IUpdateService"/> result is testable (the actual Velopack
-/// download/restart can't sensibly run in a headless test) - via
-/// <see cref="FakeUpdateService"/> instead of a real Velopack-installed
-/// build. No Avalonia needed: this is plain ViewModel reactive logic.
-/// </summary>
+/// <summary>Only the view model's reaction to an update result is testable; the Velopack download/restart can't run headless.</summary>
 public class MainWindowViewModelUpdateTests
 {
     private static MainWindowViewModel MakeViewModel(FakeUpdateService? updateService = null) =>
@@ -25,10 +18,7 @@ public class MainWindowViewModelUpdateTests
 
         var mainWindowViewModel = MakeViewModel(updateService);
 
-        // FakeUpdateService's Task.FromResult completes synchronously, so
-        // MainWindowViewModel's own fire-and-forget startup check (see its
-        // constructor) has already fully run by the time construction
-        // returns - no Dispatcher/await gymnastics needed here.
+        // FakeUpdateService completes synchronously, so the constructor's fire-and-forget check has already run.
         Assert.True(mainWindowViewModel.IsUpdateAvailable);
         Assert.Equal("1.2.3", mainWindowViewModel.NewUpdateVersion);
         Assert.Equal(1, updateService.CheckForUpdatesCallCount);
@@ -78,10 +68,7 @@ public class MainWindowViewModelUpdateTests
     [Fact]
     public async Task ManualCheckForUpdatesAsync_UpdatesBadgeState_SameAsStartupCheck()
     {
-        // Covers the Settings dialog's "Check for updates" button, which
-        // calls this exact same method (see MainWindow.axaml.cs's
-        // OnSettingsClick) - so a manual check also keeps the badge current,
-        // not just the one automatic check at startup.
+        // The Settings dialog's "Check for updates" button calls this same method, so a manual check also updates the badge.
         var updateService = new FakeUpdateService();
         var mainWindowViewModel = MakeViewModel(updateService);
         Assert.False(mainWindowViewModel.IsUpdateAvailable);
@@ -112,7 +99,7 @@ public class MainWindowViewModelUpdateTests
         Assert.True(mainWindowViewModel.ShowUnmanagedInstallHint);
     }
 
-    /// <summary>The macOS case - no Velopack package exists there at all (see release.yml), so the hint would point at nothing and must stay hidden regardless of IsManagedInstall.</summary>
+    /// <summary>No Velopack package exists for macOS, so the hint would point at nothing.</summary>
     [Fact]
     public void ShowUnmanagedInstallHint_PlatformDoesNotSupportManagedInstallAtAll_IsFalse()
     {

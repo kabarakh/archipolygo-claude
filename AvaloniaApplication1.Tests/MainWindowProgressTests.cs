@@ -14,37 +14,14 @@ using Avalonia.VisualTree;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie C (Test-Umsetzungsplan.md): Feature-Plaene/Archiv/Fortschrittsanzeigen.md's
-/// two progress sections in <see cref="MainWindow"/>'s tab content, against
-/// the real <c>.axaml</c> and a real layout pass - not just the ViewModel
-/// arithmetic already covered by <see cref="GroupViewModelRoomProgressTests"/>.
-/// </summary>
 public class MainWindowProgressTests
 {
-    /// <summary>
-    /// Finds the one combined progress bar Grid (own+other done/open, four
-    /// Star-weighted columns) for <paramref name="group"/> - scoped to the
-    /// <see cref="TabControl"/> specifically, not the whole window: since
-    /// Feature-Plaene/Archiv/Dashboard-Tab.md's Overview rows reuse this
-    /// exact same visual (same 4-column shape, same <see cref="GroupViewModel"/>
-    /// DataContext) for their own per-row progress bar, an unscoped search
-    /// would be ambiguous (or silently match the wrong one) whenever both
-    /// the Dashboard and this tab's own content happen to be realized at
-    /// once - which, now that the Dashboard is the default view on
-    /// startup, is the common case rather than a corner case.
-    /// </summary>
+    /// <summary>Scoped to the TabControl: Dashboard Overview rows reuse the same bar, so an unscoped search is ambiguous.</summary>
     private static Grid FindCombinedBar(MainWindow window, GroupViewModel group) =>
         window.GetVisualDescendants().OfType<TabControl>().Single()
             .GetVisualDescendants().OfType<Grid>().Single(g => g.DataContext == group && g.ColumnDefinitions.Count == 4);
 
-    /// <summary>
-    /// Every test below exercises the tab's own content, which only
-    /// materializes once the TabControl is actually visible (see
-    /// MainWindow.axaml's lazy ContentTemplate gotcha, documented in
-    /// CLAUDE.md) - the Dashboard being the default view on startup means
-    /// this has to be switched away from explicitly first.
-    /// </summary>
+    /// <summary>Tab content only materializes once the TabControl is visible, and the app starts on the Dashboard.</summary>
     private static void ShowOnTabsView(MainWindow window, MainWindowViewModel viewModel)
     {
         window.Show();
@@ -66,9 +43,7 @@ public class MainWindowProgressTests
         var combinedBar = FindCombinedBar(window, group);
         Assert.False(combinedBar.IsEffectivelyVisible, "no configured slot has synced yet - the bar must stay hidden rather than show a misleading 0/0.");
 
-        // Fallback case: no tracker configured at all - the bar still shows,
-        // just with the two "other" segments at zero width (see
-        // GroupViewModel.HasAnyProgress's doc comment).
+        // No tracker configured: the "other" segments are zero width.
         group.Group.Slots[0].LocationsChecked = 7;
         group.Group.Slots[0].LocationsTotal = 20;
         Dispatcher.UIThread.RunJobs();
@@ -92,9 +67,7 @@ public class MainWindowProgressTests
         var refreshButton = window.GetVisualDescendants().OfType<Button>()
             .First(b => Equals(b.Content, "Refresh") && b.DataContext == group);
 
-        // IsEffectivelyVisible (not the button's own IsVisible, which is
-        // never itself bound - only its ancestor StackPanel's is) accounts
-        // for the whole visual-ancestor chain being hidden.
+        // IsEffectivelyVisible, since only an ancestor's IsVisible is bound.
         Assert.False(refreshButton.IsEffectivelyVisible, "Tier 2 section must stay hidden entirely for a group with no tracker id configured.");
 
         group.Group.TrackerId = "some-tracker-id";
@@ -116,10 +89,7 @@ public class MainWindowProgressTests
         var window = new MainWindow { DataContext = mainWindowViewModel, Width = 900, Height = 550 };
         ShowOnTabsView(window, mainWindowViewModel);
 
-        // Setting TrackerId above already triggers one lazy auto-refresh (see
-        // GroupViewModel.OnGroupPropertyChanged) since the tab is selected by
-        // default - clear that call so this test only asserts on the button
-        // click itself.
+        // Setting TrackerId already triggered one auto-refresh; clear it so only the click is asserted.
         trackerService.GetProgressCalls.Clear();
 
         var refreshButton = window.GetVisualDescendants().OfType<Button>()
@@ -131,10 +101,7 @@ public class MainWindowProgressTests
         window.MouseUp(pointInWindow, MouseButton.Left);
         Dispatcher.UIThread.RunJobs();
 
-        // FakeMultiworldTrackerService records the call synchronously, at the
-        // very start of GetProgressAsync, before any awaited continuation -
-        // so this assertion doesn't race the (fire-and-forget) async command,
-        // unlike asserting on its eventual result would.
+        // The fake records synchronously before any await, so this doesn't race the fire-and-forget command.
         Assert.Contains("tracker-xyz", trackerService.GetProgressCalls);
     }
 
@@ -161,15 +128,10 @@ public class MainWindowProgressTests
         mainWindowViewModel.AddNewGroup("Server1", "host1", 12345, string.Empty, "Alice", autoConnect: false);
         var group = mainWindowViewModel.Groups[0];
 
-        // Tier 1: this app's own configured slot has synced 30/100 via its
-        // own live connection.
         group.Group.Slots[0].LocationsChecked = 30;
         group.Group.Slots[0].LocationsTotal = 100;
 
-        // Tier 2: the tracker reports the whole room, including a player that
-        // isn't this app's own slot at all (see OwnChecksDone's doc comment
-        // for why "own" comes from Tier 1 rather than trying to match this
-        // set against configured slots).
+        // "Own" comes from Tier 1, not from matching tracker players to configured slots.
         group.Group.TrackerId = "tracker-xyz";
         group.MultiworldProgress.Add(new PlayerProgress { Team = 0, Player = 1, ChecksDone = 30, ChecksTotal = 100 });
         group.MultiworldProgress.Add(new PlayerProgress { Team = 0, Player = 2, ChecksDone = 50, ChecksTotal = 200 });
@@ -177,15 +139,11 @@ public class MainWindowProgressTests
         var window = new MainWindow { DataContext = mainWindowViewModel, Width = 900, Height = 550 };
         ShowOnTabsView(window, mainWindowViewModel);
 
-        // FindCombinedBar itself asserts there's exactly one such Grid (Single) -
-        // not one element per tracked player, even though there are two
-        // players in MultiworldProgress above.
+        // FindCombinedBar uses Single(): one bar, not one per tracked player.
         var combinedBar = FindCombinedBar(window, group);
         Assert.True(combinedBar.IsEffectivelyVisible);
 
-        // Own segments first (done, open), then others' - not grouped by
-        // done/open - see the Grid's own doc comment in MainWindow.axaml.
-        // own done=30, own open=100-30=70, other done=80-30=50, other open=300-100-50=150
+        // Own segments first, then others': own done=30, own open=70, other done=50, other open=150
         var widths = combinedBar.ColumnDefinitions.Select(c => c.Width.Value).ToList();
         Assert.Equal(new double[] { 30, 70, 50, 150 }, widths);
     }
@@ -208,13 +166,7 @@ public class MainWindowProgressTests
 
         var combinedBar = FindCombinedBar(window, group);
 
-        // ToolTip.Tip's content is a realized control tree the moment the
-        // Grid itself loads (it's inline XAML content, not a lazily-templated
-        // popup), but it isn't attached to the visual/logical tree until the
-        // tooltip popup actually opens, so its bindings never inherited a
-        // DataContext on their own - force the same one the Grid itself has,
-        // which is enough for its (already-realized) bindings to resolve
-        // without needing to simulate a real hover-and-wait.
+        // Tooltip content isn't attached to the tree until the popup opens, so it never inherits a DataContext; set it manually.
         var tooltipContent = Assert.IsAssignableFrom<Control>(ToolTip.GetTip(combinedBar));
         tooltipContent.DataContext = group;
         Dispatcher.UIThread.RunJobs();
@@ -237,7 +189,6 @@ public class MainWindowProgressTests
         var group = mainWindowViewModel.Groups[0];
         group.Group.Slots[0].LocationsChecked = 10;
         group.Group.Slots[0].LocationsTotal = 20;
-        // No TrackerId set at all - the fallback case.
 
         var window = new MainWindow { DataContext = mainWindowViewModel, Width = 900, Height = 550 };
         ShowOnTabsView(window, mainWindowViewModel);

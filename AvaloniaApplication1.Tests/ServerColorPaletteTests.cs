@@ -2,10 +2,6 @@ using Archipolygo.Models;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie A (Test-Umsetzungsplan.md): reine Logiktests, kein Avalonia
-/// nötig. Siehe Feature-Plaene/Server-Farben.md's "Zuweisungsalgorithmus".
-/// </summary>
 public sealed class ServerColorPaletteTests
 {
     [Fact]
@@ -19,8 +15,7 @@ public sealed class ServerColorPaletteTests
     [Fact]
     public void AssignColor_SomeButNotAllPaletteColorsUsed_ReturnsFirstUnusedOne()
     {
-        // 9 of the 10 palette colors already taken, each exactly once - the
-        // 10th (last) is the only one still unused.
+        // 9 of 10 colors taken once each - the 10th is the only unused one.
         var alreadyAssigned = ServerColorPalette.Colors.Take(9);
 
         var assigned = ServerColorPalette.AssignColor(alreadyAssigned);
@@ -41,9 +36,7 @@ public sealed class ServerColorPaletteTests
     [Fact]
     public void AssignColor_UnevenUsage_ReturnsTheStillUnusedColor_NotJustTheLowestIndex()
     {
-        // Colors[0] used twice, Colors[1] used once, Colors[2] never used -
-        // the least-used (Colors[2]) must win even though it's not the
-        // overall lowest-index color among the ones already assigned.
+        // The least-used color wins even though it isn't the lowest index among those assigned.
         var alreadyAssigned = new[] { ServerColorPalette.Colors[0], ServerColorPalette.Colors[0], ServerColorPalette.Colors[1] };
 
         var assigned = ServerColorPalette.AssignColor(alreadyAssigned);

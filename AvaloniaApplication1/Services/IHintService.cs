@@ -5,35 +5,17 @@ using Archipolygo.ViewModels;
 namespace Archipolygo.Services;
 
 /// <summary>
-/// Keeps a group's merged <see cref="GroupViewModel.Hints"/> collection in
-/// sync with the full, room-wide hint snapshot delivered by the leader's
-/// Archipelago session, and tracks (per slot, via
-/// <see cref="ProfileSyncState.SeenHintIds"/>) which hints have already been
-/// shown for that particular slot so new ones can be flagged after a
-/// reconnect/catch-up.
+/// Syncs a group's merged hints with the room-wide snapshot and tracks per-slot seen hint ids
+/// so new ones can be flagged after a reconnect/catch-up.
 /// </summary>
 public interface IHintService
 {
     /// <summary>
-    /// Called whenever the leader session's full current hint list is
-    /// available (fires on every (re)connect/catch-up and on every later
-    /// change, e.g. a hinted location being checked). <paramref name="hints"/>
-    /// covers the whole room; each <see cref="HintSnapshot.SlotId"/> says
-    /// which of this group's configured slots that particular hint concerns
-    /// (see <see cref="ConnectionManager"/>, which resolves that before
-    /// calling this). Adds new hints, updates the <see cref="HintEntry.Found"/>
-    /// status of existing ones, and persists which hints have been seen, per
-    /// slot. <paramref name="isLive"/> false (catch-up / initial replay)
-    /// still adds and flags new hints, but never reports them to
-    /// <see cref="IAttentionTracker"/>.
+    /// <paramref name="hints"/> covers the whole room. <paramref name="isLive"/> false (catch-up) still
+    /// adds and flags new hints but never reports them to <see cref="IAttentionTracker"/>.
     /// </summary>
     void SyncHints(GroupViewModel group, IReadOnlyList<HintSnapshot> hints, bool isLive);
 
-    /// <summary>
-    /// Adds a single hint announced by a "[Hint]: ..." chat line to
-    /// <see cref="GroupViewModel.Hints"/>, unless that hint (same key, or
-    /// same finder + location) is already there. Adds no event-log entry
-    /// itself - the chat line is already in the log.
-    /// </summary>
+    /// <summary>Skips hints already present (same key, or same finder + location); adds no event-log entry.</summary>
     void AddHintFromChat(GroupViewModel group, HintSnapshot snapshot);
 }

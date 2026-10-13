@@ -5,12 +5,7 @@ using Avalonia.Data.Converters;
 
 namespace Archipolygo.Converters;
 
-/// <summary>
-/// Displays a <see cref="GroupViewModel"/>'s <see cref="GroupViewModel.HeaderText"/>,
-/// or "All servers" for the null entry that represents "no filter" in
-/// <see cref="DashboardViewModel.HintServerFilterOptions"/> - the Dashboard's
-/// shared Hints overview equivalent of <see cref="SlotFilterDisplayConverter"/>.
-/// </summary>
+/// <summary>Shows a group's header text, or "All servers" for the null "no filter" entry.</summary>
 public class DashboardServerFilterDisplayConverter : IValueConverter
 {
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>

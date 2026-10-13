@@ -10,14 +10,7 @@ using Archipolygo.Services;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie A (Test-Umsetzungsplan.md): Tier 2 of Feature-Plaene/Archiv/Fortschrittsanzeigen.md -
-/// <see cref="MultiworldTrackerService"/>'s JSON parsing and cache-timer
-/// throttling, against fixed embedded fixture responses (the exact examples
-/// from ArchipelagoMW/Archipelago's <c>docs/webhost api.md</c>) via a fake
-/// <see cref="HttpMessageHandler"/> - never a real network call, same
-/// principle as Test-Umsetzungsplan.md's ban on real network/timing in tests.
-/// </summary>
+/// <summary>Fixtures are the examples from Archipelago's docs/webhost api.md, served by a fake handler - never a real network call.</summary>
 public class MultiworldTrackerServiceTests
 {
     private const string RoomStatusJson = """
@@ -65,7 +58,7 @@ public class MultiworldTrackerServiceTests
         }
         """;
 
-    /// <summary>Routes by URL substring to a fixed canned response - records every request it served, so a test can assert how many times each endpoint was actually hit (for the cache-timer tests).</summary>
+    /// <summary>Routes by URL substring to a canned response and records every request (for the cache-timer tests).</summary>
     private sealed class FakeHandler : HttpMessageHandler
     {
         private readonly Dictionary<string, string> _responsesByUrlSubstring;
@@ -93,8 +86,7 @@ public class MultiworldTrackerServiceTests
         }
     }
 
-    // activity_timers/player_status in the exact shape WebHostLib/api/tracker.py
-    // returns them: RFC 1123 timestamps (null = never connected), ClientStatus ints.
+    // Shape as WebHostLib/api/tracker.py returns it: RFC 1123 timestamps (null = never connected), ClientStatus ints.
     private const string TrackerWithActivityJson = """
         {
           "aliases": [],
@@ -117,7 +109,6 @@ public class MultiworldTrackerServiceTests
         }
         """;
 
-    /// <summary>Admin-Funktionen.md (feature-plan archive): the Admin view's inactivity/status/checked-locations come from the same /tracker response.</summary>
     [Fact]
     public async Task GetProgressAsync_ParsesActivityTimersStatusAndCheckedLocations()
     {

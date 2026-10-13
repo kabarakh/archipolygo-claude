@@ -13,12 +13,6 @@ using static AvaloniaApplication1.Tests.ConnectionManagerTestHelpers;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie B (see CLAUDE.md's test-category breakdown): Feature-Plaene/Passwort-Speicherung.md's
-/// <c>SlotProfile.RequiresPassword</c> self-healing and the
-/// <c>ConnectionManager.PasswordRequested</c> hook (proactive prompt,
-/// InvalidPassword-triggered retry, quiet decline).
-/// </summary>
 public class ConnectionManagerPasswordPromptTests
 {
     private static LoginFailure InvalidPasswordFailure() =>
@@ -59,9 +53,7 @@ public class ConnectionManagerPasswordPromptTests
         factory.Enqueue(session);
         session.CompleteLoginSuccessfully(slot: 1);
 
-        // No PasswordRequested handler set - RequiresPassword being true with
-        // no known password just means the login is attempted empty, exactly
-        // as it always was before this feature.
+        // Without a handler, the login is simply attempted with an empty password.
         await manager.SwitchLeaderAsync(vm, alice);
         Dispatcher.UIThread.RunJobs();
 
@@ -83,8 +75,7 @@ public class ConnectionManagerPasswordPromptTests
         await manager.SwitchLeaderAsync(vm, alice);
         Dispatcher.UIThread.RunJobs();
 
-        // Learned even with nobody around to act on it - see
-        // ConnectionManager's own doc comment on this branch.
+        // Learned even with no handler to act on it.
         Assert.True(alice.RequiresPassword);
         Assert.Single(factory.CreatedSessions); // never retried without a handler
         Assert.Null(vm.LeaderSlotId);
@@ -106,10 +97,7 @@ public class ConnectionManagerPasswordPromptTests
             return Task.FromResult(false); // user declined
         };
 
-        // A session object is still created (CreateSession runs before the
-        // proactive check), but ConnectAsync()/LoginAsync() are never
-        // reached - nothing needs enqueuing here, the factory just hands
-        // back its own default session.
+        // CreateSession runs before the proactive check, but ConnectAsync/LoginAsync are never reached.
         await manager.SwitchLeaderAsync(vm, alice);
         Dispatcher.UIThread.RunJobs();
 

@@ -12,16 +12,7 @@ using static AvaloniaApplication1.Tests.ConnectionManagerTestHelpers;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie B (Test-Umsetzungsplan.md): <see cref="ConnectionManager.GetHintableItemsAsync"/> -
-/// Feature-Plaene/Archiv/Hint-Eingabefeld.md's "Status" section (the Item-mode
-/// candidate pool became the game's full DataPackage item list, checksum-
-/// cached to disk per group). Uses a real <see cref="PersistenceService"/>
-/// against a temp directory (see <see cref="PersistenceServiceTests"/>'s
-/// identical pattern) rather than <see cref="FakePersistenceService"/> (which
-/// deliberately no-ops every save) - the whole point here is proving the
-/// cache actually round-trips and is actually consulted.
-/// </summary>
+/// <summary>Uses a real PersistenceService on a temp directory: the point is proving the checksum cache round-trips and is consulted.</summary>
 public sealed class ConnectionManagerDataPackageTests : IDisposable
 {
     private readonly string _tempDirectory;

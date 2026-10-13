@@ -5,12 +5,7 @@ using Archipolygo.Services;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Minimal in-memory <see cref="IProfileSyncStateStore"/> for tests - unlike
-/// the real <see cref="ProfileSyncStateStore"/>, never touches disk. Lets a
-/// test seed "already seen" state (see <see cref="Seed"/>) before exercising
-/// <see cref="IHintService.SyncHints"/>.
-/// </summary>
+/// <summary>In-memory sync-state store that lets a test seed "already seen" state.</summary>
 public sealed class InMemoryProfileSyncStateStore : IProfileSyncStateStore
 {
     private readonly Dictionary<Guid, ProfileSyncState> _states = new();

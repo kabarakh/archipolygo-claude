@@ -1,6 +1,3 @@
-<!-- Asked for when "Admin" is clicked while not logged in
-     (Admin-Funktionen.md in the feature-plan archive). Same width and dialog
-     styling as PasswordPromptWindow. -->
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:Archipolygo.ViewModels"

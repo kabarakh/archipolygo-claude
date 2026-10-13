@@ -7,13 +7,6 @@ using static AvaloniaApplication1.Tests.ConnectionManagerTestHelpers;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie B (Test-Umsetzungsplan.md): <see cref="Archipolygo.Services.ConnectionManager"/>'s
-/// <c>BuildSlotRoster</c> keeps <see cref="Archipolygo.Models.SlotProfile.Alias"/>
-/// current as a side effect of matching the room roster - see that method's
-/// doc comment for why it's the roster-matching code that owns this rather
-/// than a separate pass.
-/// </summary>
 public class ConnectionManagerAliasTests
 {
     [AvaloniaFact(Timeout = 5000)]
@@ -59,10 +52,7 @@ public class ConnectionManagerAliasTests
         factory.Enqueue(bobSession);
         bobSession.CompleteLoginSuccessfully(slot: 2);
 
-        // Alice's own leader connect triggers the sibling catch-up sweep,
-        // during which BuildSlotRoster also runs for Bob (see
-        // ConnectionManager.OnLeaderMessageReceived/TrackHintsForSiblingOnLeader,
-        // which both call it against Alice's still-open leader session).
+        // BuildSlotRoster also runs for Bob during the sibling sweep, against Alice's leader session.
         await manager.SwitchLeaderAsync(vm, alice);
         Dispatcher.UIThread.RunJobs();
 

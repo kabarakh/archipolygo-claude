@@ -51,10 +51,7 @@ public class MessageHistoryService : IMessageHistoryService
 
     public void HandleChatMessage(GroupViewModel group, string text, IReadOnlyList<EventTextSegment> segments, Guid? slotId, EventType eventType = EventType.Chat)
     {
-        // Only messages that actually name one of this group's configured
-        // slots (e.g. someone sending/finding an item for/by it, or it being
-        // mentioned) should count towards the unread badge - plain banter
-        // between other players should not.
+        // Only lines naming one of this group's slots count; banter between other players doesn't.
         var concernsOwnSlot = false;
         foreach (var segment in segments)
         {
@@ -81,9 +78,6 @@ public class MessageHistoryService : IMessageHistoryService
                 Type = EventType.ItemReceived,
                 Text = $"Received {item.ItemDisplayName} ({item.LocationDisplayName}) since last connection",
                 Segments = EventSegmentBuilder.BuildItemReceivedSegments(item.ItemDisplayName, item.Flags, item.LocationDisplayName),
-                // Everything from the last persisted index onward is "new since last
-                // session" by definition - these are items that arrived while this
-                // slot wasn't the leader (or hadn't shown them yet).
                 IsNewSinceLastSession = true
             });
         }
@@ -93,11 +87,7 @@ public class MessageHistoryService : IMessageHistoryService
 
     public void AdvanceItemSyncState(SlotProfile slot, ReadOnlyCollection<ItemInfo> allItemsReceived)
     {
-        // No log entry here on purpose: the live "X sent Y to Z" chat-log
-        // line (see HandleChatMessage) already announces items received
-        // while connected. Still need to keep the persisted index moving,
-        // though, so a later reconnect doesn't re-announce these as "since
-        // last connection".
+        // No log entry: the live chat line already announces it. Advancing keeps a reconnect from re-announcing it.
         var syncState = _syncStateStore.Get(slot.Id);
         AdvanceSyncState(syncState, allItemsReceived.Count);
     }
@@ -183,8 +173,7 @@ public class MessageHistoryService : IMessageHistoryService
 
     private void AddEvent(GroupViewModel group, EventEntry entry)
     {
-        // Archipelago callbacks can arrive on a background/socket thread;
-        // ObservableCollection mutations must happen on the UI thread.
+        // Archipelago callbacks arrive on a background thread.
         Dispatcher.UIThread.Post(() =>
         {
             group.Events.Add(entry);

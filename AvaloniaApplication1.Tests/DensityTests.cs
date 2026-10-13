@@ -13,11 +13,6 @@ using Avalonia.VisualTree;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kompakteres-Layout.md, Teil A: the compact/normal density
-/// setting - <see cref="DensityService"/>, its effect on a real Events row,
-/// and the Settings dialog round-trip.
-/// </summary>
 public class DensityTests
 {
     private static FluentTheme Fluent() => Application.Current!.Styles.OfType<FluentTheme>().Single();
@@ -39,13 +34,7 @@ public class DensityTests
         Assert.Equal(DensityService.Compact, new AppSettings().UiDensity);
     }
 
-    /// <summary>
-    /// Measures the real rendered height of a one-line row in a server tab's
-    /// own Events list (not a throwaway ListBox) under both densities - so a
-    /// local Padding/MinHeight on that list's items (which would silently
-    /// beat the theme resource, see CLAUDE.md's "local value beats a Style
-    /// Setter" gotcha) would fail this rather than go unnoticed.
-    /// </summary>
+    /// <summary>Measures a real Events row, so a local Padding/MinHeight silently beating the theme resource would fail this.</summary>
     [AvaloniaFact]
     public void CompactDensity_MakesEventRowsShorter()
     {
@@ -55,12 +44,7 @@ public class DensityTests
         Assert.True(compact < normal - 10, $"expected compact rows clearly shorter than normal; normal={normal}, compact={compact}");
     }
 
-    /// <summary>
-    /// Compact's row padding is this app's own override (see
-    /// <see cref="DensityService"/>), not Fluent's tighter 4,2 - and
-    /// switching back to Normal drops the override again instead of leaving
-    /// it stuck on.
-    /// </summary>
+    /// <summary>Compact uses the app's own padding (not Fluent's 4,2), and Normal drops the override again.</summary>
     [AvaloniaFact]
     public void CompactDensity_UsesAppRowPadding_NormalFallsBackToFluent()
     {
@@ -119,8 +103,7 @@ public class DensityTests
         Assert.True(viewModel.TryBuildSettings(out var saved));
 
         Assert.Equal(DensityService.Compact, saved.UiDensity);
-        // Regression: the dialog used to build a fresh AppSettings without the
-        // theme, resetting it to "System" on every Save.
+        // Regression: the dialog reset the theme to "System" on every Save.
         Assert.Equal("Dark", saved.ThemePreference);
     }
 }

@@ -16,12 +16,6 @@ using Avalonia.VisualTree;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie C (Test-Umsetzungsplan.md): the "Copy from here" buttons
-/// (Feature-Plaene/Log-Export.md) - visibility tracking the list's
-/// selection (floating over the list since Kompakteres-Layout.md), and the actual clipboard content after a click. Real
-/// <see cref="MainWindow"/>, same setup style as <see cref="EventsListAutoScrollTests"/>.
-/// </summary>
 public class CopyFromHereTests
 {
     private static (MainWindow window, GroupViewModel group, ListBox listBox, Button copyButton) SetUp(string listBoxName, string copyButtonName)
@@ -33,8 +27,7 @@ public class CopyFromHereTests
         var window = new MainWindow { DataContext = mainWindowViewModel, Width = 900, Height = 550 };
         window.Show();
 
-        // Tab content only materializes once visible - see MainWindow.axaml's
-        // lazy ContentTemplate gotcha (CLAUDE.md), same as EventsListAutoScrollTests.
+        // Tab content only materializes once the TabControl is visible; the app starts on the Dashboard.
         mainWindowViewModel.IsDashboardVisible = false;
         Dispatcher.UIThread.RunJobs();
 

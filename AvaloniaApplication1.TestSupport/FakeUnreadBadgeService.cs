@@ -4,7 +4,7 @@ using Avalonia.Controls;
 
 namespace Archipolygo.TestSupport;
 
-/// <summary>Records the last badge set per window and for the app, instead of touching the real taskbar/Dock - see <see cref="IUnreadBadgeService"/>.</summary>
+/// <summary>Records the last badge set per window and for the app instead of touching the taskbar/Dock.</summary>
 public sealed class FakeUnreadBadgeService : IUnreadBadgeService
 {
     public Dictionary<Window, int> WindowBadges { get; } = new();

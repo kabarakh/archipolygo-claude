@@ -7,17 +7,8 @@ using Avalonia.Interactivity;
 namespace Archipolygo.Views;
 
 /// <summary>
-/// A filter row that can be folded away to a one-line summary
-/// (Kompakteres-Layout.md, Teil D): a chevron on the left
-/// toggles <see cref="IsExpanded"/>; collapsed, the filter controls
-/// (<see cref="ContentControl.Content"/>) are replaced by
-/// <see cref="Summary"/> - only the filters that actually narrow the list,
-/// so a collapsed bar still shows that something is being hidden - and
-/// clicking that summary expands the bar again. Look lives in
-/// CollapsibleFilterBar.axaml (a ControlTheme, merged app-wide from
-/// App.axaml). Deliberately not Avalonia's own Expander: its Fluent template
-/// brings a tall header row with border and padding, which would eat
-/// straight back into the space this whole feature exists to save.
+/// A filter row that collapses to a one-line summary of the active filters. Deliberately not Avalonia's
+/// Expander: its Fluent template's tall header row would eat the space this exists to save.
 /// </summary>
 public class CollapsibleFilterBar : ContentControl
 {
@@ -54,7 +45,6 @@ public class CollapsibleFilterBar : ContentControl
         set => SetValue(SummaryProperty, value);
     }
 
-    /// <summary>What the collapsed bar actually shows: "Filters" alone, or "Filters: …" with the active ones.</summary>
     public string SummaryDisplayText
     {
         get => _summaryDisplayText;
@@ -103,8 +93,6 @@ public class CollapsibleFilterBar : ContentControl
     {
         var isFiltering = !string.IsNullOrEmpty(Summary);
         SummaryDisplayText = isFiltering ? $"{NoFilterText}: {Summary}" : NoFilterText;
-        // Styled in Styles/FilterStyles.axaml - highlighted like an active
-        // filter button while something is filtered, dimmed otherwise.
         PseudoClasses.Set(":filtering", isFiltering);
     }
 

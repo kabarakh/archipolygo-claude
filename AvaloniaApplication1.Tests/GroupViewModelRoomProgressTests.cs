@@ -5,14 +5,6 @@ using Archipolygo.ViewModels;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie A (Test-Umsetzungsplan.md): Tier 1 of Feature-Plaene/Archiv/Fortschrittsanzeigen.md -
-/// <see cref="GroupViewModel.RoomChecksCompleted"/>/<see cref="GroupViewModel.RoomChecksTotal"/>/
-/// <see cref="GroupViewModel.HasRoomProgress"/>'s aggregation arithmetic over a
-/// mix of synced/never-synced <see cref="SlotProfile"/>s, and their reactivity
-/// to slot property changes and slot add/remove - no session/Avalonia
-/// involved, same as <see cref="GroupViewModelOrderingTests"/>.
-/// </summary>
 public class GroupViewModelRoomProgressTests
 {
     private static (GroupViewModel viewModel, ServerConnectionGroup group) MakeGroup(params string[] slotNames)
@@ -89,8 +81,7 @@ public class GroupViewModelRoomProgressTests
         Assert.Equal(10, viewModel.RoomChecksCompleted);
         Assert.Equal(20, viewModel.RoomChecksTotal);
 
-        // A slot removed from the configuration must stop being able to move
-        // the aggregate too - not just be excluded at the moment of removal.
+        // A removed slot must stop affecting the aggregate, not just be excluded at removal time.
         bob.LocationsChecked = 999;
         Assert.Equal(10, viewModel.RoomChecksCompleted);
     }
@@ -114,13 +105,6 @@ public class GroupViewModelRoomProgressTests
         Assert.Equal(29, viewModel.RoomChecksTotal);
     }
 
-    /// <summary>
-    /// The one combined progress bar's aggregation (see GroupViewModel.OwnChecksDone
-    /// and friends) - "own" comes from Tier 1's own numbers, "other" is the
-    /// tracker's whole-room numbers minus "own", never a per-player join.
-    /// Same "no Avalonia needed" reasoning as the rest of this file -
-    /// MultiworldProgress is populated directly.
-    /// </summary>
     [Fact]
     public void CombinedProgress_OwnComesFromTier1_OtherIsWholeRoomMinusOwn()
     {
@@ -141,8 +125,7 @@ public class GroupViewModelRoomProgressTests
         Assert.Equal(200, viewModel.OtherChecksTotal);
         Assert.Equal(150, viewModel.OtherChecksOpen);
 
-        // Percentages are each segment's share of the whole bar (grand total
-        // 300), not of its own done+open sub-category.
+        // Percentages are shares of the whole bar (300), not of each sub-category.
         Assert.Equal("Own, done: 30 (10%)", viewModel.OwnChecksDoneLegendText);
         Assert.Equal("Own, open: 70 (23%)", viewModel.OwnChecksOpenLegendText);
         Assert.Equal("Others, done: 50 (17%)", viewModel.OtherChecksDoneLegendText);
@@ -154,8 +137,7 @@ public class GroupViewModelRoomProgressTests
     {
         var (viewModel, group) = MakeGroup("Alice");
         var alice = group.Slots.Single();
-        // Tier 1 (live) already reflects a check the tracker (polled, up to
-        // 60s/300s stale) hasn't caught up to yet.
+        // Tier 1 is live; the polled tracker can lag behind.
         alice.LocationsChecked = 50;
         alice.LocationsTotal = 100;
         group.TrackerId = "tracker-xyz";
@@ -167,13 +149,7 @@ public class GroupViewModelRoomProgressTests
         Assert.Equal(0, viewModel.OtherChecksOpen);
     }
 
-    /// <summary>
-    /// The fallback case: no tracker configured at all for this group. The
-    /// combined bar still shows - just with its own two segments only, the
-    /// "other" ones collapsing to zero share of the bar automatically
-    /// (nothing bumps GrandTotalChecks above OwnChecksTotal). Not a separate
-    /// UI element - see MainWindow.axaml's doc comment on the bar itself.
-    /// </summary>
+    /// <summary>The "other" segments collapse to zero share automatically; there's no separate UI element.</summary>
     [Fact]
     public void CombinedProgress_NoTrackerConfigured_StillHasProgress_JustOwnSegmentsOnly()
     {
@@ -181,7 +157,6 @@ public class GroupViewModelRoomProgressTests
         var alice = group.Slots.Single();
         alice.LocationsChecked = 10;
         alice.LocationsTotal = 20;
-        // group.TrackerId left null - Tier 2 not configured for this group.
 
         Assert.True(viewModel.HasAnyProgress);
         Assert.Equal(10, viewModel.OwnChecksDone);
@@ -196,7 +171,6 @@ public class GroupViewModelRoomProgressTests
     {
         var (viewModel, group) = MakeGroup("Alice");
         group.TrackerId = "tracker-xyz";
-        // No Tier 1 sync, no MultiworldProgress entries yet.
 
         Assert.False(viewModel.HasAnyProgress);
     }

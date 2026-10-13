@@ -9,16 +9,7 @@ using static AvaloniaApplication1.Tests.ConnectionManagerTestHelpers;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie B (Test-Umsetzungsplan.md): Feature-Plaene/Archiv/DeathLink.md -
-/// <see cref="ConnectionManager"/> always enables DeathLink reception for the
-/// leader session only (no per-group opt-in - see that plan's "Status"
-/// section for why), and turns an incoming DeathLink into exactly one
-/// <see cref="EventEntry"/> of the new <see cref="EventType.DeathLink"/> via a
-/// real <see cref="MessageHistoryService"/> (a spy would only prove
-/// <c>ConnectionManager</c> called a method, not that a real event actually
-/// landed in the group's log the user sees).
-/// </summary>
+/// <summary>Uses a real MessageHistoryService so the test proves an event actually lands in the group's log.</summary>
 public class ConnectionManagerDeathLinkTests
 {
     private static ConnectionManager MakeManagerWithRealMessageHistory(out FakeSessionFactory factory)
@@ -115,9 +106,7 @@ public class ConnectionManagerDeathLinkTests
         factory.Enqueue(bobSession);
         bobSession.CompleteLoginSuccessfully(slot: 2);
 
-        // Alice's leader connect triggers the sibling catch-up sweep, which
-        // briefly connects Bob too (see SwitchLeaderAsync) - but only Alice,
-        // the leader, should ever get a DeathLink service.
+        // The sibling sweep briefly connects Bob too, but only the leader gets a DeathLink service.
         await manager.SwitchLeaderAsync(vm, alice);
         Dispatcher.UIThread.RunJobs();
 

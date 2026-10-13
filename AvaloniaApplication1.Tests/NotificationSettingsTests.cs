@@ -14,12 +14,6 @@ using Avalonia.VisualTree;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Step 3 of the feature-plan archive's <c>Benachrichtigungen.md</c>: the
-/// Settings dialog's "Notifications" section and the per-server mute toggle
-/// in Edit server. Kategorie A for the view models, Kategorie C for the
-/// real <see cref="SettingsWindow"/>.
-/// </summary>
 public sealed class NotificationSettingsTests : IDisposable
 {
     private readonly string _tempDirectory = Path.Combine(Path.GetTempPath(), "Archipolygo-Tests-" + Guid.NewGuid());

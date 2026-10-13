@@ -1,19 +1,7 @@
 <Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <!--
-        Small flat icon buttons (Button.icon-button) - DashboardView's
-        per-row action icons (Connect/Disconnect, Add slot, Edit server,
-        Remove server - see Feature-Plaene/Archiv/Dashboard-Tab.md's Status
-        note) and GroupDetailView's "copy host:port" icon next to the
-        status row. Started out local to DashboardView.axaml; moved here
-        (app-wide, from App.axaml) once a second view needed the same look,
-        for the same reason as FilterStyles.axaml: GroupDetailView is also
-        hosted by DetachedGroupWindow. Flat, borderless, just a hover
-        highlight - a Button's own PointerPressed handling marks the event
-        handled before it can bubble up to a ListBoxItem's row-selection
-        logic, so clicking one of these inside a Dashboard row does not also
-        navigate away (see DashboardTabTests.RowIconClick_DoesNotAlsoNavigateTheRow).
-    -->
+    <!-- App-wide because GroupDetailView is also hosted by DetachedGroupWindow. A Button marks
+         PointerPressed handled, so clicking one inside a Dashboard row doesn't also select the row. -->
     <Style Selector="Button.icon-button">
         <Setter Property="Width" Value="22"/>
         <Setter Property="Height" Value="22"/>
@@ -24,12 +12,7 @@
         <Setter Property="HorizontalContentAlignment" Value="Center"/>
         <Setter Property="VerticalContentAlignment" Value="Center"/>
     </Style>
-    <!-- A bright accent wash, not a dark tint - a semi-transparent
-         black highlight here read as barely-there against the app's
-         light background (dev feedback: "sehr dezent"). Same DodgerBlue
-         accent already used for an active filter-toggle button
-         elsewhere in this app (see Button.filter-toggle.active in
-         FilterStyles.axaml), just translucent instead of solid. -->
+    <!-- Translucent DodgerBlue accent: a dark tint was barely visible on the light theme. -->
     <Style Selector="Button.icon-button:pointerover /template/ ContentPresenter">
         <Setter Property="Background" Value="#4D1E90FF"/>
     </Style>

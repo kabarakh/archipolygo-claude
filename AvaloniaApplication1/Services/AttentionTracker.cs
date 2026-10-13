@@ -11,16 +11,10 @@ public sealed class AttentionTracker : IAttentionTracker
 {
     private readonly IWindowAttentionService _windows;
 
-    /// <summary>
-    /// Windows that already blinked and haven't been looked at since.
-    /// Throttling rule (Benachrichtigungen.md): no second blink until the user
-    /// has acknowledged the first one - otherwise five progression items in a
-    /// row meant five back-to-back blinks. Deliberately a fixed rule, not a
-    /// setting. UI-thread only.
-    /// </summary>
+    /// <summary>Windows that blinked and weren't looked at since: no second blink until then. UI-thread only.</summary>
     private readonly HashSet<object> _pendingWindows = new(ReferenceEqualityComparer.Instance);
 
-    /// <summary>Groups whose <see cref="GroupViewModel.UnreadAttentionCount"/> this tracker raised above 0 - the only ones <see cref="RefreshSeenState"/> has to check. UI-thread only.</summary>
+    /// <summary>Groups with a raised <see cref="GroupViewModel.UnreadAttentionCount"/>. UI-thread only.</summary>
     private readonly HashSet<GroupViewModel> _unreadGroups = new();
 
     private AppSettings _settings;
@@ -53,9 +47,7 @@ public sealed class AttentionTracker : IAttentionTracker
     {
         _pendingWindows.Remove(window);
 
-        // Avalonia 12.0.4's WindowBase raises Activated *before* setting
-        // IsActive (see its HandleActivated) - deferring lets IsGroupSeen
-        // see the window as active.
+        // Avalonia's WindowBase raises Activated before setting IsActive; deferring lets IsGroupSeen see it active.
         Dispatcher.UIThread.Post(RefreshSeenState);
     }
 
@@ -89,8 +81,7 @@ public sealed class AttentionTracker : IAttentionTracker
             return;
         }
 
-        // An active window whose other tab (or Dashboard) is showing still
-        // counts above, but the user is already at the window - no blink.
+        // An active window showing another tab still counts, but doesn't blink.
         var window = _windows.ResolveWindow(group.Group.Id);
         if (window is null || _windows.IsActive(window) || !_pendingWindows.Add(window))
         {

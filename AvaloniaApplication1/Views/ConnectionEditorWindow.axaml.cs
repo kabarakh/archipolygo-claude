@@ -17,25 +17,10 @@ public partial class ConnectionEditorWindow : Window
 
     private ConnectionEditorViewModel ViewModel => (ConnectionEditorViewModel)DataContext!;
 
-    /// <summary>
-    /// Shows the "remove slot?" confirmation before staging a removal (see
-    /// <see cref="OnRemoveConfiguredSlotClick"/>). Defaults to a real
-    /// <see cref="ConfirmationWindow"/> owned by this window; tests substitute
-    /// a canned answer instead of actually popping a nested dialog - same
-    /// Func-property seam <see cref="ViewModels.MainWindowViewModel.ShowConfirmationDialogAsync"/>
-    /// uses for the app's other confirmation.
-    /// </summary>
+    /// <summary>Test seam: tests substitute a canned answer instead of popping a nested dialog.</summary>
     public Func<ConfirmationViewModel, Task<bool>> ShowConfirmationDialogAsync { get; set; }
 
-    /// <summary>
-    /// Resolves the two fields that can each need an actual network
-    /// round-trip before the rest of the usual synchronous validation runs:
-    /// <see cref="ConnectionEditorViewModel.HostPortInput"/> first (it may
-    /// fill in <see cref="ConnectionEditorViewModel.TrackerReferenceInput"/>
-    /// along the way, see <see cref="ConnectionEditorViewModel.TryResolveHostPortAsync"/>),
-    /// then the Tier 2 tracker reference itself (Feature-Plaene/Archiv/Fortschrittsanzeigen.md,
-    /// see <see cref="ConnectionEditorViewModel.TryResolveTrackerReferenceAsync"/>).
-    /// </summary>
+    // Host/port first: resolving it may fill in the tracker reference, which needs its own network round-trip.
     private async void OnSaveClick(object? sender, RoutedEventArgs e)
     {
         if (!await ViewModel.TryResolveHostPortAsync())
@@ -59,7 +44,7 @@ public partial class ConnectionEditorWindow : Window
         Close(null);
     }
 
-    /// <summary>Marks a row's slot as the server's default leader. The button's own DataContext (from the ItemsControl's per-item DataTemplate) is the <see cref="ConfiguredSlotRow"/> to act on - this handler just forwards it to the view model's command, which is otherwise out of reach of a plain relative binding from inside that per-item template.</summary>
+    // Forwards the row from the per-item DataTemplate, where a relative binding can't reach the view-model command.
     private void OnMakeDefaultLeaderClick(object? sender, RoutedEventArgs e)
     {
         if (sender is Button { DataContext: ConfiguredSlotRow row })
@@ -68,15 +53,7 @@ public partial class ConnectionEditorWindow : Window
         }
     }
 
-    /// <summary>
-    /// Asks for confirmation, then stages a row's slot for removal (applied
-    /// on Save, see <see cref="ConnectionEditorViewModel.RemoveConfiguredSlot"/>)
-    /// - same DataContext situation as <see cref="OnMakeDefaultLeaderClick"/>.
-    /// A decline leaves the row exactly as it was; staging (and the row
-    /// disappearing from the list) only happens after the user actually
-    /// confirms, since re-adding a removed slot later means re-syncing its
-    /// whole history from scratch.
-    /// </summary>
+    // Staged only after confirmation, since re-adding a removed slot means re-syncing its whole history.
     private async void OnRemoveConfiguredSlotClick(object? sender, RoutedEventArgs e)
     {
         if (sender is Button { DataContext: ConfiguredSlotRow row })
@@ -95,10 +72,6 @@ public partial class ConnectionEditorWindow : Window
         }
     }
 
-    /// <summary>
-    /// Shows the editor as a modal dialog and returns the resulting profile,
-    /// or null if the user cancelled.
-    /// </summary>
     public static Task<ConnectionEditorResult?> ShowDialogAsync(Window owner, ConnectionEditorViewModel viewModel)
     {
         var window = new ConnectionEditorWindow { DataContext = viewModel };

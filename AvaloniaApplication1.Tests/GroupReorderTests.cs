@@ -8,19 +8,8 @@ using Archipolygo.ViewModels;
 namespace AvaloniaApplication1.Tests;
 
 /// <summary>
-/// Kategorie A (Test-Umsetzungsplan.md): <see cref="MainWindowViewModel.ReorderGroup"/>
-/// and <see cref="DashboardViewModel.ReorderGroup"/>'s own arithmetic/persistence -
-/// the ViewModel-side half of manual tab-reordering (Feature-Plaene/Tab-Reihenfolge.md).
-/// The actual Avalonia drag gesture (PointerPressed/Moved threshold detection,
-/// DragDrop.DoDragDropAsync, and the DragOver-time before/after-half detection
-/// that becomes <c>insertAfter</c> here) is deliberately not exercised - the
-/// plan's own "Tests" section pre-approves calling the reorder method
-/// directly instead, since Avalonia.Headless has no drag-gesture simulation
-/// equivalent to its <c>Window.MouseDown</c>/<c>MouseUp</c> click helpers,
-/// and Avalonia 12's <c>DoDragDropAsync</c> needs a registered
-/// <c>IPlatformDragSource</c> that headless test runs don't provide - an
-/// honestly documented gap, same as <see cref="ChatSlotComboBoxTests"/>'s
-/// own caveat about its Loaded-handler fix.
+/// The view-model half of tab reordering. The drag gesture itself isn't covered: headless has no drag simulation and
+/// DoDragDropAsync needs an IPlatformDragSource headless runs don't provide.
 /// </summary>
 public sealed class GroupReorderTests : IDisposable
 {
@@ -41,13 +30,7 @@ public sealed class GroupReorderTests : IDisposable
         }
     }
 
-    /// <summary>
-    /// Covers all four combinations of "source before/after target in the
-    /// list" x "insertAfter true/false" - the index math in
-    /// <see cref="MainWindowViewModel.ReorderGroup"/> treats these
-    /// differently (see that method's own doc comment on why), and each was
-    /// hand-verified against this exact scenario before being written.
-    /// </summary>
+    /// <summary>All four source-before/after-target x insertAfter combinations; the index math differs for each.</summary>
     [Theory]
     [InlineData("Alpha", "Charlie", true, new[] { "Bravo", "Charlie", "Alpha" })] // forward drag, drop after target
     [InlineData("Alpha", "Charlie", false, new[] { "Bravo", "Alpha", "Charlie" })] // forward drag, drop before target
@@ -63,17 +46,12 @@ public sealed class GroupReorderTests : IDisposable
         var source = mainWindowViewModel.Groups.Single(g => g.Group.Name == sourceName);
         var target = mainWindowViewModel.Groups.Single(g => g.Group.Name == targetName);
 
-        // Same ObservableCollection<T>.Move semantics as the real drop
-        // handlers (MainWindow.axaml.cs's OnGroupTabDrop / DashboardView.axaml.cs's
-        // OnOverviewRowDrop), just with insertAfter passed directly instead
-        // of read off GroupViewModel.DropIndicator.
+        // Same ObservableCollection.Move semantics as the real drop handlers, with insertAfter passed directly.
         mainWindowViewModel.ReorderGroup(source, target, insertAfter);
 
         Assert.Equal(expectedOrder, mainWindowViewModel.Groups.Select(g => g.Group.Name));
 
-        // GetAllGroups() (and so groups.json) reads Groups' own order
-        // directly - no separate "OrderIndex" property (see the plan) - so
-        // reloading from disk must reflect the same new order.
+        // groups.json order is simply Groups' order (no OrderIndex property).
         var reloaded = _persistenceService.LoadGroups();
         Assert.Equal(expectedOrder, reloaded.Select(g => g.Name));
     }
@@ -88,11 +66,10 @@ public sealed class GroupReorderTests : IDisposable
 
         mainWindowViewModel.ReorderGroup(alpha, alpha, insertAfter: true);
 
-        // Still just the AddNewGroup calls' own order - nothing moved.
         Assert.Equal(new[] { "Alpha", "Bravo" }, mainWindowViewModel.Groups.Select(g => g.Group.Name));
     }
 
-    /// <summary>A group removed (e.g. "Remove server") mid-drag, before the drop lands - OnGroupTabDrop/OnOverviewRowDrop still call through to here with a now-stale source or target.</summary>
+    /// <summary>A group removed mid-drag leaves the drop handler with a stale source or target.</summary>
     [Fact]
     public void ReorderGroup_SourceOrTargetNoLongerInGroups_IsANoOp()
     {
@@ -109,16 +86,7 @@ public sealed class GroupReorderTests : IDisposable
         Assert.Equal(new[] { "Alpha" }, mainWindowViewModel.Groups.Select(g => g.Group.Name));
     }
 
-    /// <summary>
-    /// <see cref="DashboardViewModel.ReorderGroup"/> is a pure delegation to
-    /// whatever callback it was constructed with (same callback-based
-    /// decoupling as <see cref="DashboardViewModel.SelectGroupAndLeaveDashboard"/>,
-    /// see <see cref="DashboardViewModelTests"/> for that side's own
-    /// coverage) - verified here end-to-end through the real
-    /// <see cref="MainWindowViewModel"/> wiring instead of a bare callback,
-    /// since that's what actually matters: dragging an Overview row really
-    /// does reorder <see cref="MainWindowViewModel.Groups"/> and persist it.
-    /// </summary>
+    /// <summary>Verified through the real MainWindowViewModel wiring rather than a bare callback.</summary>
     [Fact]
     public void DashboardViewModel_ReorderGroup_ReordersTheSameUnderlyingGroupsCollection()
     {

@@ -10,11 +10,6 @@ using Avalonia.VisualTree;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie C (see CLAUDE.md's test-category breakdown): Feature-Plaene/Passwort-Speicherung.md's
-/// consolidated password-prompt dialog, against the real <c>.axaml</c> and a
-/// real layout pass - same style as <see cref="ConnectionEditorWindowProgressTests"/>.
-/// </summary>
 public class PasswordPromptWindowTests
 {
     [AvaloniaFact]
@@ -57,9 +52,7 @@ public class PasswordPromptWindowTests
             {
                 Group = group,
                 Slots = new[] { new PasswordPromptSlotRow { Slot = slotA }, new PasswordPromptSlotRow { Slot = slot12 } }
-                // SlotFieldsExpanded left at its default (false) - most
-                // rooms share one password per slot (dev feedback), so this
-                // must stay collapsed until the user actually asks for it.
+                // SlotFieldsExpanded stays false: most rooms share one password.
             }
         });
 
@@ -67,9 +60,7 @@ public class PasswordPromptWindowTests
         window.Show();
         Dispatcher.UIThread.RunJobs();
 
-        // An invisible ItemsControl doesn't even realize its item containers
-        // (unlike a plain collapsed panel - see ConnectionEditorWindowProgressTests,
-        // whose rows always exist, just hidden), so nothing to find here yet.
+        // An invisible ItemsControl doesn't realize its item containers at all.
         Assert.Empty(window.GetVisualDescendants().OfType<TextBlock>()
             .Where(t => t.Text == "Slot A password" || t.Text == "Slot 12 password"));
 
@@ -112,10 +103,7 @@ public class PasswordPromptWindowTests
         window.Show();
         Dispatcher.UIThread.RunJobs();
 
-        // Both slot rows render their own "Wrong password" TextBlock (only
-        // slot12's is actually shown - see ShowError) - narrow down to the
-        // one that's really on screen rather than assuming there's only one
-        // in the tree at all.
+        // Every slot row has its own error TextBlock; only the visible one counts.
         var visibleErrorLabels = window.GetVisualDescendants().OfType<TextBlock>()
             .Where(t => t.Text == "Wrong password" && t.IsEffectivelyVisible)
             .ToList();
@@ -156,11 +144,7 @@ public class PasswordPromptWindowTests
         window.Show();
         Dispatcher.UIThread.RunJobs();
 
-        // The slot's own field is collapsed (ShowSlotToggle false for a
-        // single-slot group - see PasswordPromptGroupRow's own doc comment)
-        // but still exists, invisible, in the visual tree - filter down to
-        // what's actually rendered, same convention as
-        // ConnectionEditorWindowProgressTests.
+        // The collapsed slot field still exists invisibly in the tree.
         var passwordBox = window.GetVisualDescendants().OfType<TextBox>().Single(t => t.IsEffectivelyVisible);
         passwordBox.Text = "typed-in-password";
         Dispatcher.UIThread.RunJobs();

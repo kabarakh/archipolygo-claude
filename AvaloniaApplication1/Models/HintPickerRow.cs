@@ -1,13 +1,8 @@
 namespace Archipolygo.Models;
 
 /// <summary>
-/// A single row in the "Hint..." picker's list, whichever mode is active
-/// (see <see cref="HintTargetMode"/>). For Location mode, <see cref="Id"/>
-/// is the real Archipelago location id (usable directly with
-/// <c>IConnectionManager.SendHintAsync</c>); Item mode has no equivalent
-/// numeric id to send (hinting by item name goes through
-/// <c>IConnectionManager.SendItemHintAsync</c> instead, by name), so
-/// <see cref="Id"/> is left at 0 there and only <see cref="Name"/> matters.
+/// A row in the "Hint..." picker. In Location mode <see cref="Id"/> is the real location id; in Item mode
+/// it stays 0, since item hints are sent by name.
 /// </summary>
 public sealed record HintPickerRow
 {

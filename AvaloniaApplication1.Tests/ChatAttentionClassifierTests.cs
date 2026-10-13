@@ -3,11 +3,6 @@ using Archipolygo.Services;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie A (Test-Umsetzungsplan.md): which chat lines count as a
-/// <see cref="AttentionCategory.ChatMention"/> vs. plain
-/// <see cref="AttentionCategory.Chat"/> - see <see cref="ChatAttentionClassifier"/>.
-/// </summary>
 public class ChatAttentionClassifierTests
 {
     private static readonly string?[] OwnNames = { "Alice", null, "Link" };

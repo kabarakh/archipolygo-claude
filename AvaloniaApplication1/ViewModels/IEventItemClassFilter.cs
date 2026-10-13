@@ -1,13 +1,8 @@
 namespace Archipolygo.ViewModels;
 
 /// <summary>
-/// The four independent item-class checkboxes narrowing an Events list
-/// (<see cref="GroupViewModel"/>'s per-tab list and
-/// <see cref="DashboardViewModel"/>'s server-spanning one each keep their own
-/// independent set). Exists so both can share one
-/// <see cref="Views.ItemClassFilterButton"/> (compiled bindings need a single
-/// <c>x:DataType</c>) instead of two hand-copied flyouts - see
-/// Kompakteres-Layout.md, Teil C.
+/// Item-class checkboxes of an Events list; lets tabs and the Dashboard share one
+/// <see cref="Views.ItemClassFilterButton"/>, since compiled bindings need a single <c>x:DataType</c>.
 /// </summary>
 public interface IEventItemClassFilter
 {
@@ -16,14 +11,12 @@ public interface IEventItemClassFilter
     bool ShowFillerItemEvents { get; set; }
     bool ShowTrapItemEvents { get; set; }
 
-    /// <summary>"Classes" while every class is shown, "Classes 3/4" otherwise - see <see cref="EventItemClassFilterText"/>.</summary>
+    /// <summary>"Classes" while every class is shown, "Classes 3/4" otherwise.</summary>
     string EventItemClassFilterButtonText { get; }
 
-    /// <summary>True while at least one class is hidden - highlights the button like any other active filter.</summary>
     bool IsEventItemClassFilterActive { get; }
 }
 
-/// <summary>The one shared implementation of <see cref="IEventItemClassFilter"/>'s derived properties.</summary>
 public static class EventItemClassFilterText
 {
     public static int ShownCount(IEventItemClassFilter filter) =>

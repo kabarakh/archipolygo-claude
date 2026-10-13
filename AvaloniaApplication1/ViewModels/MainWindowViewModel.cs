@@ -10,141 +10,47 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
 namespace Archipolygo.ViewModels;
-
+/// <summary>
+/// Owns every server (<see cref="Groups"/>), which are docked as tabs, startup
+/// sequencing and app-wide settings. Split by topic into <c>MainWindowViewModel.*.cs</c>.
+/// </summary>
 public partial class MainWindowViewModel : ViewModelBase
 {
     private readonly IPersistenceService _persistenceService;
     private readonly IConnectionManager _connectionManager;
     private readonly IMultiworldTrackerService _multiworldTrackerService;
 
-    /// <summary>
-    /// Optional - null in every existing test construction site that doesn't
-    /// care about Feature-Plaene/Archiv/Auto-Update.md, same "purely additive
-    /// dependency" reasoning as <see cref="GroupViewModel"/>'s own
-    /// <c>IMultiworldTrackerService?</c>. Null just means the startup check
-    /// and "Update now"/"Check for updates" actions all silently no-op.
-    /// </summary>
+    /// <summary>Optional (null in tests): update checks and actions then silently no-op.</summary>
     private readonly IUpdateService? _updateService;
 
-    /// <summary>
-    /// Optional for the same reason as <see cref="_updateService"/> - falls
-    /// back to <see cref="NullDiagnosticLogger"/> so every existing test
-    /// construction site keeps compiling unchanged. Only read from, via
-    /// <see cref="ReadDiagnosticLog"/> for the Settings export button -
-    /// every write happens inside the services that actually do things
-    /// worth logging (<see cref="IPersistenceService"/>, <see cref="IConnectionManager"/>,
-    /// <see cref="IUpdateService"/>), not here.
-    /// </summary>
+    /// <summary>Only read here (for the Settings export); the services do the writing.</summary>
     private readonly IDiagnosticLogger _diagnosticLogger;
 
     /// <summary>
-    /// Ensures only one password-prompt dialog round is ever shown at a
-    /// time - see <see cref="HandlePasswordRequestedAsync"/>'s doc comment.
-    /// Different groups' connects are NOT otherwise serialized against each
-    /// other (each has its own independent gate inside
-    /// <see cref="ConnectionManager"/>), so without this, a manual reconnect
-    /// on one server while the startup sequence is mid-way through another
-    /// could pop two password windows at once.
-    /// </summary>
-    private readonly SemaphoreSlim _passwordPromptGate = new(1, 1);
-
-    /// <summary>
-    /// Set by <see cref="Views.MainWindow"/> (the one place with an actual
-    /// <see cref="Avalonia.Controls.Window"/> to own a dialog) to actually
-    /// show a <see cref="PasswordPromptWindow"/> - deliberately NOT called
-    /// directly from this class, which stays free of any
-    /// <c>Archipolygo.Views</c>/<c>Window</c> dependency, same separation
-    /// every other dialog in this app keeps (the view model exposes data/
-    /// commands; the view decides when and how to show something). Returns
-    /// whether the user actually clicked "Connect" (vs. Cancel, or the
-    /// <see cref="CancellationToken"/> forcing the window closed - see
-    /// <see cref="Views.PasswordPromptWindow.ShowDialogAsync"/>). Null only
-    /// in the design-time construction path, in which case a password
-    /// request can never actually be shown.
-    /// </summary>
-    public Func<PasswordPromptViewModel, CancellationToken, Task<bool>>? ShowPasswordPromptDialogAsync { get; set; }
-
-    /// <summary>
-    /// Same wiring seam as <see cref="ShowPasswordPromptDialogAsync"/>, for
-    /// the app's one generic "are you sure?" dialog (<see cref="ConfirmationViewModel"/>) -
-    /// currently gates <see cref="RemoveGroupAsync"/>. Null in every existing
-    /// test construction site, same as that other Func: a test that doesn't
-    /// wire it up gets the pre-confirmation behavior (act immediately), since
-    /// there's no dialog it could possibly show.
+    /// Set by the view to show the generic "are you sure?" dialog. Null (tests) = no
+    /// dialog, act immediately.
     /// </summary>
     public Func<ConfirmationViewModel, Task<bool>>? ShowConfirmationDialogAsync { get; set; }
 
     public ObservableCollection<GroupViewModel> Groups { get; } = new();
 
     /// <summary>
-    /// The subset of <see cref="Groups"/> currently shown in the main
-    /// TabControl - every group except one that's been detached into its
-    /// own window (see Feature-Plaene/Tab-Eigenes-Fenster.md). A separately
-    /// maintained collection rather than a passthrough to <see cref="Groups"/>
-    /// (same "don't reintroduce a plain passthrough" reasoning as
-    /// <see cref="GroupViewModel.Slots"/>'s own doc comment) - <see cref="Groups"/>
-    /// stays the single source of truth for "which groups exist, in what
-    /// order" (persistence/Dashboard read that one directly), and every
-    /// mutation site that touches <see cref="Groups"/>' membership or order
-    /// (<see cref="AddNewGroup"/>, <see cref="RemoveGroupAsync"/>,
-    /// <see cref="ReorderGroup"/>, and the startup loop below) mirrors the
-    /// same change here too rather than this being rebuilt from scratch on
-    /// every change. Detached-ness is never persisted (that plan's decided
-    /// scope) - every group starts docked here on every construction,
-    /// regardless of what <see cref="GroupViewModel.IsDetached"/> was at
-    /// last shutdown (which is itself never saved either).
+    /// Groups shown as tabs (all but detached ones). A separately maintained mirror, not a
+    /// passthrough: <see cref="Groups"/> stays the source of truth, and every site that changes
+    /// its membership/order mirrors the change here. Detaching is never persisted.
     /// </summary>
     public ObservableCollection<GroupViewModel> DockedGroups { get; } = new();
-
-    /// <summary>
-    /// Set by <see cref="Views.MainWindow"/> to actually open a
-    /// <see cref="Views.DetachedGroupWindow"/> for a just-detached group -
-    /// same "view models expose data/commands, views own actual Window
-    /// instances" separation as <see cref="ShowPasswordPromptDialogAsync"/>'s
-    /// own doc comment. Null in every existing test construction site, in
-    /// which case <see cref="DetachGroup"/> still moves the group out of
-    /// <see cref="DockedGroups"/> but no window actually appears - matches
-    /// this app's usual "no dialog wiring means the dialog silently doesn't
-    /// show" convention for these Func/Action seams.
-    /// </summary>
-    public Action<GroupViewModel>? OpenDetachedWindow { get; set; }
-
-    /// <summary>
-    /// Set by <see cref="Views.MainWindow"/> to close a group's already-open
-    /// detached window - called from <see cref="RedockGroup"/> (a drag back
-    /// onto the main tab strip) and from <see cref="RemoveGroupAsync"/> (the
-    /// server was removed entirely while detached). Never called for a
-    /// group that closed its own detached window directly (that path
-    /// re-docks first, then finds nothing left to close) - see
-    /// <see cref="Views.MainWindow"/>'s own wiring for how both directions
-    /// stay idempotent regardless of which one ran first.
-    /// </summary>
-    public Action<GroupViewModel>? CloseDetachedWindow { get; set; }
 
     [ObservableProperty]
     private GroupViewModel? _selectedGroup;
 
-    /// <summary>
-    /// Whether the toggleable Dashboard view (Feature-Plaene/Archiv/Dashboard-Tab.md)
-    /// is shown instead of the normal <c>TabControl</c> - a view swap, not a
-    /// real <c>TabItem</c> mixed into <see cref="Groups"/> (see that plan's
-    /// "Warum nicht als echtes TabItem" section for why). Defaults to
-    /// <c>true</c> per dev request (2026-09-11) - the app opens on the
-    /// all-servers overview rather than whichever tab happened to be first.
-    /// </summary>
+    /// <summary>Dashboard shown instead of the TabControl (a view swap, not a real TabItem). The app opens on it.</summary>
     [ObservableProperty]
     private bool _isDashboardVisible = true;
 
-    /// <summary>Backs <see cref="Views.DashboardView"/> - constructed once here, alongside <see cref="Groups"/>, rather than lazily on first toggle, so its own filter state survives repeated toggling.</summary>
+    /// <summary>Created once, not per toggle, so its filter state survives toggling.</summary>
     public DashboardViewModel Dashboard { get; }
 
-    /// <summary>
-    /// Toolbar toggle button label - text flips instead of a separate
-    /// indicator, see Feature-Plaene/Archiv/Dashboard-Tab.md. "Tab View"
-    /// rather than "Back to tabs" (dev decision, 2026-09-12) - "back" reads
-    /// oddly once the Dashboard is the default view rather than something
-    /// you navigate away from and return to.
-    /// </summary>
     public string DashboardToggleButtonText => IsDashboardVisible ? "Tab View" : "Dashboard";
 
     partial void OnIsDashboardVisibleChanged(bool value)
@@ -158,73 +64,6 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private void ToggleDashboard() => IsDashboardVisible = !IsDashboardVisible;
 
-    /// <summary>
-    /// Total number of configured slots announced so far by whatever
-    /// <see cref="IConnectionManager.SwitchLeaderAsync"/> sync pass(es) are
-    /// currently in flight - see <see cref="IConnectionManager.SlotSyncBatchStarting"/>,
-    /// which this keeps growing by (reset back to 0 first if nothing is
-    /// currently pending, so a long-finished earlier pass isn't carried
-    /// over). Not just the startup pass despite the name - the same banner
-    /// reappears for any later reconnect too, e.g. manually reconnecting a
-    /// group that was left disconnected.
-    /// </summary>
-    [ObservableProperty]
-    private int _startupSyncTotal;
-
-    /// <summary>How many of <see cref="StartupSyncTotal"/> have finished so far - see <see cref="IConnectionManager.SlotInitialSyncCompleted"/>.</summary>
-    [ObservableProperty]
-    private int _startupSyncCompleted;
-
-    /// <summary>Whether the sync status banner should be visible - true only while there's still at least one unfinished slot from a pass that actually found any.</summary>
-    public bool IsStartupSyncing => StartupSyncTotal > 0 && StartupSyncCompleted < StartupSyncTotal;
-
-    public string StartupSyncStatusText => $"Catching up slots: {StartupSyncCompleted}/{StartupSyncTotal}";
-
-    partial void OnStartupSyncTotalChanged(int value)
-    {
-        OnPropertyChanged(nameof(IsStartupSyncing));
-        OnPropertyChanged(nameof(StartupSyncStatusText));
-    }
-
-    partial void OnStartupSyncCompletedChanged(int value)
-    {
-        OnPropertyChanged(nameof(IsStartupSyncing));
-        OnPropertyChanged(nameof(StartupSyncStatusText));
-    }
-
-    /// <summary>Optional, like <c>_updateService</c> - null in design-time/test construction; see <see cref="SaveSettings"/>.</summary>
-    private readonly IAttentionTracker? _attentionTracker;
-
-    private bool _showUnreadInTitle = true;
-
-    private bool _showUnreadBadge = true;
-
-    /// <summary>
-    /// "(3) Archipolygo" while docked groups have unread attention-worthy
-    /// events (<see cref="GroupViewModel.UnreadAttentionCount"/>) - visible in
-    /// Alt-Tab and the taskbar tooltip. Detached groups count toward their own
-    /// window's title instead (<see cref="GroupViewModel.DetachedWindowTitle"/>).
-    /// </summary>
-    public string MainWindowTitle
-    {
-        get
-        {
-            var unread = DockedGroups.Sum(g => g.UnreadAttentionCount);
-            return _showUnreadInTitle && unread > 0 ? $"({unread}) Archipolygo" : "Archipolygo";
-        }
-    }
-
-    /// <summary>
-    /// The main window's own taskbar-button badge on Windows (see
-    /// <see cref="Services.IUnreadBadgeService.SetWindowBadge"/>) - the same
-    /// docked-groups sum as <see cref="MainWindowTitle"/>, or 0 while
-    /// <see cref="AppSettings.ShowUnreadBadge"/> is off.
-    /// </summary>
-    public int MainWindowBadgeCount => _showUnreadBadge ? DockedGroups.Sum(g => g.UnreadAttentionCount) : 0;
-
-    /// <summary>The macOS Dock badge (see <see cref="Services.IUnreadBadgeService.SetAppBadge"/>) - one per app, so every group counts, docked or detached.</summary>
-    public int AppBadgeCount => _showUnreadBadge ? Groups.Sum(g => g.UnreadAttentionCount) : 0;
-
     private GroupViewModel CreateGroupViewModel(ServerConnectionGroup group) =>
         new(group, _connectionManager, _multiworldTrackerService, FilterLayout)
         {
@@ -232,58 +71,7 @@ public partial class MainWindowViewModel : ViewModelBase
             ShowUnreadBadge = _showUnreadBadge
         };
 
-    private void ApplyUnreadDisplaySettings(AppSettings settings)
-    {
-        _showUnreadInTitle = settings.ShowUnreadInTitle;
-        _showUnreadBadge = settings.ShowUnreadBadge;
-        foreach (var group in Groups)
-        {
-            group.ShowUnreadInTitle = _showUnreadInTitle;
-            group.ShowUnreadBadge = _showUnreadBadge;
-        }
-
-        RaiseUnreadDisplayChanged();
-    }
-
-    private void RaiseUnreadDisplayChanged()
-    {
-        OnPropertyChanged(nameof(MainWindowTitle));
-        OnPropertyChanged(nameof(MainWindowBadgeCount));
-        OnPropertyChanged(nameof(AppBadgeCount));
-    }
-
-    /// <summary>Every group's count feeds <see cref="AppBadgeCount"/>, not just docked ones - so this watches <see cref="Groups"/>; <see cref="DockedGroups"/> changes only move a count between windows.</summary>
-    private void OnGroupsChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
-    {
-        foreach (var group in e.OldItems?.OfType<GroupViewModel>() ?? Enumerable.Empty<GroupViewModel>())
-        {
-            group.PropertyChanged -= OnGroupUnreadPropertyChanged;
-        }
-
-        foreach (var group in e.NewItems?.OfType<GroupViewModel>() ?? Enumerable.Empty<GroupViewModel>())
-        {
-            group.PropertyChanged += OnGroupUnreadPropertyChanged;
-        }
-
-        RaiseUnreadDisplayChanged();
-    }
-
-    private void OnGroupUnreadPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName == nameof(GroupViewModel.UnreadAttentionCount))
-        {
-            RaiseUnreadDisplayChanged();
-        }
-    }
-
-    /// <summary>
-    /// Design-time only: used by the <c>&lt;Design.DataContext&gt;</c> in
-    /// MainWindow.axaml so the XAML previewer has something to bind against.
-    /// Not used at runtime - see <see cref="App"/> for the actual composition
-    /// root, which resolves this view model (and its dependencies) from the
-    /// DI container as explicit singletons instead.
-    /// </summary>
-
+    /// <summary>Design-time only (XAML previewer); at runtime <see cref="App"/> resolves this via DI.</summary>
     public MainWindowViewModel()
         : this(new PersistenceService(), CreateDesignTimeConnectionManager(), new MultiworldTrackerService(), new UpdateService())
     {
@@ -298,11 +86,6 @@ public partial class MainWindowViewModel : ViewModelBase
             new ArchipelagoSessionFactoryAdapter());
     }
 
-    /// <summary>
-    /// Real constructor, resolved by the DI container in <see cref="App"/>.
-    /// Also directly usable by tests that need to substitute either
-    /// dependency with a fake/mock.
-    /// </summary>
     public MainWindowViewModel(IPersistenceService persistenceService, IConnectionManager connectionManager, IMultiworldTrackerService multiworldTrackerService, IUpdateService? updateService = null, IDiagnosticLogger? diagnosticLogger = null, IAttentionTracker? attentionTracker = null)
     {
         _attentionTracker = attentionTracker;
@@ -312,178 +95,58 @@ public partial class MainWindowViewModel : ViewModelBase
         _updateService = updateService;
         _diagnosticLogger = diagnosticLogger ?? NullDiagnosticLogger.Instance;
 
-        // Keeps AutoConnect/PreferredLeaderSlotId changes made by
-        // ConnectionManager itself (see IConnectionManager.GroupPersistNeeded)
-        // durable across a restart - e.g. connecting a leader via the account
-        // dropdown, not just the actions already routed through this class's
-        // own PersistGroups() calls below. ConnectionManager always raises
-        // this on the UI thread, so it's safe to enumerate Groups here.
-        _connectionManager.GroupPersistNeeded += _ => PersistGroups();
-
-        // Drives the "Catching up slots: N/M" banner for every sync pass -
-        // not just the initial startup one, but any later reconnect too
-        // (see IConnectionManager.SlotSyncBatchStarting's doc comment).
-        // Resets back to a fresh 0/0 first if nothing is currently pending,
-        // so a long-finished earlier pass's numbers aren't carried over into
-        // this new one; otherwise just extends the running total, so two
-        // passes overlapping (e.g. a manual reconnect while the startup pass
-        // is still processing a different group) don't clobber each other's
-        // progress. Both events are always raised on the UI thread, so it's
-        // safe to update these observable properties directly from either.
-        _connectionManager.SlotSyncBatchStarting += count =>
-        {
-            if (StartupSyncCompleted >= StartupSyncTotal)
-            {
-                StartupSyncTotal = 0;
-                StartupSyncCompleted = 0;
-            }
-
-            StartupSyncTotal += count;
-        };
-        _connectionManager.SlotInitialSyncCompleted += (_, _) => StartupSyncCompleted++;
-
-        // Feature-Plaene/Passwort-Speicherung.md: the one real subscriber of
-        // this hook, wired once here just like GroupPersistNeeded/
-        // SlotSyncBatchStarting above - see PasswordRequested's own doc
-        // comment for what this covers.
-        _connectionManager.PasswordRequested = HandlePasswordRequestedAsync;
-
-        FilterLayout = LoadFilterLayout(_persistenceService.LoadSettings());
-        FilterLayout.PropertyChanged += (_, _) => SaveFilterLayout();
+        SubscribeToConnectionManager();
 
         var startupSettings = _persistenceService.LoadSettings();
+        FilterLayout = LoadFilterLayout(startupSettings);
+        FilterLayout.PropertyChanged += (_, _) => SaveFilterLayout();
         _showUnreadInTitle = startupSettings.ShowUnreadInTitle;
         _showUnreadBadge = startupSettings.ShowUnreadBadge;
+
         Groups.CollectionChanged += OnGroupsChanged;
         DockedGroups.CollectionChanged += (_, _) => RaiseUnreadDisplayChanged();
+        LoadGroupsFromDisk();
 
+        Dashboard = new DashboardViewModel(Groups, SelectGroupAndLeaveDashboard, ReorderGroup, FilterLayout);
+        SelectedGroup = Groups.FirstOrDefault();
+
+        _ = InitializeGroupsAsync();
+
+        // Silent fire-and-forget: the dot next to "Settings..." just appears or doesn't.
+        _ = CheckForUpdatesAsync();
+
+        // App.axaml.cs already applied the theme; this only feeds the theme button.
+        ThemePreference = startupSettings.ThemePreference;
+    }
+
+    private void SubscribeToConnectionManager()
+    {
+        // Raised on the UI thread, so enumerating Groups is safe.
+        _connectionManager.GroupPersistNeeded += _ => PersistGroups();
+
+        _connectionManager.SlotSyncBatchStarting += OnSlotSyncBatchStarting;
+        _connectionManager.SlotInitialSyncCompleted += (_, _) => StartupSyncCompleted++;
+
+        _connectionManager.PasswordRequested = HandlePasswordRequestedAsync;
+    }
+
+    /// <summary>Every group as last saved, all docked - detaching is never persisted.</summary>
+    private void LoadGroupsFromDisk()
+    {
         foreach (var group in _persistenceService.LoadGroups())
         {
             var groupViewModel = CreateGroupViewModel(group);
             Groups.Add(groupViewModel);
             DockedGroups.Add(groupViewModel);
         }
-
-        Dashboard = new DashboardViewModel(Groups, group =>
-        {
-            SelectedGroup = group;
-            IsDashboardVisible = false;
-        }, ReorderGroup, FilterLayout);
-
-        SelectedGroup = Groups.Count > 0 ? Groups[0] : null;
-
-        // Sequential on purpose, with a spacing delay between groups (see
-        // ConnectionManager.StartupGroupSpacing) - several servers each
-        // auto-connecting their leader and then catching up every other
-        // configured slot at once would otherwise hit all of them with a
-        // burst of simultaneous handshakes.
-        _ = InitializeGroupsAsync();
-
-        // Fire-and-forget, after everything else above - never blocks
-        // startup, never crashes it either (see IUpdateService's own "never
-        // throws" contract). Deliberately no visible "checking..." state for
-        // this one - unlike the Settings dialog's own "Check for updates"
-        // button, nobody explicitly asked for this to happen, so there's
-        // nothing to show progress for; the small dot next to "Settings..."
-        // (see MainWindow.axaml) either quietly appears once this resolves,
-        // or it doesn't.
-        _ = CheckForUpdatesAsync();
-
-        // App.axaml.cs already applied this same preference to
-        // RequestedThemeVariant before this view model even exists - this
-        // just mirrors the persisted value for the theme button's own
-        // glyph/tooltip, not a second place that applies the theme itself.
-        ThemePreference = _persistenceService.LoadSettings().ThemePreference;
     }
 
-    /// <summary>"System"/"Light"/"Dark" - see <see cref="Services.ThemeService"/>. Drives the theme button's glyph/tooltip in MainWindow.axaml; the actually-applied theme lives on <see cref="Avalonia.Application.RequestedThemeVariant"/>, set alongside this by <see cref="CycleTheme"/> (and once at startup by <see cref="App"/>).</summary>
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ThemeButtonGlyph))]
-    [NotifyPropertyChangedFor(nameof(ThemeButtonTooltip))]
-    private string _themePreference = "System";
-
-    /// <summary>Plain Unicode glyphs, same convention as the rest of this app's dialogs (e.g. ConnectionEditorWindow.axaml's "✕"/"🔒") rather than an icon font dependency just for this one button.</summary>
-    public string ThemeButtonGlyph => ThemePreference switch
+    private void SelectGroupAndLeaveDashboard(GroupViewModel group)
     {
-        "Light" => "☀",
-        "Dark" => "🌙",
-        _ => "◐"
-    };
-
-    public string ThemeButtonTooltip => $"Theme: {ThemePreference} (click to switch)";
-
-    /// <summary>Advances to the next theme (see <see cref="Services.ThemeService.Next"/>), persists it, and applies it immediately.</summary>
-    [RelayCommand]
-    private void CycleTheme()
-    {
-        var settings = LoadSettings();
-        settings.ThemePreference = ThemeService.Next(settings.ThemePreference);
-        SaveSettings(settings);
-
-        ThemePreference = settings.ThemePreference;
-        ThemeService.Apply(ThemePreference);
+        SelectedGroup = group;
+        IsDashboardVisible = false;
     }
 
-    /// <summary>Whether a new version is available - drives the small dot next to the "Settings..." button in MainWindow.axaml.</summary>
-    [ObservableProperty]
-    private bool _isUpdateAvailable;
-
-    /// <summary>The new version's display string, if <see cref="IsUpdateAvailable"/> - shown in the update Flyout.</summary>
-    [ObservableProperty]
-    private string? _newUpdateVersion;
-
-    /// <summary>
-    /// Whether to show the Settings dialog's "you're on an unmanaged install"
-    /// hint (see <see cref="SettingsViewModel.ShowUnmanagedInstallHint"/>) -
-    /// true only when auto-update could plausibly work here (this platform
-    /// has a Velopack package at all - see <see cref="IUpdateService.SupportsManagedInstall"/>,
-    /// false on macOS) but doesn't right now, because this particular install
-    /// isn't Velopack-managed (a manually downloaded/unzipped build - see
-    /// <see cref="IUpdateService.IsManagedInstall"/>). Never changes for the
-    /// life of the running process, same as <see cref="AppVersionInfo.Current"/> -
-    /// no <c>[ObservableProperty]</c> needed.
-    /// </summary>
-    public bool ShowUnmanagedInstallHint =>
-        _updateService is not null && _updateService.SupportsManagedInstall && !_updateService.IsManagedInstall;
-
-    /// <summary>
-    /// Checks for an update (see <see cref="IUpdateService.CheckForUpdatesAsync"/>)
-    /// and updates <see cref="IsUpdateAvailable"/>/<see cref="NewUpdateVersion"/>
-    /// accordingly - called once at startup, and again from the Settings
-    /// dialog's own "Check for updates" button, so either path keeps the
-    /// badge current. No-op (never available) if no <see cref="IUpdateService"/>
-    /// was supplied at all.
-    /// </summary>
-    public async Task<string?> CheckForUpdatesAsync()
-    {
-        if (_updateService is null)
-        {
-            return null;
-        }
-
-        var version = await _updateService.CheckForUpdatesAsync();
-        NewUpdateVersion = version;
-        IsUpdateAvailable = version is not null;
-        return version;
-    }
-
-    /// <summary>Downloads and applies whatever update was last found, restarting the app into it - see <see cref="IUpdateService.DownloadAndApplyUpdateAsync"/>.</summary>
-    [RelayCommand]
-    private async Task UpdateNowAsync()
-    {
-        if (_updateService is null)
-        {
-            return;
-        }
-
-        await _updateService.DownloadAndApplyUpdateAsync();
-    }
-
-    /// <summary>
-    /// Keeps each group's IsSelected flag in sync with the active tab, and
-    /// lets <see cref="IAttentionTracker"/> reset the newly visible tab's
-    /// unread count (see <see cref="GroupViewModel.UnreadAttentionCount"/>).
-    /// </summary>
     partial void OnSelectedGroupChanged(GroupViewModel? oldValue, GroupViewModel? newValue)
     {
         if (oldValue is not null)
@@ -503,16 +166,8 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         var groupsSnapshot = Groups.ToList();
 
-        // No upfront StartupSyncTotal here anymore - each group's own
-        // IConnectionManager.SwitchLeaderAsync call (via InitializeGroupAsync)
-        // announces its own slot counts as it goes (see
-        // IConnectionManager.SlotSyncBatchStarting), each one already
-        // guaranteed a matching completion no matter how it ends. That's
-        // also what lets the exact same banner reappear for a later ad-hoc
-        // reconnect, not just this startup pass - so forcing
-        // StartupSyncCompleted = StartupSyncTotal here once this loop
-        // finishes would risk wrongly cutting off a still-in-progress later
-        // pass that happens to overlap the tail end of this one.
+        // Sync counts come from each connect's own SlotSyncBatchStarting; don't force
+        // Completed = Total after this loop, it could cut off an overlapping later pass.
         for (var i = 0; i < groupsSnapshot.Count; i++)
         {
             await _connectionManager.InitializeGroupAsync(groupsSnapshot[i]);
@@ -524,430 +179,10 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    /// <summary>
-    /// <see cref="IConnectionManager.PasswordRequested"/>'s real
-    /// implementation - see Feature-Plaene/Passwort-Speicherung.md. Builds a
-    /// consolidated <see cref="PasswordPromptViewModel"/> covering every
-    /// group/slot that currently needs a password (not just
-    /// <paramref name="slot"/>, the one that happened to trigger this
-    /// particular call) and shows it via <see cref="ShowPasswordPromptDialogAsync"/>.
-    ///
-    /// This is also the whole mechanism that turns several time-spaced hook
-    /// calls (one per group, as <see cref="InitializeGroupsAsync"/>'s
-    /// startup loop reaches each of them a few seconds apart) into what
-    /// looks like ONE consolidated dialog: the first group to actually ask
-    /// greedily scans and shows every currently-needing group/slot at once;
-    /// every field binds straight through to <see cref="SlotProfile.Password"/>/
-    /// <see cref="ServerConnectionGroup.Password"/> (see
-    /// <see cref="Models.PasswordPromptSlotRow"/>'s own doc comment), so by
-    /// the time a later group's own hook call arrives, its password is
-    /// already sitting there and the fast-path check below resolves it
-    /// without showing anything again. A later <c>InvalidPassword</c> failure
-    /// for one specific group re-invokes this in retry mode, and the same
-    /// scan then naturally finds only that one remaining unresolved slot -
-    /// "only the affected group re-prompts" falls out of this for free,
-    /// with no extra bookkeeping needed.
-    /// </summary>
-    private async Task<bool> HandlePasswordRequestedAsync(GroupViewModel group, SlotProfile slot, bool isRetry, CancellationToken cancellationToken)
-    {
-        // Fast path, checked BEFORE ever queuing behind another group's
-        // dialog: a concurrent round already in flight for a different
-        // group may have picked this slot's own password up along the way
-        // (see the greedy-scan doc comment above) - nothing left to ask. Not
-        // checked for isRetry: there, the current value is exactly what's
-        // known WRONG, so it must never count as "already resolved".
-        if (!isRetry && HasKnownPassword(group, slot))
-        {
-            return true;
-        }
-
-        if (ShowPasswordPromptDialogAsync is null)
-        {
-            return false;
-        }
-
-        try
-        {
-            await _passwordPromptGate.WaitAsync(cancellationToken);
-        }
-        catch (OperationCanceledException)
-        {
-            return false;
-        }
-
-        try
-        {
-            // Re-check now that the gate is actually held - the round that
-            // was just using it may have resolved this exact request too.
-            if (!isRetry && HasKnownPassword(group, slot))
-            {
-                return true;
-            }
-
-            var promptViewModel = BuildPasswordPromptViewModel(group, slot, isRetry);
-            var accepted = await ShowPasswordPromptDialogAsync(promptViewModel, cancellationToken);
-
-            // "Connect" only means every FILLED field should be tried - a
-            // group/slot left blank stays disconnected this round (see
-            // Feature-Plaene/Passwort-Speicherung.md's validation rule), so
-            // the actual answer for this specific slot still depends on
-            // whether its own field (or its group's fallback) ended up
-            // filled, not just which button was clicked.
-            return accepted && HasKnownPassword(group, slot);
-        }
-        finally
-        {
-            _passwordPromptGate.Release();
-        }
-    }
-
-    private static bool HasKnownPassword(GroupViewModel group, SlotProfile slot) =>
-        !string.IsNullOrEmpty(slot.Password) || !string.IsNullOrEmpty(group.Group.Password);
-
-    private static bool NeedsPassword(GroupViewModel group, SlotProfile slot) =>
-        slot.RequiresPassword && !HasKnownPassword(group, slot);
-
-    /// <summary>
-    /// Scans every configured group/slot for whoever currently needs a
-    /// password (see <see cref="NeedsPassword"/>), force-including
-    /// <paramref name="askingSlot"/> itself when <paramref name="isRetry"/>
-    /// (its field is non-empty but known wrong, so the normal scan alone
-    /// would wrongly skip it - see <see cref="HandlePasswordRequestedAsync"/>'s
-    /// own already-checked fast path for the non-retry case, which means
-    /// this force-include is never needed there). A group only appears at
-    /// all if it has at least one such slot.
-    /// </summary>
-    private PasswordPromptViewModel BuildPasswordPromptViewModel(GroupViewModel askingGroup, SlotProfile askingSlot, bool isRetry)
-    {
-        var groupRows = new List<PasswordPromptGroupRow>();
-
-        foreach (var groupViewModel in Groups)
-        {
-            var slotsNeeding = groupViewModel.Group.Slots.Where(s => NeedsPassword(groupViewModel, s)).ToList();
-
-            if (isRetry && ReferenceEquals(groupViewModel, askingGroup) && !slotsNeeding.Contains(askingSlot))
-            {
-                slotsNeeding.Add(askingSlot);
-            }
-
-            if (slotsNeeding.Count == 0)
-            {
-                continue;
-            }
-
-            var slotRows = slotsNeeding
-                .Select(s => new PasswordPromptSlotRow { Slot = s, ShowError = isRetry && s == askingSlot })
-                .ToList();
-
-            groupRows.Add(new PasswordPromptGroupRow
-            {
-                Group = groupViewModel.Group,
-                Slots = slotRows,
-                SlotFieldsExpanded = PasswordPromptGroupRow.ShouldStartExpanded(slotRows)
-            });
-        }
-
-        return PasswordPromptViewModel.For(groupRows);
-    }
-
-    /// <summary>
-    /// Creates a brand-new server (group) with its first slot, and connects
-    /// that slot as the group's leader right away - it's the only slot
-    /// there is, so there's nothing to choose between, and connecting
-    /// immediately also means <see cref="GroupViewModel.SelectedChatSlot"/>
-    /// (the "Chat as:" dropdown) ends up defaulting to it via the normal
-    /// leader-switch bookkeeping (see <see cref="IConnectionManager.SwitchLeaderAsync"/>).
-    /// This is separate from <paramref name="autoConnect"/>, which only
-    /// controls whether this group reconnects automatically at the *next*
-    /// app start (or after an unexpected drop) - see <see cref="ServerConnectionGroup.AutoConnect"/>.
-    /// </summary>
-    /// <param name="color">
-    /// Normally already resolved by <see cref="ConnectionEditorViewModel"/>
-    /// before this is called (its own <c>SelectedColor</c>, pre-filled with
-    /// the same <see cref="ServerColorPalette.AssignColor"/> suggestion this
-    /// method used to compute itself right here - see
-    /// Feature-Plaene/Theme-Umschalter-und-Server-Farbwaehler.md) - the user
-    /// could have adjusted it via the color picker before saving, so this
-    /// method just takes whatever came back instead of recomputing it. Null/
-    /// empty (every call site that predates the color picker, e.g.
-    /// TestHarness and most tests) falls back to that same auto-assignment,
-    /// unchanged from before.
-    /// </param>
-    public void AddNewGroup(string name, string host, int port, string password, string slotName, bool autoConnect, string? color = null, string? trackerReferenceInput = null, string? trackerId = null,
-        bool isAdmin = false)
-    {
-        var group = new ServerConnectionGroup
-        {
-            IsAdmin = isAdmin,
-            Name = name,
-            Host = host,
-            Port = port,
-            Password = password,
-            AutoConnect = autoConnect,
-            TrackerReferenceInput = trackerReferenceInput,
-            TrackerId = trackerId,
-            Color = string.IsNullOrEmpty(color) ? ServerColorPalette.AssignColor(Groups.Select(g => g.Group.Color)) : color
-        };
-
-        var slot = new SlotProfile { GroupId = group.Id, SlotName = slotName };
-        group.Slots.Add(slot);
-
-        if (autoConnect)
-        {
-            group.PreferredLeaderSlotId = slot.Id;
-        }
-
-        var groupViewModel = CreateGroupViewModel(group);
-        Groups.Add(groupViewModel);
-        DockedGroups.Add(groupViewModel);
-        SelectedGroup = groupViewModel;
-        PersistGroups();
-
-        _ = _connectionManager.SwitchLeaderAsync(groupViewModel, slot);
-    }
-
-    /// <summary>
-    /// Adds one or more new slots to an already-existing server in one go
-    /// (see <see cref="Views.ConnectionEditorWindow"/>'s search+multi-select
-    /// picker) - one <see cref="PersistGroups"/> call for the whole batch
-    /// rather than one per slot, and one <see cref="GroupViewModel.AddSlotsToGroup"/>
-    /// call so the "Chat as" dropdown only rebuilds once regardless of how
-    /// many slots this batch contains (see that method's doc comment - a
-    /// plain per-slot <c>Group.Slots.Add</c> loop visibly glitched it once
-    /// batches of a few dozen slots became the normal case). If the server
-    /// currently has a leader, runs a brief catch-up sync for each new slot
-    /// so it starts out with an up-to-date backlog (see Umsetzungsplan.md,
-    /// Phase 6) - this is the one case where adding a slot does trigger
-    /// network activity right away. Each <see cref="StagedSlot"/> carries
-    /// its own optional per-slot password override (see
-    /// <see cref="SlotProfile.Password"/>), null/empty meaning just use the
-    /// group's shared password.
-    /// </summary>
-    public void AddSlotsToGroup(GroupViewModel groupViewModel, IReadOnlyList<StagedSlot> slotsToAdd)
-    {
-        if (slotsToAdd.Count == 0)
-        {
-            return;
-        }
-
-        var addedSlots = slotsToAdd.Select(staged => new SlotProfile
-        {
-            GroupId = groupViewModel.Group.Id,
-            SlotName = staged.SlotName,
-            Password = string.IsNullOrWhiteSpace(staged.Password) ? null : staged.Password
-        }).ToList();
-
-        groupViewModel.AddSlotsToGroup(addedSlots);
-
-        PersistGroups();
-
-        if (groupViewModel.LeaderSlotId is not null)
-        {
-            _ = CatchUpNewSlotsSequentiallyAsync(groupViewModel, addedSlots);
-        }
-    }
-
-    /// <summary>
-    /// Runs <see cref="IConnectionManager.CatchUpSyncAsync"/> for each of
-    /// several newly-added slots one at a time rather than all at once -
-    /// firing them all concurrently (each briefly opening its own session
-    /// to the same room) is exactly the kind of simultaneous-handshake
-    /// burst <see cref="ConnectionManager.StartupGroupSpacing"/> already
-    /// avoids between different servers at startup, and an Archipelago
-    /// server can rate-limit or outright reject that many connection
-    /// attempts landing on it at once from several slots of the same room.
-    /// </summary>
-    private async Task CatchUpNewSlotsSequentiallyAsync(GroupViewModel groupViewModel, IReadOnlyList<SlotProfile> slots)
-    {
-        foreach (var slot in slots)
-        {
-            await _connectionManager.CatchUpSyncAsync(groupViewModel, slot);
-        }
-    }
-
-    /// <summary>
-    /// Room players not yet configured as a slot on <paramref name="groupViewModel"/>,
-    /// for the "Add slot" dialog's picker (see <see cref="Views.ConnectionEditorWindow"/>).
-    /// May briefly open/close a connection under the hood if the server has
-    /// no live session right now - see <see cref="IConnectionManager.GetRoomPlayersAsync"/>.
-    /// </summary>
-    public async Task<IReadOnlyList<PlayerChoice>> GetAvailableSlotsToAddAsync(GroupViewModel groupViewModel)
-    {
-        var players = await _connectionManager.GetRoomPlayersAsync(groupViewModel);
-        var configuredNames = new HashSet<string>(
-            groupViewModel.Group.Slots.Select(s => s.SlotName),
-            StringComparer.OrdinalIgnoreCase);
-
-        return players
-            .Where(p => !configuredNames.Contains(p.Name))
-            .Select(p => new PlayerChoice
-            {
-                SlotName = p.Name,
-                DisplayText = string.Equals(p.Name, p.Alias, StringComparison.Ordinal) ? p.Name : $"{p.Name} ({p.Alias})"
-            })
-            .ToList();
-    }
-
-    /// <summary>
-    /// Edits a server's Name/Host/Port/Password/AutoConnect/default leader/
-    /// Tier 2 tracker reference, and applies every slot removal staged during
-    /// this same dialog session (see <see cref="ConnectionEditorViewModel.RemoveConfiguredSlot"/>/
-    /// <see cref="ConnectionEditorResult.SlotsToRemove"/>) - all as one atomic
-    /// "Save" action. Slot removal (including disconnecting the group first,
-    /// if the removed slot was the live leader - see <see cref="RemoveSlotFromGroupCoreAsync"/>)
-    /// used to happen the instant "✕" was clicked in the dialog, before Save;
-    /// that could disconnect the user mid-edit purely from picking a new
-    /// default leader and then removing the old one in the same session, with
-    /// no chance to reconsider via Cancel. Deferring it here means Cancel now
-    /// actually cancels a removal too, same as every other field in that
-    /// dialog.
-    /// </summary>
-    public async Task UpdateGroup(
-        GroupViewModel groupViewModel, string name, string host, int port, string password, bool autoConnect,
-        Guid? preferredLeaderSlotId, string? color = null, IReadOnlyList<SlotProfile>? slotsToRemove = null,
-        string? trackerReferenceInput = null, string? trackerId = null, bool? notificationsMuted = null, bool? isAdmin = null)
-    {
-        groupViewModel.Group.Name = name;
-        groupViewModel.Group.Host = host;
-        groupViewModel.Group.Port = port;
-        groupViewModel.Group.Password = password;
-        groupViewModel.Group.AutoConnect = autoConnect;
-        groupViewModel.Group.PreferredLeaderSlotId = preferredLeaderSlotId;
-        groupViewModel.Group.TrackerReferenceInput = trackerReferenceInput;
-        groupViewModel.Group.TrackerId = trackerId;
-
-        // Null only for call sites that predate the mute toggle - leaves it
-        // untouched, same as color below.
-        if (notificationsMuted is { } muted)
-        {
-            ApplyNotificationsMuted(groupViewModel, muted);
-        }
-
-        // Null for call sites that predate "I'm the admin" - left untouched.
-        if (isAdmin is { } admin)
-        {
-            groupViewModel.Group.IsAdmin = admin;
-        }
-
-        // Null/empty only for call sites that predate the color picker
-        // (e.g. tests exercising slot removal that don't care about color) -
-        // leaves the group's existing color untouched rather than clearing it.
-        if (!string.IsNullOrEmpty(color))
-        {
-            groupViewModel.Group.Color = color;
-        }
-
-        if (slotsToRemove is { Count: > 0 })
-        {
-            // One at a time, not concurrently - same "slots never connect/
-            // disconnect concurrently" invariant as everywhere else in this
-            // app, and in practice at most one of these can actually be the
-            // live leader anyway (only ever one leader per group).
-            foreach (var slot in slotsToRemove)
-            {
-                await RemoveSlotFromGroupCoreAsync(groupViewModel, slot);
-            }
-        }
-
-        PersistGroups();
-    }
-
-    /// <summary>
-    /// The tab/Dashboard-row context menu's "Mute/Unmute notifications" -
-    /// same flag as Edit server's checkbox (see
-    /// <see cref="ServerConnectionGroup.NotificationsMuted"/>), just one click
-    /// away for a server that's suddenly noisy.
-    /// </summary>
-    public void ToggleNotificationsMuted(GroupViewModel groupViewModel)
-    {
-        ApplyNotificationsMuted(groupViewModel, !groupViewModel.Group.NotificationsMuted);
-        PersistGroups();
-    }
-
-    /// <summary>Muting also clears whatever was already counted - a muted server shows no unread count at all.</summary>
-    private static void ApplyNotificationsMuted(GroupViewModel groupViewModel, bool muted)
-    {
-        groupViewModel.Group.NotificationsMuted = muted;
-        if (muted)
-        {
-            groupViewModel.UnreadAttentionCount = 0;
-        }
-    }
-
-    /// <summary>
-    /// Resolves a room id into that room's tracker SUUID (Tier 2 of
-    /// Feature-Plaene/Archiv/Fortschrittsanzeigen.md) - forwarded to
-    /// <see cref="IMultiworldTrackerService"/> so <see cref="Views.ConnectionEditorWindow"/>
-    /// (via <see cref="ConnectionEditorViewModel"/>'s callback-based design)
-    /// never needs its own reference to that service.
-    /// </summary>
-    public Task<string?> ResolveTrackerIdAsync(string roomId) => _multiworldTrackerService.ResolveTrackerIdAsync(roomId);
-
-    /// <summary>
-    /// Resolves a room id into that room's actual Host/Port (plus its
-    /// tracker id, if any) - forwarded the same way as
-    /// <see cref="ResolveTrackerIdAsync"/>, so
-    /// <see cref="ConnectionEditorViewModel"/> can offer "paste a room
-    /// link/id" as an alternative to typing host:port directly.
-    /// </summary>
-    public Task<RoomConnectionInfo?> ResolveRoomConnectionInfoAsync(string roomId) => _multiworldTrackerService.ResolveRoomConnectionInfoAsync(roomId);
-
-    /// <summary>
-    /// The actual removal logic behind <see cref="UpdateGroup"/>'s staged
-    /// batch - deliberately does not call <see cref="PersistGroups"/> itself,
-    /// so a batch of several removals persists once at the end instead of
-    /// once per slot.
-    ///
-    /// If the removed slot is the current leader, disconnects it first
-    /// (<see cref="IConnectionManager.DisconnectGroupAsync"/> also clears
-    /// <see cref="GroupViewModel.LeaderSlotId"/>/<see cref="GroupViewModel.SelectedChatSlot"/>
-    /// through its normal guarded path) rather than pulling its
-    /// configuration out from under a live session. The three independent
-    /// slot filters and the group's own default-leader preference are reset
-    /// too if they were pointing at this slot, so nothing is left dangling.
-    /// Removal itself goes through <see cref="GroupViewModel.RemoveSlotFromGroup"/>
-    /// (not a raw <c>Group.Slots.Remove</c>) - see that method's doc comment
-    /// for why: a raw removal used to make the *leader* silently vanish from
-    /// the "Chat as" dropdown whenever some other, unrelated slot was removed.
-    /// </summary>
-    private async Task RemoveSlotFromGroupCoreAsync(GroupViewModel groupViewModel, SlotProfile slot)
-    {
-        if (groupViewModel.LeaderSlotId == slot.Id)
-        {
-            await _connectionManager.DisconnectGroupAsync(groupViewModel);
-        }
-
-        if (groupViewModel.SelectedEventsSlotFilter == slot)
-        {
-            groupViewModel.SelectedEventsSlotFilter = null;
-        }
-
-        if (groupViewModel.SelectedHintsSlotFilter == slot)
-        {
-            groupViewModel.SelectedHintsSlotFilter = null;
-        }
-
-        if (groupViewModel.SelectedItemsSlotFilter == slot)
-        {
-            groupViewModel.SelectedItemsSlotFilter = null;
-        }
-
-        if (groupViewModel.Group.PreferredLeaderSlotId == slot.Id)
-        {
-            groupViewModel.Group.PreferredLeaderSlotId = null;
-        }
-
-        groupViewModel.RemoveSlotFromGroup(slot);
-    }
-
-    /// <summary>
-    /// Every currently configured server; used by the connection editor to
-    /// detect duplicate Host+Port (when creating a new server) or duplicate
-    /// slot names within a server (when adding/renaming a slot).
-    /// </summary>
+    /// <summary>Used by the connection editor to detect duplicate Host+Port / slot names.</summary>
     public IReadOnlyList<ServerConnectionGroup> GetAllGroups() => Groups.Select(g => g.Group).ToList();
 
-    /// <summary>Filter bars' expanded state, shared by every tab and the Dashboard - see <see cref="FilterBarLayoutState"/>.</summary>
+    /// <summary>Filter bars' expanded state, shared by every tab and the Dashboard.</summary>
     public FilterBarLayoutState FilterLayout { get; }
 
     private static FilterBarLayoutState LoadFilterLayout(AppSettings settings) => new()
@@ -958,7 +193,7 @@ public partial class MainWindowViewModel : ViewModelBase
         DashboardHintsFiltersExpanded = settings.DashboardHintsFiltersExpanded
     };
 
-    /// <summary>Persists <see cref="FilterLayout"/> on every toggle (decision 5 in Kompakteres-Layout.md: collapsed filters stay collapsed across restarts).</summary>
+    /// <summary>Saved on every toggle so collapsed filters stay collapsed across restarts.</summary>
     private void SaveFilterLayout()
     {
         var settings = _persistenceService.LoadSettings();
@@ -971,7 +206,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     public AppSettings LoadSettings() => _persistenceService.LoadSettings();
 
-    /// <summary>Persists the Settings dialog's result and applies its density right away - no restart needed (see <see cref="DensityService"/>).</summary>
+    /// <summary>Persists the Settings dialog's result and applies it right away, no restart needed.</summary>
     public void SaveSettings(AppSettings settings)
     {
         _persistenceService.SaveSettings(settings);
@@ -980,249 +215,7 @@ public partial class MainWindowViewModel : ViewModelBase
         ApplyUnreadDisplaySettings(settings);
     }
 
-    /// <summary>Full contents of the diagnostic log, for <see cref="Views.SettingsWindow"/>'s export button - see <see cref="IDiagnosticLogger"/>.</summary>
     public string ReadDiagnosticLog() => _diagnosticLogger.ReadAll();
-
-    /// <summary>
-    /// Disconnects every server that currently has a leader; each disconnect
-    /// sticks (no AutoConnect bring-back) until the user reconnects that
-    /// server manually, same as the per-server Disconnect button.
-    /// </summary>
-    [RelayCommand]
-    private async Task DisconnectAllGroupsAsync()
-    {
-        var groupsToDisconnect = Groups.Where(g => g.LeaderSlotId is not null).ToList();
-        foreach (var groupViewModel in groupsToDisconnect)
-        {
-            await _connectionManager.DisconnectGroupAsync(groupViewModel);
-        }
-    }
-
-    [RelayCommand]
-    private Task RemoveSelectedGroupAsync() => SelectedGroup is null ? Task.CompletedTask : RemoveGroupAsync(SelectedGroup);
-
-    /// <summary>
-    /// Removes a server entirely - the toolbar's "Remove server" button (via
-    /// <see cref="RemoveSelectedGroupCommand"/>, always <see cref="SelectedGroup"/>)
-    /// and the Dashboard's per-row icon (see <see cref="Views.MainWindow"/>'s
-    /// <c>RemoveServerRequested</c> subscription, whichever row was clicked)
-    /// both funnel through here. Only reassigns <see cref="SelectedGroup"/>
-    /// when the removed group actually was the selected one - removing a
-    /// different server's row from the Dashboard has no reason to change
-    /// which tab is selected underneath it.
-    ///
-    /// Asks for confirmation first (<see cref="ShowConfirmationDialogAsync"/>)
-    /// - there's no way to get a removed server back except reconfiguring it
-    /// and re-syncing every slot from scratch, so an accidental click here is
-    /// expensive to undo. A decline no-ops entirely: no disconnect, no
-    /// persist.
-    /// </summary>
-    public async Task RemoveGroupAsync(GroupViewModel groupToRemove)
-    {
-        if (ShowConfirmationDialogAsync is not null)
-        {
-            var confirmed = await ShowConfirmationDialogAsync(new ConfirmationViewModel
-            {
-                Title = "Remove server?",
-                Message = $"Remove \"{groupToRemove.Group.Name}\" and every slot configured on it? " +
-                          "You'll need to reconnect and re-sync from scratch if you add it back later.",
-            });
-
-            if (!confirmed)
-            {
-                return;
-            }
-        }
-
-        if (groupToRemove.LeaderSlotId is not null)
-        {
-            await _connectionManager.DisconnectGroupAsync(groupToRemove);
-        }
-
-        // Index captured against DockedGroups, not Groups: SelectedGroup
-        // only ever points at a docked group (it drives the TabControl's
-        // own SelectedItem, bound to DockedGroups - see DetachGroup/
-        // RedockGroup), so its replacement must come from there too.
-        var dockedIndex = DockedGroups.IndexOf(groupToRemove);
-        Groups.Remove(groupToRemove);
-        DockedGroups.Remove(groupToRemove);
-
-        // A detached group being removed entirely leaves its own window
-        // with nothing left to show - close it rather than orphaning it.
-        if (groupToRemove.IsDetached)
-        {
-            CloseDetachedWindow?.Invoke(groupToRemove);
-        }
-
-        if (SelectedGroup == groupToRemove)
-        {
-            SelectedGroup = DockedGroups.Count > 0
-                ? DockedGroups[Math.Min(Math.Max(dockedIndex, 0), DockedGroups.Count - 1)]
-                : null;
-        }
-
-        // Feature-Plaene/Archiv/Hint-Eingabefeld.md's per-group DataPackage
-        // cache has nothing left to serve once this server is gone - clean it
-        // up rather than leaving an orphaned cache folder behind forever.
-        _persistenceService.DeleteDataPackageCacheForGroup(groupToRemove.Group.Id);
-
-        PersistGroups();
-    }
-
-    /// <summary>
-    /// Manual tab-reordering (Feature-Plaene/Tab-Reihenfolge.md) - moves
-    /// <paramref name="source"/> to sit immediately before or after
-    /// <paramref name="target"/> in <see cref="Groups"/> (whichever the
-    /// insertion-line indicator - <see cref="GroupViewModel.DropIndicator"/> -
-    /// last showed; <paramref name="insertAfter"/> is the caller's own
-    /// already-resolved read of that). Called from two places that each own
-    /// their own Avalonia drag/drop mechanics: <see cref="Views.MainWindow"/>'s
-    /// tab-header code-behind directly, and <see cref="Dashboard"/>'s
-    /// Overview-row code-behind via the same callback-based decoupling
-    /// <see cref="DashboardViewModel"/> already uses for
-    /// <c>SelectGroupAndLeaveDashboard</c> - this class is the only place
-    /// that's allowed to call the private <see cref="PersistGroups"/>.
-    /// <see cref="ObservableCollection{T}.Move"/> already raises the
-    /// <c>CollectionChanged</c> the bound <c>TabControl</c>/Overview
-    /// <c>ListBox</c> need to reorder visually; no separate "OrderIndex"
-    /// property, since <see cref="GetAllGroups"/> (and so
-    /// <c>groups.json</c>) reads <see cref="Groups"/>' order directly.
-    /// No-ops if source and target are the same group, or either one isn't
-    /// currently in <see cref="Groups"/> (e.g. removed mid-drag). The actual
-    /// index math (applied identically to <see cref="DockedGroups"/>) lives
-    /// in <see cref="MoveWithinCollection"/> now, see its own remarks.
-    /// </summary>
-    public void ReorderGroup(GroupViewModel source, GroupViewModel target, bool insertAfter)
-    {
-        if (ReferenceEquals(source, target))
-        {
-            return;
-        }
-
-        // Groups is what persistence/Dashboard order read directly (see
-        // GetAllGroups); DockedGroups needs the identical Move so the
-        // TabControl visually reflects the same drag - see Feature-Plaene/
-        // Tab-Eigenes-Fenster.md. A no-op on DockedGroups (index -1) when
-        // either side isn't currently docked - e.g. reordering via the
-        // Dashboard's Overview rows, which show every group including a
-        // detached one - simply leaves nothing to visually reorder there,
-        // which is the correct outcome.
-        MoveWithinCollection(Groups, source, target, insertAfter);
-        MoveWithinCollection(DockedGroups, source, target, insertAfter);
-        PersistGroups();
-    }
-
-    /// <remarks>
-    /// Index math: the desired final position (in the *original*,
-    /// pre-removal index space) is <c>target's index, or +1 if
-    /// insertAfter</c>. <see cref="ObservableCollection{T}.Move"/>'s own
-    /// <c>newIndex</c>, however, is a *post-removal* index (it removes at
-    /// <c>oldIndex</c> first, then inserts at <c>newIndex</c> into the
-    /// now-one-shorter list) - so that desired index needs to shift down by
-    /// one whenever <paramref name="source"/> was originally positioned
-    /// before it (removing it shifts everything after it left by one). This
-    /// was worked out and hand-verified against a handful of drag
-    /// directions (forward/backward, before/after) rather than trusted on
-    /// first principles alone - see <c>GroupReorderTests</c> for those exact
-    /// cases.
-    /// </remarks>
-    private static void MoveWithinCollection(ObservableCollection<GroupViewModel> collection, GroupViewModel source, GroupViewModel target, bool insertAfter)
-    {
-        var oldIndex = collection.IndexOf(source);
-        var targetIndex = collection.IndexOf(target);
-        if (oldIndex < 0 || targetIndex < 0)
-        {
-            return;
-        }
-
-        var desiredIndex = insertAfter ? targetIndex + 1 : targetIndex;
-        var newIndex = oldIndex < desiredIndex ? desiredIndex - 1 : desiredIndex;
-
-        collection.Move(oldIndex, newIndex);
-    }
-
-    /// <summary>
-    /// Pulls <paramref name="group"/> out of the main tab strip into its own
-    /// window (Feature-Plaene/Tab-Eigenes-Fenster.md) - dragged out of the
-    /// <see cref="Views.MainWindow"/> tab strip's bounds (see
-    /// <see cref="Views.MainWindow"/>'s own drop handling). <paramref name="group"/>
-    /// stays in <see cref="Groups"/> throughout (it still exists, still gets
-    /// persisted, still shows on the Dashboard) - only <see cref="DockedGroups"/>
-    /// (what the TabControl actually renders) loses it. No-op if it's
-    /// already detached (e.g. a stale/duplicate drag).
-    /// </summary>
-    public void DetachGroup(GroupViewModel group)
-    {
-        if (group.IsDetached || !DockedGroups.Remove(group))
-        {
-            return;
-        }
-
-        group.IsDetached = true;
-
-        // The detached tab can no longer be the active TabControl selection -
-        // fall back to whichever docked tab now sits at the same position,
-        // same reasoning as RemoveGroupAsync's own SelectedGroup fallback.
-        if (SelectedGroup == group)
-        {
-            var fallbackIndex = Math.Min(DockedGroups.Count - 1, Groups.IndexOf(group));
-            SelectedGroup = DockedGroups.Count > 0 ? DockedGroups[Math.Max(fallbackIndex, 0)] : null;
-        }
-
-        // Detaching the very last docked tab would otherwise leave the
-        // TabControl empty with no tab left to look at - switch to the
-        // Dashboard automatically instead, since that's still a perfectly
-        // good (indeed server-spanning) view even with zero docked tabs.
-        // RedockGroup mirrors this back once a tab returns to an
-        // empty DockedGroups.
-        if (DockedGroups.Count == 0)
-        {
-            IsDashboardVisible = true;
-        }
-
-        OpenDetachedWindow?.Invoke(group);
-        _attentionTracker?.RefreshSeenState();
-    }
-
-    /// <summary>
-    /// The reverse of <see cref="DetachGroup"/> - dragged back onto the main
-    /// tab strip, or the detached window itself was simply closed (see
-    /// <see cref="Views.MainWindow"/>'s wiring for why both paths funnel
-    /// through here and stay idempotent regardless of which one ran first).
-    /// Re-appended at the end of <see cref="DockedGroups"/> rather than
-    /// restored to its original position - no state remembers what that
-    /// was, and re-detaching mid-session is rare enough that this isn't
-    /// worth tracking for. Selects it, so the user sees where it landed.
-    /// </summary>
-    public void RedockGroup(GroupViewModel group)
-    {
-        if (!group.IsDetached)
-        {
-            return;
-        }
-
-        // Only relevant for DetachGroup's own auto-switch-to-Dashboard
-        // mirror below - captured before DockedGroups actually changes.
-        var wasShowingNoTabs = DockedGroups.Count == 0;
-
-        group.IsDetached = false;
-        DockedGroups.Add(group);
-        SelectedGroup = group;
-
-        // Mirrors DetachGroup's own switch: only flip back to Tab View if
-        // the Dashboard was showing *because there was nothing left to dock*
-        // (the exact case DetachGroup's own auto-switch handles) - never
-        // otherwise, so a user deliberately viewing the Dashboard while
-        // other tabs stay docked isn't yanked away from it by an unrelated
-        // window closing.
-        if (wasShowingNoTabs)
-        {
-            IsDashboardVisible = false;
-        }
-
-        CloseDetachedWindow?.Invoke(group);
-        _attentionTracker?.RefreshSeenState();
-    }
 
     private void PersistGroups() => _persistenceService.SaveGroups(GetAllGroups());
 }

@@ -12,60 +12,25 @@ using Archipolygo.ViewModels;
 namespace Archipolygo.TestSupport;
 
 /// <summary>
-/// No-network stand-in for <see cref="IConnectionManager"/> - shared by
-/// TestHarness (see .claude/skills/ui-feature-prototyp) and
-/// AvaloniaApplication1.Tests (see Test-Umsetzungsplan.md) so it isn't
-/// duplicated between the two. Never opens a real Archipelago session;
-/// "connecting" a slot just flips the view model's own state so the UI reads
-/// as connected. Test code adds synthetic <see cref="EventEntry"/>/
-/// <see cref="HintEntry"/>/<see cref="ReceivedItemEntry"/> directly to a
-/// GroupViewModel's collections rather than going through this class.
-///
-/// The one exception is hint routing (see <see cref="_hintsBySlot"/> and
-/// <see cref="SimulateHintLocation"/> below): that logic in the real
-/// <c>ConnectionManager</c> is subtle enough (a real bug shipped in 0.1.0,
-/// see the ConnectionManager.cs history around TrackHints) that it's worth
-/// modeling here too, so the "leader must also track every sibling slot's own
-/// hints" behavior can be demonstrated and re-checked without a real
-/// Archipelago server. It's a deliberately independent re-implementation of
-/// the same design, not the production code itself - it can't catch a
-/// regression in ConnectionManager.cs directly, only show whether the
-/// *design* (mirrored here) still produces the right result.
+/// No-network stand-in shared by TestHarness and the tests; "connecting" just flips view-model state.
+/// Hint routing is deliberately re-modeled (not the production code) so the leader-tracks-every-sibling's-hints design can be checked.
 /// </summary>
 public sealed class FakeConnectionManager : IConnectionManager
 {
     public event Action<GroupViewModel>? GroupPersistNeeded;
     public event Action<GroupViewModel, SlotProfile>? SlotInitialSyncCompleted;
 
-    // Never raised: this fake never announces a sync batch before its
-    // SlotInitialSyncCompleted calls (see InitializeGroupAsync below), so
-    // MainWindowViewModel's StartupSyncTotal never grows and the "Catching
-    // up slots: N/M" banner simply never shows here - fine for this fake's
-    // purpose (see the class doc comment), just declared to satisfy
-    // IConnectionManager.
+    // Never raised, so the startup "Catching up slots" banner never shows with this fake.
     public event Action<int>? SlotSyncBatchStarting;
 
-    // Never invoked by this fake: nothing here ever calls SlotProfile.RequiresPassword
-    // true / leaves a SlotProfile.Password empty in a way that would need it
-    // (SwitchLeaderAsync below always "succeeds" unconditionally, no real
-    // login). Declared purely to satisfy IConnectionManager - see
-    // Feature-Plaene/Passwort-Speicherung.md.
+    // Never invoked: SwitchLeaderAsync here always succeeds without a login.
     public Func<GroupViewModel, SlotProfile, bool, CancellationToken, Task<bool>>? PasswordRequested { get; set; }
 
     public event Action<GroupViewModel, ServerReplyKind, string>? ServerReplyReceived;
     public event Action<GroupViewModel>? LeaderConnected;
 
-    // --- Fake hint room -----------------------------------------------
-    //
-    // Models the real Archipelago server's per-slot hints_{team}_{slot}
-    // DataStorage keys (see MultiServer.py's notify_hints/on_new_hint): a
-    // hint is stored under *both* the finding slot's and the receiving
-    // slot's own key, and only clients that specifically subscribed to a
-    // given key are notified when it changes - unlike chat/item-send lines,
-    // there is no room-wide broadcast. _hintsBySlot/_hintSubscriptions are
-    // keyed by a synthetic numeric "Archipelago slot id" (see
-    // <see cref="NumericSlotId"/>), the same way the real code keys off
-    // ArchipelagoSession's numeric ConnectionInfo.Slot.
+    // Models the server's per-slot hints_{team}_{slot} keys: a hint is stored under both finder's and receiver's key,
+    // and only subscribers of that key are notified (no room-wide broadcast).
     private readonly Dictionary<int, List<FakeHint>> _hintsBySlot = new();
     private readonly Dictionary<int, Action<List<FakeHint>>> _hintSubscriptions = new();
     private readonly Dictionary<Guid, int> _numericSlotIds = new();
@@ -87,13 +52,7 @@ public sealed class FakeConnectionManager : IConnectionManager
         group.SetLeaderStateWithoutTriggeringSwitch(targetSlot.Id, targetSlot);
         group.ConnectionState = ConnectionState.Connected;
 
-        // Mirrors ConnectionManager.ConnectSlotSessionAsync's TrackHints
-        // calls: one subscription for the leader's own slot (always
-        // present), plus - the fix this models - one explicit subscription
-        // per OTHER configured sibling slot in the same group, all over
-        // this one "connection". Re-subscribing from scratch on every
-        // leader switch keeps this in sync with whichever slot just became
-        // leader, same as a real reconnect would.
+        // Mirrors ConnectSlotSessionAsync's TrackHints: leader's own slot plus one per sibling slot.
         _hintSubscriptions.Clear();
         TrackHintsForSlot(group, targetSlot);
         foreach (var sibling in group.Group.Slots)
@@ -121,8 +80,7 @@ public sealed class FakeConnectionManager : IConnectionManager
 
         _hintSubscriptions[numericId] = OnUpdated;
 
-        // retrieveCurrentlyUnlockedHints: true - replay anything already
-        // recorded under this key before the subscription existed.
+        // retrieveCurrentlyUnlockedHints: true - replay anything stored before the subscription.
         if (_hintsBySlot.TryGetValue(numericId, out var existing) && existing.Count > 0)
         {
             OnUpdated(existing);
@@ -130,17 +88,8 @@ public sealed class FakeConnectionManager : IConnectionManager
     }
 
     /// <summary>
-    /// Stand-in for a player running "!hint_location" (or any other hint
-    /// creation): <paramref name="finder"/> is the configured slot whose
-    /// world the hinted location lives in; <paramref name="receiverName"/>
-    /// is whoever owns the item there - which, as in the bug report this
-    /// models, need not be one of this group's own configured slots at all.
-    /// Bidirectional storage + per-key notification only (see
-    /// <see cref="Notify"/>) means this reproduces the exact failure mode:
-    /// if nothing is subscribed to <paramref name="finder"/>'s own key (the
-    /// pre-fix behavior when <paramref name="finder"/> isn't the leader),
-    /// the hint is created but never routed anywhere - silently lost, same
-    /// as it was in the real app before the ConnectionManager.cs fix.
+    /// Simulates a hint created in <paramref name="finder"/>'s world. If nothing subscribes to finder's key, the hint is
+    /// silently lost - the real pre-fix bug for non-leader slots.
     /// </summary>
     public void SimulateHintLocation(GroupViewModel group, SlotProfile finder, string receiverName, string itemName, string locationName, ItemFlags flags)
     {
@@ -169,9 +118,7 @@ public sealed class FakeConnectionManager : IConnectionManager
 
         list.Add(hint);
 
-        // If nobody currently tracks this key, the hint just sits in
-        // _hintsBySlot unreported - exactly the pre-fix bug for a
-        // non-leader sibling slot's own hints.
+        // Nobody tracks this key: the hint stays unreported (the pre-fix bug).
         if (_hintSubscriptions.TryGetValue(numericSlotId, out var callback))
         {
             callback(list);
@@ -236,7 +183,6 @@ public sealed class FakeConnectionManager : IConnectionManager
 
     public Task CatchUpSyncAsync(GroupViewModel group, SlotProfile slot) => Task.CompletedTask;
 
-    /// <summary>Every line sent via <see cref="SendMessageAsync"/>, in order.</summary>
     public List<string> SentMessages { get; } = new();
 
     public Task SendMessageAsync(GroupViewModel group, string text)
@@ -250,20 +196,14 @@ public sealed class FakeConnectionManager : IConnectionManager
         return Task.CompletedTask;
     }
 
-    // --- Fake admin server (Admin-Funktionen.md, feature-plan archive) --
-    //
-    // Just enough of MultiServer.py's "!admin" behavior for TestHarness and
-    // tests to drive AdminPanelViewModel: login outcomes as CommandResult,
-    // "must first login" when not logged in, failures/"/option" as
-    // AdminCommandResult, successful actions only as a room-wide broadcast.
-    // Replies are raised synchronously from SendMessageAsync.
+    // Just enough of MultiServer.py's "!admin" behavior: login outcomes as CommandResult, "must first login" when logged out,
+    // failures/"/option" as AdminCommandResult, successes only as a room-wide broadcast. Replies are raised synchronously.
 
     /// <summary>The fake server's server_password; null = "Remote administration is disabled".</summary>
     public string? AdminServerPassword { get; set; } = "admin";
 
     private readonly HashSet<Guid> _adminLoggedInGroups = new();
 
-    /// <summary>Another client ran "!admin login" - the server silently drops this client's admin login.</summary>
     public void SimulateOtherClientTakesOverAdmin(GroupViewModel group) => _adminLoggedInGroups.Remove(group.Group.Id);
 
     private void SimulateAdminServer(GroupViewModel group, string text)
@@ -374,9 +314,7 @@ public sealed class FakeConnectionManager : IConnectionManager
 
     public Task InitializeGroupAsync(GroupViewModel group)
     {
-        // Immediately mark every configured slot as "processed" so
-        // MainWindowViewModel's startup-sync banner doesn't get stuck at
-        // "Catching up slots: 0/N" forever - nothing here ever fires it.
+        // Mark every slot processed so the startup-sync banner doesn't hang at 0/N.
         foreach (var slot in group.Group.Slots.ToList())
         {
             SlotInitialSyncCompleted?.Invoke(group, slot);
@@ -385,19 +323,11 @@ public sealed class FakeConnectionManager : IConnectionManager
         return Task.CompletedTask;
     }
 
-    /// <summary>What <see cref="GetRoomPlayersAsync"/> returns - empty unless a test/TestHarness sets it.</summary>
     public IReadOnlyList<PlayerInfo> RoomPlayers { get; set; } = Array.Empty<PlayerInfo>();
 
     public Task<IReadOnlyList<PlayerInfo>> GetRoomPlayersAsync(GroupViewModel group) =>
         Task.FromResult(RoomPlayers);
 
-    // --- Hint picker (Feature-Plaene/Archiv/Hint-Eingabefeld.md) -------
-    //
-    // Same spirit as the rest of this fake: no real session, just enough
-    // settable/recorded state for TestHarness (seed data via
-    // SetHintableLocations) and future Kategorie B/C tests (assert against
-    // SentLocationHints/SentItemHints) to exercise HintPickerViewModel
-    // without a real Archipelago server.
     private readonly Dictionary<Guid, List<HintableLocation>> _hintableLocationsBySlot = new();
 
     public List<(Guid SlotId, long LocationId)> SentLocationHints { get; } = new();
@@ -414,16 +344,8 @@ public sealed class FakeConnectionManager : IConnectionManager
     {
         SentLocationHints.Add((slot.Id, locationId));
 
-        // Drop the just-hinted location from the seeded list too, so a
-        // caller that reopens the picker (or re-reads SetHintableLocations'
-        // backing list) sees it disappear, same as the real feature's
-        // GetHintableLocationsAsync would once the location is no longer in
-        // AllMissingLocations... except a hinted-but-unchecked location
-        // never actually leaves AllMissingLocations for real - it's
-        // HintPickerViewModel's own cross-reference against
-        // GroupViewModel.Hints that hides it. This fake has no such hint
-        // list of its own to cross-reference, so it approximates the same
-        // visible effect by removing it here directly.
+        // Real code keeps hinted locations in AllMissingLocations and HintPickerViewModel hides them via GroupViewModel.Hints;
+        // this fake has no hint list, so it approximates the effect by removing the location here.
         if (_hintableLocationsBySlot.TryGetValue(slot.Id, out var locations))
         {
             _hintableLocationsBySlot[slot.Id] = locations.Where(l => l.LocationId != locationId).ToList();
@@ -438,10 +360,8 @@ public sealed class FakeConnectionManager : IConnectionManager
         return Task.CompletedTask;
     }
 
-    /// <summary>Settable via <see cref="SetHintableItems"/> - see Feature-Plaene/Archiv/Hint-Eingabefeld.md's "Status" section for what this replaced.</summary>
     private readonly Dictionary<Guid, List<string>> _hintableItemsBySlot = new();
 
-    /// <summary>How many times <see cref="GetHintableItemsAsync"/> was called, total across every slot - lets a test confirm <c>HintPickerViewModel</c> doesn't needlessly re-fetch (e.g. just toggling the exclude checkbox).</summary>
     public int GetHintableItemsCallCount { get; private set; }
 
     public void SetHintableItems(SlotProfile slot, IReadOnlyList<string> itemNames) =>
@@ -454,7 +374,6 @@ public sealed class FakeConnectionManager : IConnectionManager
             _hintableItemsBySlot.TryGetValue(slot.Id, out var items) ? items : Array.Empty<string>());
     }
 
-    /// <summary>Every (group, slot) pair <see cref="ReleaseHeldSessionAsync"/> was called with, in order - lets a test confirm <c>HintPickerViewModel</c> releases the right slot at the right time (slot switch, picker close).</summary>
     public List<SlotProfile> ReleasedHeldSessionSlots { get; } = new();
 
     public Task ReleaseHeldSessionAsync(GroupViewModel group, SlotProfile slot)

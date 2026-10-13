@@ -13,8 +13,7 @@ public partial class AdminPanelView : UserControl
 
     private AdminPanelViewModel? ViewModel => DataContext as AdminPanelViewModel;
 
-    // Dialogs are owned by whichever window hosts this control - MainWindow
-    // or a detached tab window, same as the "Hint..." picker.
+    // Owned by the hosting window - MainWindow or a detached tab window.
     private Window? Owner => TopLevel.GetTopLevel(this) as Window;
 
     private async void OnLoginClick(object? sender, RoutedEventArgs e)

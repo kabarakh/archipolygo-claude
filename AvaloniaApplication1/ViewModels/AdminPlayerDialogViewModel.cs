@@ -8,13 +8,7 @@ using CommunityToolkit.Mvvm.Input;
 
 namespace Archipolygo.ViewModels;
 
-/// <summary>
-/// The per-player admin dialog (Admin-Funktionen.md in the feature-plan
-/// archive), built on the "Hint..." picker's pattern: a mode switch, a search
-/// box and one button per row that sends right away while the window stays
-/// open. The player is fixed by the row it was opened from. Item/location
-/// names come from the room's DataPackage for that player's game.
-/// </summary>
+/// <summary>Per-player admin dialog (item/location send); names come from the room's DataPackage for the player's game.</summary>
 public partial class AdminPlayerDialogViewModel : ViewModelBase
 {
     private readonly AdminPanelViewModel _admin;
@@ -35,7 +29,7 @@ public partial class AdminPlayerDialogViewModel : ViewModelBase
         ? $"{Player.Game} · {Player.StatusText} · {Player.ChecksText} · {Player.InactiveText}"
         : Player.Game;
 
-    /// <summary>Set by the view: shows the confirmation dialog, true = confirmed. Release/Collect are the only actions that ask (decided 2026-09-29).</summary>
+    /// <summary>Set by the view; true = confirmed. Only Release/Collect ask.</summary>
     public Func<ConfirmationViewModel, Task<bool>>? ConfirmAsync { get; set; }
 
     [ObservableProperty]
@@ -50,7 +44,7 @@ public partial class AdminPlayerDialogViewModel : ViewModelBase
         set => IsItemMode = !value;
     }
 
-    /// <summary>Only meaningful with tracker data - the only source of which locations another player already checked.</summary>
+    /// <summary>The tracker is the only source of which locations another player already checked.</summary>
     public bool ShowHideCheckedCheckbox => IsLocationMode && Player.HasTrackerData;
 
     public bool ShowNoTrackerNote => IsLocationMode && !Player.HasTrackerData;

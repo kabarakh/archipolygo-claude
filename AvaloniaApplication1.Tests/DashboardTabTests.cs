@@ -14,28 +14,18 @@ using Avalonia.VisualTree;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie C (Test-Umsetzungsplan.md): Feature-Plaene/Dashboard-Tab.md's
-/// toggle button, view swap and row-click navigation, against the real
-/// <c>.axaml</c> and a real layout pass - not just <see cref="DashboardViewModel"/>'s
-/// own arithmetic/filtering, already covered by <see cref="DashboardViewModelTests"/>.
-/// </summary>
 public class DashboardTabTests
 {
     private static MainWindow ShowWindow(MainWindowViewModel viewModel)
     {
-        // Wider than MainWindowProgressTests' 900 - the toolbar now has one
-        // more button ("Dashboard"/"Tab View") than when that width was
-        // chosen, and a horizontal StackPanel doesn't wrap; a too-narrow
-        // window leaves it laid out past the window's own right edge, where
-        // a simulated click never lands.
+        // Wide enough for the whole toolbar: a horizontal StackPanel doesn't wrap, and clicks past the window edge never land.
         var window = new MainWindow { DataContext = viewModel, Width = 1200, Height = 550 };
         window.Show();
         Dispatcher.UIThread.RunJobs();
         return window;
     }
 
-    /// <summary>Simulates a plain click (press+release at the same point) on any <see cref="Control"/>, not just a <see cref="Button"/> - e.g. an Overview row's own <c>Border</c> (see <see cref="FindOverviewRow"/>), which has no click Command of its own to invoke directly.</summary>
+    /// <summary>Press+release on any control, e.g. an Overview row's Border that has no Command to invoke.</summary>
     private static void ClickButton(MainWindow window, Control control)
     {
         var localCenter = new Avalonia.Point(control.Bounds.Width / 2, control.Bounds.Height / 2);
@@ -45,7 +35,6 @@ public class DashboardTabTests
         Dispatcher.UIThread.RunJobs();
     }
 
-    /// <summary>The app opens on the Dashboard by default (dev request, 2026-09-11) - see <see cref="MainWindowViewModel.IsDashboardVisible"/>'s doc comment.</summary>
     [AvaloniaFact]
     public void Dashboard_IsShownByDefaultOnStartup()
     {
@@ -57,7 +46,6 @@ public class DashboardTabTests
         Assert.False(window.GetVisualDescendants().OfType<TabControl>().Single().IsEffectivelyVisible);
         Assert.True(window.GetVisualDescendants().OfType<DashboardView>().Single().IsEffectivelyVisible);
 
-        // The toggle button already reads "Tab View" on first render, not "Dashboard".
         Assert.Single(window.GetVisualDescendants().OfType<Button>().Where(b => Equals(b.Content, "Tab View")));
         Assert.Empty(window.GetVisualDescendants().OfType<Button>().Where(b => Equals(b.Content, "Dashboard")));
     }
@@ -72,8 +60,6 @@ public class DashboardTabTests
         var tabControl = window.GetVisualDescendants().OfType<TabControl>().Single();
         var dashboardView = window.GetVisualDescendants().OfType<DashboardView>().Single();
 
-        // Starts on the Dashboard by default (see Dashboard_IsShownByDefaultOnStartup) -
-        // click "Tab View" first to reach the TabControl side.
         var backButton = window.GetVisualDescendants().OfType<Button>().Single(b => Equals(b.Content, "Tab View"));
         ClickButton(window, backButton);
 
@@ -120,10 +106,7 @@ public class DashboardTabTests
 
         var dashboardView = window.GetVisualDescendants().OfType<DashboardView>().Single();
 
-        // A real press+release click, not overviewList.SelectedItem = group2 -
-        // since Tab-Reihenfolge.md's drag-reordering support, the row no
-        // longer navigates via ListBox selection at all (see this row's own
-        // Border/OnOverviewRowPointerPressed et al. in DashboardView.axaml.cs).
+        // A real click, not SelectedItem: the row navigates via its own pointer handlers, not ListBox selection.
         ClickButton(window, FindOverviewRow(dashboardView, group2));
 
         Assert.Equal(group2, mainWindowViewModel.SelectedGroup);
@@ -181,13 +164,7 @@ public class DashboardTabTests
         Assert.Contains("1 open hints", summaryText.Text);
     }
 
-    /// <summary>
-    /// "Add slot..."/"Edit server..."/"Remove server" all act on
-    /// <see cref="MainWindowViewModel.SelectedGroup"/> - hidden while the
-    /// Dashboard is shown instead of the tabs, since there's no single
-    /// "current" server to visibly apply them to there. "Add server..." and
-    /// "Disconnect all" don't depend on a selected group, so they stay.
-    /// </summary>
+    /// <summary>No single "current" server on the Dashboard; "Add server..." and "Disconnect all" don't need one, so they stay.</summary>
     [AvaloniaFact]
     public void GroupScopedToolbarButtons_HiddenWhileDashboardVisible_ShownOtherwise()
     {
@@ -195,8 +172,6 @@ public class DashboardTabTests
         mainWindowViewModel.AddNewGroup("Server1", "host1", 1, string.Empty, "Alice", autoConnect: false);
         var window = ShowWindow(mainWindowViewModel);
 
-        // Starts on the Dashboard by default - switch to the tabs side first
-        // so the "shown otherwise" half of this test starts from a clean baseline.
         mainWindowViewModel.IsDashboardVisible = false;
         Dispatcher.UIThread.RunJobs();
 
@@ -218,7 +193,6 @@ public class DashboardTabTests
         Assert.False(addSlot.IsEffectivelyVisible);
         Assert.False(editServer.IsEffectivelyVisible);
         Assert.False(removeServer.IsEffectivelyVisible);
-        // Neither depends on SelectedGroup, so both stay visible regardless.
         Assert.True(addServer.IsEffectivelyVisible);
         Assert.True(disconnectAll.IsEffectivelyVisible);
 
@@ -230,7 +204,6 @@ public class DashboardTabTests
         Assert.True(removeServer.IsEffectivelyVisible);
     }
 
-    /// <summary>The Dashboard toggle is the first button in the toolbar, immediately followed by a divider separating it from the group-scoped actions - see Feature-Plaene/Archiv/Dashboard-Tab.md's Status note.</summary>
     [AvaloniaFact]
     public void DashboardToggleButton_IsFirstInToolbar()
     {
@@ -240,10 +213,6 @@ public class DashboardTabTests
         var toolbar = window.GetVisualDescendants().OfType<StackPanel>().First(p => p.Orientation == Avalonia.Layout.Orientation.Horizontal);
         var children = toolbar.Children;
 
-        // Starts on the Dashboard by default, so the toggle button's own
-        // label already reads "Tab View" on first render (see
-        // Dashboard_IsShownByDefaultOnStartup) - position, not label, is
-        // what this test is actually pinning down.
         var toggleButton = Assert.IsType<Button>(children.OfType<Button>().First());
         Assert.Equal("Tab View", toggleButton.Content);
 
@@ -251,12 +220,12 @@ public class DashboardTabTests
         Assert.True(children[toggleIndex + 1] is Border, "expected a divider Border directly after the Dashboard toggle button.");
     }
 
-    /// <summary>Finds a specific per-row icon button by its <c>Tag</c> (see DashboardView.axaml's comment on why Tag, not Name, is used here) for the given group's Overview row.</summary>
+    /// <summary>Tag-based lookup, see DashboardView.axaml.</summary>
     private static Button FindRowIcon(DashboardView dashboardView, GroupViewModel group, string tag) =>
         dashboardView.GetVisualDescendants().OfType<Button>()
             .Single(b => b.Classes.Contains("icon-button") && b.DataContext == group && (string?)b.Tag == tag);
 
-    /// <summary>Finds the given group's own Overview row root <c>Border</c> (see DashboardView.axaml's own comment on why this needs a <c>Tag</c>-based lookup - several other <c>Border</c>s in the same row are also bound to this <see cref="GroupViewModel"/>).</summary>
+    /// <summary>Tag-based lookup: several Borders in the row bind to the same GroupViewModel.</summary>
     private static Border FindOverviewRow(DashboardView dashboardView, GroupViewModel group) =>
         dashboardView.GetVisualDescendants().OfType<Border>()
             .Single(b => (string?)b.Tag == "OverviewRow" && b.DataContext == group);
@@ -275,12 +244,6 @@ public class DashboardTabTests
         return (window, dashboardView, mainWindowViewModel, group);
     }
 
-    /// <summary>
-    /// Connect/Disconnect icons bind straight to <see cref="GroupViewModel.ConnectCommand"/>/
-    /// <see cref="GroupViewModel.DisconnectCommand"/> - AddNewGroup already
-    /// connects its one slot as leader, so this starts connected (Disconnect
-    /// shown) and exercises both directions.
-    /// </summary>
     [AvaloniaFact]
     public void RowIcon_ConnectDisconnect_TogglesConnectionState_AndSwapsWhichIconShows()
     {
@@ -301,7 +264,6 @@ public class DashboardTabTests
         Assert.Equal(ConnectionState.Connected, group.ConnectionState);
     }
 
-    /// <summary>"Add slot" is grayed out (not hidden) while disconnected - see the Status note's "user decision" on this.</summary>
     [AvaloniaFact]
     public void RowIcon_AddSlot_EnabledOnlyWhileConnected()
     {
@@ -317,16 +279,7 @@ public class DashboardTabTests
         Assert.False(addSlotIcon.IsEnabled);
     }
 
-    /// <summary>
-    /// Add slot/Edit server open a dialog this test can't safely drive
-    /// headlessly (no existing test in this suite does - see
-    /// <see cref="ConnectionEditorWindowProgressTests"/>, which shows the
-    /// window directly rather than through a real modal ShowDialogAsync) -
-    /// instead this locks in the handoff <see cref="MainWindow"/> relies on:
-    /// clicking the icon raises <see cref="DashboardView.AddSlotRequested"/>/
-    /// <see cref="DashboardView.EditServerRequested"/> with exactly the
-    /// clicked row's own group.
-    /// </summary>
+    /// <summary>The dialogs can't be driven headlessly, so this pins the handoff MainWindow relies on.</summary>
     [AvaloniaFact]
     public void RowIcon_AddSlotAndEditServer_RaiseTheirDashboardViewEvents_WithTheClickedRowsGroup()
     {
@@ -354,7 +307,7 @@ public class DashboardTabTests
         Assert.Equal(group1, editServerGroup);
     }
 
-    /// <summary>This <see cref="MainWindowViewModel"/> never has <see cref="MainWindowViewModel.ShowConfirmationDialogAsync"/> wired up (only <c>App.axaml.cs</c> does that for the real app), so <see cref="MainWindowViewModel.RemoveGroupAsync"/> skips the confirmation and removes immediately - letting this exercise the rest of the full path unattended: icon click → <see cref="DashboardView.RemoveServerRequested"/> → <see cref="MainWindow"/>'s subscription → <see cref="MainWindowViewModel.RemoveGroupAsync"/>.</summary>
+    /// <summary>No confirmation dialog is wired up in tests, so RemoveGroupAsync removes immediately.</summary>
     [AvaloniaFact]
     public void RowIcon_RemoveServer_ActuallyRemovesTheClickedRowsGroup_LeavesOthersAndDashboardOpen()
     {
@@ -375,21 +328,11 @@ public class DashboardTabTests
 
         Assert.DoesNotContain(group2, mainWindowViewModel.Groups);
         Assert.Contains(group1, mainWindowViewModel.Groups);
-        // Removing a row that wasn't the selected tab must not change SelectedGroup.
         Assert.Equal(group1, mainWindowViewModel.SelectedGroup);
-        // Removing from the Dashboard must not itself navigate away from it.
         Assert.True(mainWindowViewModel.IsDashboardVisible);
     }
 
-    /// <summary>
-    /// A row's whole surface otherwise navigates to that server's tab on
-    /// click (see <see cref="OverviewRowClick_SelectsThatGroup_AndLeavesDashboard"/>) -
-    /// clicking one of its icon buttons must not also trigger that, or every
-    /// icon click would have the confusing side effect of also leaving the
-    /// Dashboard. Verified rather than assumed, per Button's own
-    /// PointerPressed handling marking the event handled before the row's
-    /// SelectionChanged can fire.
-    /// </summary>
+    /// <summary>Icon clicks must not also trigger the row's navigate-to-tab click.</summary>
     [AvaloniaFact]
     public void RowIconClick_DoesNotAlsoNavigateAwayFromTheDashboard()
     {
@@ -402,8 +345,6 @@ public class DashboardTabTests
         Assert.True(viewModel.IsDashboardVisible, "clicking a row icon must not leave the Dashboard.");
         Assert.Null(overviewList.SelectedItem);
     }
-
-    // ── Shared Events view (dev follow-up, 2026-09-11) ──
 
     [AvaloniaFact]
     public void LeftPanelToggle_SwitchesOverviewAndEventsVisibility_HintsColumnStaysVisibleThroughout()
@@ -432,15 +373,6 @@ public class DashboardTabTests
         Assert.False(eventsList.IsEffectivelyVisible);
     }
 
-    /// <summary>
-    /// Same auto-scroll/"Jump to newest" behavior as a server tab's own
-    /// Events list (see <see cref="EventsListAutoScrollTests"/>) - both now
-    /// point at the same <see cref="JumpToNewestButton"/> control (dev
-    /// follow-up, 2026-09-11: the shared Dashboard Events list was missing
-    /// this button entirely), so this exercises it end-to-end against the
-    /// real DashboardView instead of re-testing the control's own logic a
-    /// second time.
-    /// </summary>
     [AvaloniaFact]
     public void EventsPanel_JumpToNewestButton_AppearsWhenScrolledAway_AndJumpsBackOnClick()
     {
@@ -459,8 +391,7 @@ public class DashboardTabTests
 
         Assert.False(jumpButton.IsEffectivelyVisible, "hidden while still following the newest event.");
 
-        // Real wheel gesture over the list, same as EventsListAutoScrollTests -
-        // the one thing that actually disengages auto-follow.
+        // Real wheel gesture - the only thing that disengages auto-follow.
         var localCenter = new Point(eventsList.Bounds.Width / 2, eventsList.Bounds.Height / 2);
         var pointOverList = eventsList.TranslatePoint(localCenter, window) ?? localCenter;
         window.MouseWheel(pointOverList, new Vector(0, 3), RawInputModifiers.None);
@@ -475,17 +406,6 @@ public class DashboardTabTests
         Assert.True(distanceFromBottom < 1.0, $"expected the list back at the bottom; distance from bottom={distanceFromBottom}");
     }
 
-    /// <summary>
-    /// The Events panel's Slot dropdown is not a display filter (unlike the
-    /// Hints one) - picking a slot there is the exact same real leader
-    /// switch as the tab's own "Chat as" dropdown, since it binds to the
-    /// same <see cref="GroupViewModel.SelectedChatSlot"/>/<see cref="GroupViewModel.Slots"/>.
-    /// </summary>
-    /// <summary>
-    /// The "Send as" Slot dropdown (down by the message box, deliberately
-    /// separate from the filter row up top - dev decision 2026-09-12) is the
-    /// real leader switch, same as the tab's own "Chat as" dropdown.
-    /// </summary>
     [AvaloniaFact]
     public void SendRow_SlotDropdownSelection_SwitchesTheServersLeader()
     {
@@ -517,10 +437,6 @@ public class DashboardTabTests
         Assert.Equal(bob.Id, group.LeaderSlotId);
     }
 
-    /// <summary>
-    /// The Events filter row's Slot dropdown (top) is a pure display filter,
-    /// same as the Hints one - selecting it must never touch the leader.
-    /// </summary>
     [AvaloniaFact]
     public void EventsFilterRow_SlotDropdownSelection_NarrowsVisibleEvents_NeverSwitchesTheLeader()
     {
@@ -569,8 +485,6 @@ public class DashboardTabTests
         Dispatcher.UIThread.RunJobs();
 
         Assert.True(sendSlotComboBox.IsEnabled);
-        // SetUpSingleGroupDashboard's group is already connected (AddNewGroup
-        // connects its one slot as leader), so Send becomes usable too.
         Assert.True(sendButton.IsEnabled);
     }
 
@@ -588,14 +502,10 @@ public class DashboardTabTests
         var sendButton = dashboardView.GetVisualDescendants().OfType<Button>().Single(b => Equals(b.Content, "Send"));
         ClickButton(window, sendButton);
 
-        // GroupViewModel.SendMessageAsync clears MessageToSend once it runs -
-        // the only reliable, synchronously-observable signal (this session's
-        // FakeConnectionManager.SendMessageAsync itself records nothing) that
-        // the click actually reached this specific group's own SendMessageCommand.
+        // The fake records nothing; MessageToSend being cleared is the only synchronous signal the click reached this group.
         Assert.Equal(string.Empty, group.MessageToSend);
     }
 
-    /// <summary>Filtering (SelectedEventsServerFilter) and "who's chatting" (SelectedSendServerGroup) are independent - picking one must never change the other.</summary>
     [AvaloniaFact]
     public void EventsFilterAndSendServer_AreIndependentSelections()
     {
@@ -641,12 +551,6 @@ public class DashboardTabTests
         Assert.Contains("hello from Alice", texts);
     }
 
-    // ── Events relevance/category/item-kind filter row (Feature-Plaene/Dashboard-Event-Filter.md) ──
-    // "Concerns me"/"Chat" are unique labels across the whole DashboardView
-    // (the Hints column's item-category row only has All/Progression/Useful/
-    // Normal/Trap) - a plain Single() lookup by content is enough, no
-    // disambiguation helper needed.
-
     [AvaloniaFact]
     public void EventsPanel_RelevanceAndCategoryButtons_ClickSetsActiveClassAndFiltersTheList()
     {
@@ -680,8 +584,7 @@ public class DashboardTabTests
         ClickButton(window, dashboardView.GetVisualDescendants().OfType<Button>().Single(b => Equals(b.Content, "Events")));
         Dispatcher.UIThread.RunJobs();
 
-        // The checkboxes live in ItemClassFilterButton's flyout since
-        // Kompakteres-Layout.md - open it the way a user would first.
+        // The checkboxes live in a flyout; open it like a user would.
         var classesButton = dashboardView.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "ClassesButton");
         ClickButton(window, classesButton);
         Dispatcher.UIThread.RunJobs();
@@ -698,7 +601,6 @@ public class DashboardTabTests
         Assert.Contains("active", classesButton.Classes);
     }
 
-    /// <summary>The Dashboard's Events filters must never be shared with (or affected by) any individual tab's own <see cref="GroupViewModel"/> filter state - see Feature-Plaene/Dashboard-Event-Filter.md.</summary>
     [AvaloniaFact]
     public void EventsPanel_FilterButtons_DoNotAffectAnyTabsOwnGroupViewModelFilters()
     {

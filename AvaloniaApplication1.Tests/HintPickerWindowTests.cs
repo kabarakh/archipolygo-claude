@@ -13,16 +13,7 @@ using Avalonia.VisualTree;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie C (Test-Umsetzungsplan.md): <see cref="HintPickerWindow"/>'s
-/// real <c>.axaml</c> against a real layout/click pass - see
-/// Feature-Plaene/Archiv/Hint-Eingabefeld.md. Constructs the window directly
-/// (<c>new HintPickerWindow { DataContext = ... }; window.Show();</c>) rather
-/// than through the static <c>Show</c> helper's <c>ShowDialog</c>, same
-/// approach <see cref="RemoveConfiguredSlotButtonTests"/> uses for
-/// <c>ConnectionEditorWindow</c> - a real simulated click, wired through the
-/// actual code-behind/bindings, not a direct command-property call.
-/// </summary>
+/// <summary>Constructs the window directly instead of via ShowDialog, and clicks through the real code-behind/bindings.</summary>
 public class HintPickerWindowTests
 {
     private static (GroupViewModel viewModel, ServerConnectionGroup group, FakeConnectionManager manager) MakeGroup(params string[] slotNames)
@@ -50,11 +41,11 @@ public class HintPickerWindowTests
         SenderKind = EventTextSegmentKind.OtherSlotName,
     };
 
-    /// <summary>One of the picker's row buttons (Content = the row's name), or null if not currently present in the visual tree - distinguishing "not shown" from "shown" is the point of most of these tests, so this deliberately doesn't throw.</summary>
+    /// <summary>Null when not in the visual tree - deliberately doesn't throw.</summary>
     private static Button? FindRowButtonOrNull(Window window, string name) =>
         window.GetVisualDescendants().OfType<Button>().FirstOrDefault(b => Equals(b.Content, name) && b.DataContext is HintPickerRow);
 
-    /// <summary>Real simulated left-click at a control's own center, translated into the window's coordinate space - same technique as RemoveConfiguredSlotButtonTests.</summary>
+    /// <summary>Real left-click at the control's center, translated into window coordinates.</summary>
     private static void Click(Window window, Control control)
     {
         var localCenter = new Point(control.Bounds.Width / 2, control.Bounds.Height / 2);
@@ -188,9 +179,7 @@ public class HintPickerWindowTests
         Click(window, rowButton!);
         Dispatcher.UIThread.RunJobs();
 
-        // A deduped item name might still have other unhinted copies this
-        // app can't tell apart from the one just hinted - see
-        // HintPickerViewModel.SendAsync.
+        // A deduped item name may still have other unhinted copies.
         Assert.NotNull(FindRowButtonOrNull(window, "Fire Rod"));
         Assert.Contains((alice.Id, "Fire Rod"), manager.SentItemHints);
     }
@@ -218,7 +207,6 @@ public class HintPickerWindowTests
     public void NothingAvailable_ShowsTheEmptyStateText_NotTheRowList()
     {
         var (viewModel, group, _) = MakeGroup("Alice");
-        // No ReceivedItems/Hints seeded - Item mode's default candidate pool is empty.
         viewModel.HintPicker.OnOpened();
 
         var window = new HintPickerWindow { DataContext = viewModel.HintPicker };
@@ -232,15 +220,8 @@ public class HintPickerWindowTests
     }
 
     /// <summary>
-    /// Dev-reported bug: the Slot ComboBox's open popup items showed a large,
-    /// asymmetric-looking gap before the name text. Root cause: the item
-    /// template's <c>TextBlock</c> defaulted to <c>HorizontalAlignment="Stretch"</c>,
-    /// which - combined with its own <c>MaxWidth="240"</c> - made Avalonia's
-    /// layout CENTER the text within the popup item's content area instead of
-    /// placing it flush left, once that area is wider than 240px (true here
-    /// since this ComboBox, unlike MainWindow.axaml's fixed-Width "Chat as"/
-    /// slot-filter ones, stretches across most of the dialog). Fixed with an
-    /// explicit <c>HorizontalAlignment="Left"</c> on that TextBlock.
+    /// The template's TextBlock defaulted to Stretch, which with MaxWidth="240" centered the text in this wide ComboBox's
+    /// items; fixed with HorizontalAlignment="Left".
     /// </summary>
     [AvaloniaFact]
     public void SlotComboBox_OpenPopupItem_TextIsFlushLeft_NotCenteredInTheGap()
@@ -259,8 +240,6 @@ public class HintPickerWindowTests
         var item = window.GetVisualDescendants().OfType<ComboBoxItem>().First();
         var text = item.GetVisualDescendants().OfType<TextBlock>().Single();
 
-        // The text's left edge should sit at the item's own left padding, not
-        // pushed further right by leftover centered space.
         Assert.Equal(item.Padding.Left, text.Bounds.X, precision: 1);
     }
 }

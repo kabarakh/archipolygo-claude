@@ -40,7 +40,8 @@ consistently explain reasoning, not just mechanics).
   gets `CatchUpSyncAsync`: log in just long enough to pull the backlog, then
   disconnect again. This runs for every OTHER configured slot right after a
   leader connect *that brings the group online* - i.e. from inside
-  `SwitchLeaderAsync` itself, guarded on `previousLeaderId is null` (no
+  `SwitchLeaderAsync` itself (`RunSiblingCatchUpSweepAsync`), guarded on
+  `groupJustCameOnline` (`previousLeaderId is null` - no
   leader was live a moment ago), not on a timer or "regardless of
   AutoConnect" basis. A group with `AutoConnect` off gets zero network
   activity at startup (`InitializeGroupAsync` is a no-op for it) - it stays
@@ -157,11 +158,21 @@ changing behavior it explains, and update the Umsetzungsplan.md section
     per-slot sync state still applies after migrating.
 - `ViewModels/GroupViewModel.cs` - one per tab; merged event/hint/item
   collections for every slot on that server, the account ("Chat as")
-  dropdown, and the three independent slot filters.
+  dropdown, and the three independent slot filters. A `partial class` split
+  by topic: `GroupViewModel.cs` (core: group, connection state, ctor,
+  connect/disconnect), `.Slots.cs` (slot ordering, leader/"Chat as"),
+  `.Panels.cs` (Events/Hints/Items contents, filters, counters), `.Progress.cs`
+  (Tier 1/2 location progress), `.Attention.cs` (unread/badge/mute),
+  `.Chat.cs` (message box + recall history). Add new members to the file
+  whose topic they belong to rather than back into the core file.
 - `ViewModels/MainWindowViewModel.cs` - owns `Groups`, add/remove/edit-group
   operations, startup sequencing, and the startup sync progress counters
   (`StartupSyncTotal`/`StartupSyncCompleted`, fed by
-  `IConnectionManager.SlotInitialSyncCompleted`).
+  `IConnectionManager.SlotInitialSyncCompleted`). Also a `partial class`:
+  `MainWindowViewModel.cs` (core: ctor, startup, settings), `.Servers.cs`
+  (add/edit/remove servers and slots), `.TabLayout.cs` (reorder, detach/
+  redock), `.PasswordPrompt.cs`, `.StatusDisplay.cs` (sync banner, unread
+  title/badge), `.Toolbar.cs` (theme button, update indicator).
 - `ViewModels/ConnectionEditorViewModel.cs` +
   `Views/ConnectionEditorWindow.axaml(.cs)` - one dialog, three modes
   (`ConnectionEditorMode`: `NewGroup`/`AddSlot`/`EditGroup`), each showing
@@ -303,7 +314,7 @@ way first - each was a real bug with a specific root cause.
   slots at once, or catching every other configured slot up right after a
   leader connects, each `CatchUpSyncAsync` call is `await`ed one at a time
   (see `MainWindowViewModel.CatchUpNewSlotsSequentiallyAsync` and
-  `ConnectionManager.SwitchLeaderAsync`'s own sibling-sync loop) - firing
+  `ConnectionManager.RunSiblingCatchUpSweepAsync`) - firing
   them concurrently floods the Archipelago server with simultaneous
   handshakes and some get rejected/blocked. This is now also enforced inside
   `ConnectionManager` itself, not just by callers being disciplined about
@@ -369,12 +380,18 @@ way first - each was a real bug with a specific root cause.
 
 ## Conventions to follow when editing this codebase
 
-- Doc comments explain *why*, not just *what* - match that style; a comment
-  that only restates the method signature isn't pulling its weight here.
-  Exception: `ConnectionManager.cs` keeps only a short *what*/one-line *why*
-  inline and points to Umsetzungsplan.md for the extended rationale (see
-  that file's own note above) - don't grow its inline comments back into
-  multi-paragraph explanations; extend the Umsetzungsplan.md section instead.
+- Let the code carry the meaning: prefer an expressive method/variable
+  name or a small extracted helper over a comment explaining what a block
+  does (as of 2026-10-13 `ConnectionManager`, `GroupViewModel` and
+  `MainWindowViewModel` were refactored this way and their comments cut
+  down accordingly). Comments are short - usually one line, at most a few -
+  and only state the *why* the code can't express: a workaround, a race,
+  a protocol fact, a deliberate non-obvious choice. No history narration
+  ("used to", "per dev request on ..."), no restating the signature.
+  Longer rationale belongs in Umsetzungsplan.md (for `ConnectionManager`:
+  its "Locking, Nebenläufigkeit und Workarounds im Detail" section), with
+  a one-line `See Umsetzungsplan.md, "<section>"` pointer in the code -
+  update that section, not the pointer, if the reasoning changes.
 - Slot name comparisons are `StringComparison.OrdinalIgnoreCase`
   throughout (dedup checks, roster matching) - stay consistent.
 - New UI text lives in English (the whole codebase and README are English),

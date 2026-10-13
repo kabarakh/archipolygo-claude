@@ -11,86 +11,32 @@
              x:Class="Archipolygo.Views.DashboardView"
              x:DataType="vm:DashboardViewModel">
 
-    <!--
-        "All servers at a glance" (Feature-Plaene/Archiv/Dashboard-Tab.md) - shown
-        instead of MainWindow's TabControl, toggled via
-        MainWindowViewModel.IsDashboardVisible. Overview (left) and the
-        shared, server-spanning Hints list (right) sit side by side, always
-        both visible, separated by a draggable GridSplitter - exactly the
-        same layout pattern as the Events|Hints/Items split inside a single
-        server's own tab (see MainWindow.axaml), just one level up (servers
-        instead of slots). See ../../Claude outputs/dashboard-tab-mockup.html
-        for the visual target this follows.
-
-        Own local converter instances rather than relying on the host
-        Window's Window.Resources: this view can then be shown standalone
-        (e.g. a future test/preview) without depending on being hosted
-        inside MainWindow specifically.
-    -->
+    <!-- Own converter instances so the view doesn't depend on its host Window's resources. -->
     <UserControl.Resources>
         <conv:ConnectionStateToBrushConverter x:Key="ConnectionStateToBrushConverter"/>
         <conv:EnumEqualsConverter x:Key="EnumEqualsConverter"/>
         <conv:SlotFilterDisplayConverter x:Key="SlotFilterDisplayConverter"/>
         <conv:DashboardServerFilterDisplayConverter x:Key="DashboardServerFilterDisplayConverter"/>
         <conv:CountToStarWidthConverter x:Key="CountToStarWidthConverter"/>
-        <!-- SegmentKindToBrushConverter/EventTextSegmentTemplate come from
-             App.axaml's merged Views/SharedTemplates.axaml (shared with
-             MainWindow.axaml's own Events list) - not redeclared here. -->
     </UserControl.Resources>
 
     <UserControl.Styles>
-        <!-- Row-hover affordance for the two lists whose whole row is a
-             click-to-navigate action (Overview, Hints) - a ListBoxItem isn't
-             a Button, so there's no built-in "this is clickable" cue
-             otherwise. Deliberately scoped to just these two (not a bare
-             "ListBoxItem:pointerover" matching every list in this view): the
-             Events list (dev feedback) isn't click-to-navigate at all - it's
-             a plain multi-select log, same as a server tab's own Events
-             list, which has no such hover override either. Applying it
-             there anyway made hover visually fight the real selection
-             highlight and read as "komisch". -->
+        <!-- Hover cue only for the click-to-navigate lists; on the multi-select Events list
+             it fought the real selection highlight. -->
         <Style Selector="ListBox#OverviewListBox ListBoxItem:pointerover /template/ ContentPresenter,
                          ListBox#DashboardHintsListBox ListBoxItem:pointerover /template/ ContentPresenter">
             <Setter Property="Background" Value="#14000000"/>
         </Style>
 
-        <!-- Overview rows: without HorizontalContentAlignment="Stretch", each
-             ListBoxItem only ever measures as wide as its own content (name +
-             badges), leaving the rest of the (2*-wide) Overview column empty
-             instead of letting the progress bar below actually use that space
-             (see the Grid.ColumnDefinitions="*,Auto" progress-bar row, which
-             relies on this to stretch). A plain HorizontalContentAlignment
-             property doesn't exist directly on ListBox itself in this
-             Avalonia version - only via its item container's own style.
-             Padding="0" zeroes out Fluent's own default ListBoxItem Padding
-             (themed as {DynamicResource ListBoxItemPadding}, "12,9,12,12" as
-             of this Avalonia version) - manual tab-reordering's insertion-line
-             indicator (Feature-Plaene/Tab-Reihenfolge.md) sits at the edge of
-             the row's own custom Border further down, and that Border's own
-             Margin-not-Padding content inset (see that Border's own comment)
-             is now the *only* spacing around a row's content. Without this,
-             the indicator would sit inset from the true boundary between two
-             rows by the theme's own padding on top of that. -->
+        <!-- Stretch lets the progress bar use the row's full width. Padding 0 so the row Border's
+             edge, where the insertion-line indicator sits, is the true row boundary. -->
         <Style Selector="ListBox#OverviewListBox ListBoxItem">
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
             <Setter Property="Padding" Value="0"/>
         </Style>
 
-        <!-- Per-row action icons use Button.icon-button, now app-wide in
-             Styles/IconButtonStyles.axaml (shared with GroupDetailView's
-             copy-host:port icon). -->
-
-        <!-- Overview row drag handle (Feature-Plaene/Tab-Reihenfolge.md) -
-             same sizing/hover convention as Button.icon-button above, just
-             for a plain Border instead of a Button (see that element's own
-             comment for why it isn't a real Button). Every visual property
-             here - including Background - stays in this style, never as a
-             local attribute on the element itself: a local value always
-             beats a Style Setter for the same property in Avalonia
-             (including a pseudo-class-scoped one like :pointerover below),
-             which would silently make that Setter dead code - see
-             CLAUDE.md's gotcha on that, learned from this exact feature's
-             first (border-highlight) version of its drop-target indicator. -->
+        <!-- Every visual property, Background included, stays in the style: a local value
+             would beat the :pointerover Setter. -->
         <Style Selector="Border.drag-handle">
             <Setter Property="Width" Value="22"/>
             <Setter Property="Height" Value="22"/>
@@ -105,31 +51,11 @@
     <Grid Margin="12" RowDefinitions="Auto,*">
         <TextBlock Grid.Row="0" Text="{Binding SummaryText}" Opacity="0.7" Margin="0,0,0,6"/>
 
-        <!-- Column widths/ratio mirror MainWindow.axaml's own Events|Hints
-             split exactly (2*/8/1*, MinWidth on both outer columns) - see
-             the plan's "Struktur" section. Not persisted, resets on restart,
-             same as that other splitter. -->
         <Grid Grid.Row="1" ColumnDefinitions="2*,12,1*">
 
-            <!-- ── Overview / Events (left) ──
-                 Button+IsVisible toggle, not a real TabControl - same
-                 reasoning as the Hints/Items switch inside a single
-                 server's own tab (see MainWindow.axaml's RightPanelView):
-                 a real nested TabControl here would reintroduce the lazy-
-                 ContentTemplate-materialization gotcha documented in
-                 CLAUDE.md for whichever panel isn't the default. Hints
-                 (right column) is untouched by this - it stays visible
-                 regardless of which of these two is selected. -->
+            <!-- Button+IsVisible toggle, not a nested TabControl, to avoid lazy ContentTemplate materialization. -->
             <Grid Grid.Column="0" MinWidth="220" RowDefinitions="Auto,*">
-                <!-- One row for everything above the list
-                     (Kompakteres-Layout.md Teil B/C/D): the
-                     Overview/Events switch, then - only while Events is
-                     selected - that panel's own filters. Used to be a heading
-                     row ("Overview" / "Events · all servers, all activity"),
-                     the switch row, then three more Events-only rows
-                     (buttons, item-class checkboxes, server/slot filter). The
-                     switch sits outside the collapsible bar: it's navigation,
-                     not a filter, so it never folds away. -->
+                <!-- The Overview/Events switch sits outside the collapsible bar: it's navigation, not a filter. -->
                 <Grid Grid.Row="0" ColumnDefinitions="Auto,*">
                     <WrapPanel Grid.Column="0" Classes="filter-row" VerticalAlignment="Top">
                         <Button Content="Overview" Classes="filter-toggle" Command="{Binding ShowOverviewPanelCommand}"
@@ -142,11 +68,6 @@
                                                 IsExpanded="{Binding FilterLayout.DashboardEventsFiltersExpanded}"
                                                 Summary="{Binding EventFilterSummaryText}">
                         <WrapPanel Classes="filter-row">
-                            <!-- Events filters - own, independent filter state
-                                 (DashboardViewModel.SelectedEventRelevanceFilter/
-                                 SelectedEventCategoryFilter/Show*ItemEvents/EventsFilter),
-                                 never the same instance as any tab's own GroupViewModel
-                                 filters - see Feature-Plaene/Dashboard-Event-Filter.md. -->
                             <Button Content="All" Classes="filter-toggle" Command="{Binding ShowAllEventsRelevanceCommand}"
                                     Classes.active="{Binding SelectedEventRelevanceFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=All}"/>
                             <Button Content="Concerns me" Classes="filter-toggle" Command="{Binding ShowOwnEventsOnlyCommand}"
@@ -163,10 +84,7 @@
                             <Button Content="Admin" Classes="filter-toggle" Command="{Binding ShowAdminEventsOnlyCommand}" IsVisible="{Binding HasAdminServer}"
                                     Classes.active="{Binding SelectedEventCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Admin}"/>
                             <Border Classes="filter-separator"/>
-                            <!-- Same shared item-class flyout as a server tab's own Events filter row. -->
                             <views:ItemClassFilterButton/>
-                            <!-- Server + slot display filter: fixed-width ComboBoxes,
-                                 same as the Hints column's. -->
                             <ComboBox Name="DashboardEventsServerComboBox" Width="130"
                                       ItemsSource="{Binding EventsFilter.ServerOptions}" SelectedItem="{Binding EventsFilter.SelectedServer}">
                                 <ComboBox.ItemTemplate>
@@ -177,10 +95,6 @@
                                     </DataTemplate>
                                 </ComboBox.ItemTemplate>
                             </ComboBox>
-                            <!-- A pure display filter now, same as the Hints
-                                 slot dropdown - no longer bound to
-                                 SelectedChatSlot/Slots (that live, real-leader-
-                                 switch control moved down to the send row). -->
                             <ComboBox Name="DashboardEventsSlotComboBox" Width="130"
                                       ItemsSource="{Binding EventsFilter.SlotOptions}" SelectedItem="{Binding EventsFilter.SelectedSlot}"
                                       IsEnabled="{Binding EventsFilter.SelectedServer, Converter={x:Static avconv:ObjectConverters.IsNotNull}}">
@@ -195,38 +109,15 @@
                     </views:CollapsibleFilterBar>
                 </Grid>
 
-                <!-- SelectionChanged (not a Command per row) - same "click a
-                     row to navigate" idiom as everywhere else the app reacts
-                     to a list click (see MainWindow.axaml.cs's other list
-                     handlers); OnOverviewRowSelected also clears the
-                     selection right back out so the same row can be clicked
-                     again after returning to the dashboard. Safe to use
-                     again despite Tab-Reihenfolge.md's manual drag-reorder
-                     support: dragging now only ever starts from each row's
-                     own dedicated grip handle (see Border.drag-handle
-                     below), not from anywhere on the row, so there's no more
-                     press-vs-drag ambiguity for the row itself to resolve -
-                     a plain click anywhere else just selects/navigates,
-                     exactly like before this feature existed. -->
+                <!-- OnOverviewRowSelected clears the selection again so the same row can be clicked twice.
+                     Drags only start from the grip handle, so a plain click never has to disambiguate. -->
                 <ListBox Name="OverviewListBox" Grid.Row="1" ItemsSource="{Binding Groups}"
                          IsVisible="{Binding SelectedLeftPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Overview}"
                          SelectionChanged="OnOverviewRowSelected">
                     <ListBox.ItemTemplate>
                         <DataTemplate DataType="vm:GroupViewModel">
-                            <!-- Background="Transparent" (not just left unset) - a Border
-                                 with no Background at all isn't hit-test visible across its
-                                 own empty area in Avalonia, only its BorderBrush stroke and
-                                 its children are; without this, DragOver/Drop landing in any
-                                 gap between this row's children (or below the progress bar,
-                                 in the row's own padding) would fall straight through instead
-                                 of reaching the drop-target handlers below - a drag needs to be
-                                 acceptable anywhere on the row, not just over its visible content.
-                                 Tag: same stable-per-row-lookup convention the icon buttons
-                                 already use (see FindRowIcon in DashboardTabTests.cs), so a
-                                 test can find "this group's row" without depending on Border
-                                 being the only element bound to that GroupViewModel (the
-                                 event/hint-count badges and progress-bar segments below are
-                                 Borders too). -->
+                            <!-- Background="Transparent" makes the whole row hit-testable, so DragOver/Drop in gaps between
+                                 children still reach the handlers. Tag lets tests find the row among other Borders. -->
                             <Border Background="Transparent"
                                     Tag="OverviewRow"
                                     DragDrop.AllowDrop="True"
@@ -234,13 +125,6 @@
                                     DragDrop.DragOver="OnOverviewRowDragOver"
                                     DragDrop.DragLeave="OnOverviewRowDragLeave"
                                     DragDrop.Drop="OnOverviewRowDrop">
-                            <!-- Right-click to open in its own window
-                                 (Feature-Plaene/Tab-Eigenes-Fenster.md) -
-                                 greyed out once it already has one; see
-                                 MainWindow.axaml's tab header for the same
-                                 menu item, reused here since it's the one
-                                 other place a server is picked out
-                                 individually. -->
                             <Border.ContextMenu>
                                 <ContextMenu>
                                     <MenuItem Header="Open in new window" Click="OnOpenInNewWindowMenuClick" IsEnabled="{Binding !IsDetached}"/>
@@ -248,48 +132,14 @@
                                     <MenuItem Header="Copy host:port" Click="OnCopyHostPortMenuClick"/>
                                 </ContextMenu>
                             </Border.ContextMenu>
-                            <!-- Grid, not the StackPanel directly as the Border's child -
-                                 lets the two insertion-line Rectangles further below sit
-                                 layered on top of the row content instead of pushed beside
-                                 it (see MainWindow.axaml's tab headers for the same pattern). -->
+                            <!-- Grid so the insertion-line Rectangles layer on top of the row content. -->
                             <Grid>
-                            <!-- The content's breathing room lives here, as a Margin on the
-                                 content itself, not as Padding on the Border above: a
-                                 Border's Padding insets its whole Child (this StackPanel via
-                                 the Grid), which would inset the Rectangles below by the same
-                                 amount and defeat their whole point - ListBoxItem's own
-                                 Padding is zeroed out above, so this Border's bounds are
-                                 exactly the row's bounds, and the Rectangles (anchored to the
-                                 Grid's own edge, i.e. this Border's true outer edge) land
-                                 exactly on the boundary between two adjacent rows instead of
-                                 inset from it. Vertically "8,11,8,14" (asymmetric, not "8,10"
-                                 all around) - measured (a throwaway headless test reading the
-                                 real rendered ListBoxItem.Bounds.Height, not just worked out on
-                                 paper) against the original pre-this-feature template to land on
-                                 the exact same 63px total row height: the removed
-                                 ListBoxItemPadding was itself asymmetric ("12,9,12,12" -
-                                 left,top,right,bottom), 9px top + 12px bottom, plus this
-                                 StackPanel's own original Margin="2" (2px each side) - a flat
-                                 "8,6" first attempt at reproducing this shortchanged rows by
-                                 5px of real, measured height (63px -> 58px, confirmed dev
-                                 feedback: "die Zeilen sind kleiner als vor dem drag n drop" -
-                                 they were right, "restores the padding" needed verifying, not
-                                 just asserting). -->
+                            <!-- Margin on the content, not Border Padding, so the Rectangles sit on the true row edge.
+                                 Asymmetric 8,11,8,14 was measured to keep the original 63px row height. -->
                             <StackPanel Spacing="4" Margin="8,11,8,14">
                                 <Grid ColumnDefinitions="Auto,*,Auto">
-                                    <!-- Drag handle (Feature-Plaene/Tab-Reihenfolge.md) - the
-                                         only part of this row that starts a reorder drag; see
-                                         this template's own ListBox.SelectionChanged comment
-                                         above for why the rest of the row no longer needs to
-                                         resolve a press-vs-drag ambiguity at all. Deliberately a
-                                         plain Border, not an actual Button - a real Button's own
-                                         internal PointerPressed click-tracking would fight the
-                                         press/move drag-threshold detection in
-                                         OnOverviewGripPointerPressed/Moved below (same reasoning
-                                         CLAUDE.md documents for why DoDragDropAsync needs the
-                                         exact original PointerPressedEventArgs). Cursor="Hand"
-                                         while hovering it hints "drag me" the way a real handle
-                                         would. -->
+                                    <!-- Plain Border, not a Button: a Button's own click tracking would fight the drag-threshold
+                                         detection in OnOverviewGripPointerPressed/Moved. -->
                                     <Border Grid.Column="0" Classes="drag-handle" Cursor="Hand" Margin="0,0,8,0"
                                             PointerPressed="OnOverviewGripPointerPressed"
                                             PointerMoved="OnOverviewGripPointerMoved"
@@ -301,16 +151,12 @@
                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     </Border>
                                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                                        <!-- Server color (Feature-Plaene/Server-Farben.md) -
-                                             same dot-plus-colored-name pattern as MainWindow.axaml's
-                                             own tab headers. -->
                                         <Ellipse Width="6" Height="6" VerticalAlignment="Center"
                                                  Fill="{Binding ColorBrush}"/>
                                         <Ellipse Width="8" Height="8" VerticalAlignment="Center"
                                                  Fill="{Binding ConnectionState, Converter={StaticResource ConnectionStateToBrushConverter}}"/>
                                         <TextBlock Text="{Binding HeaderText}" FontWeight="SemiBold" VerticalAlignment="Center"
                                                    Foreground="{Binding ColorBrush}"/>
-                                        <!-- Same muted-bell icon as MainWindow.axaml's tab header. -->
                                         <Path Data="{StaticResource BellOffGeometry}" Width="11" Height="11" Stretch="Uniform"
                                               Stroke="{Binding $parent[ListBoxItem].Foreground}" StrokeThickness="1.4" Opacity="0.6"
                                               VerticalAlignment="Center" IsVisible="{Binding IsNotificationsMuted}"
@@ -323,27 +169,10 @@
                                         </Border>
                                     </StackPanel>
 
-                                    <!-- Per-row actions - Connect/Disconnect
-                                         bind straight to this GroupViewModel's
-                                         own commands (identical to the tab's
-                                         own Connect/Disconnect buttons); Add
-                                         slot/Edit server/Remove server raise a
-                                         DashboardView event instead, since
-                                         opening their dialogs needs a Window
-                                         and MainWindowViewModel, neither of
-                                         which this row's DataContext has (see
-                                         DashboardView.axaml.cs). "Add slot" is
-                                         only ever grayed out while
-                                         disconnected, not hidden - unlike
-                                         Connect/Disconnect it doesn't need a
-                                         live connection to make sense as a
-                                         concept, it just can't run without one
-                                         (see GetAvailableSlotsToAddAsync). -->
+                                    <!-- Add slot/Edit server/Remove server raise DashboardView events: their dialogs need a Window
+                                         and MainWindowViewModel, which this row's DataContext lacks. -->
                                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2">
-                                        <!-- Tag: a stable, template-safe way to pick out one
-                                             specific icon button per row in tests (a repeated
-                                             x:Name inside an ItemTemplate collides once more than
-                                             one row is realized at once, unlike Tag). -->
+                                        <!-- Tag, not x:Name: a repeated x:Name inside an ItemTemplate collides once several rows exist. -->
                                         <Button Classes="icon-button" Tag="Connect" IsVisible="{Binding CanConnect}" Command="{Binding ConnectCommand}">
                                             <ToolTip.Tip><TextBlock Text="Connect"/></ToolTip.Tip>
                                             <Path Data="M4,3 L13,8 L4,13 Z" Fill="#3b6d11" Width="12" Height="12" Stretch="Uniform"/>
@@ -367,21 +196,8 @@
                                     </StackPanel>
                                 </Grid>
 
-                                <!-- Combined Tier1+2 progress bar - identical
-                                     block (columns/colors/tooltip legend) to
-                                     the one on this same GroupViewModel's own
-                                     tab in MainWindow.axaml, just smaller;
-                                     kept here rather than factored into a
-                                     shared control so each stays a simple,
-                                     self-contained copy - see
-                                     Feature-Plaene/Archiv/Dashboard-Tab.md's
-                                     decision to reuse this exact visual. -->
-                                <!-- Grid, not a StackPanel: a StackPanel only ever gives
-                                     the bar its own desired size (which, with Star-weighted
-                                     columns, collapses to nothing) - "*,Auto" is what lets
-                                     the bar actually claim the row's now-available width
-                                     (see HorizontalContentAlignment="Stretch" above) instead
-                                     of sitting capped at some fixed pixel width. -->
+                                <!-- Same bar as the tab's own in MainWindow.axaml, deliberately duplicated rather than shared. -->
+                                <!-- Grid, not StackPanel: a StackPanel gives Star-weighted columns no width, collapsing the bar. -->
                                 <Grid ColumnDefinitions="*,Auto" Margin="16,0,0,0"
                                       IsVisible="{Binding HasAnyProgress}">
                                     <Grid Grid.Column="0" Height="8" ClipToBounds="True">
@@ -424,24 +240,11 @@
                                                FontSize="11" Opacity="0.7" Margin="6,0,0,0" VerticalAlignment="Center"/>
                                 </Grid>
 
-                                <!-- No own slot has ever synced yet (e.g. never
-                                     connected, or disconnected before its
-                                     first sync) - nothing to show a bar for. -->
                                 <TextBlock Text="{Binding ConnectionState, StringFormat='{}{0} - no progress data yet'}"
                                            Opacity="0.6" FontStyle="Italic" FontSize="11" Margin="16,0,0,0"
                                            IsVisible="{Binding !HasAnyProgress}"/>
                             </StackPanel>
 
-                            <!-- Manual tab-reordering insertion-line indicators
-                                 (Feature-Plaene/Tab-Reihenfolge.md) - a thin bar at
-                                 this row's top (Before) or bottom (After) edge while a
-                                 reorder drag hovers here on that side (see
-                                 GroupViewModel.DropIndicator, set by
-                                 OnOverviewRowDragOver/Leave in this view's own
-                                 code-behind). The Overview list lays out vertically, so
-                                 Before = top edge, After = bottom edge (MainWindow.axaml's
-                                 tab headers use the same pattern, just left/right since
-                                 those lay out horizontally). -->
                             <Rectangle Height="3" VerticalAlignment="Top" HorizontalAlignment="Stretch" Fill="DodgerBlue"
                                        IsVisible="{Binding DropIndicator, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Before}"/>
                             <Rectangle Height="3" VerticalAlignment="Bottom" HorizontalAlignment="Stretch" Fill="DodgerBlue"
@@ -452,28 +255,11 @@
                     </ListBox.ItemTemplate>
                 </ListBox>
 
-                <!-- Events panel - shared, server-spanning event log, a pure
-                     Server+Slot display filter up top (identical two-stage
-                     cascade to the Hints column), and a completely separate
-                     "who's chatting" Server+Slot pair down by the message
-                     box (dev's explicit call to decouple the two - see
-                     DashboardViewModel's doc comments on
-                     SelectedEventsServerFilter/SelectedSendServerGroup). -->
+                <!-- Display filter up top and the "who's chatting" pair below are deliberately decoupled. -->
                 <Grid Grid.Row="1" RowDefinitions="*,Auto,Auto"
                       IsVisible="{Binding SelectedLeftPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Events}">
-                    <!-- Grid rather than the ListBox alone, so the "jump to
-                         newest" button (below) can float over the bottom-right
-                         corner of the list instead of taking its own row -
-                         same overlay pattern as a server tab's own Events
-                         list (see MainWindow.axaml and JumpToNewestButton). -->
                     <Grid Grid.Row="0">
-                        <!-- SelectionMode="Multiple" + KeyDown copy shortcut -
-                             same behavior as a server tab's own Events list
-                             (see MainWindow.axaml's EventsListBox/OnEventsListKeyDown),
-                             not the "whole row navigates" idiom Overview/Hints
-                             use (dev feedback: this list should match the
-                             per-server Events display, not the click-to-navigate
-                             rows). -->
+                        <!-- Multi-select log like a server tab's Events list, not a click-to-navigate list. -->
                         <ListBox Name="DashboardEventsListBox" ItemsSource="{Binding VisibleEvents}"
                                  SelectionMode="Multiple" KeyDown="OnDashboardEventsListKeyDown">
                             <ListBox.ItemTemplate>
@@ -481,10 +267,6 @@
                                     <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,2">
                                         <TextBlock Text="{Binding Group.HeaderText}" Foreground="{Binding Group.ColorBrush}" FontWeight="SemiBold" FontSize="11" VerticalAlignment="Center"/>
                                         <TextBlock Text="{Binding Event.Timestamp, StringFormat='HH:mm:ss'}" Opacity="0.6" FontSize="11" VerticalAlignment="Center"/>
-                                        <!-- ItemTemplate: shared EventTextSegmentTemplate (see
-                                             App.axaml/Views/SharedTemplates.axaml) - the exact same
-                                             per-segment colored TextBlock the tab's own Events list
-                                             (MainWindow.axaml) uses, not a re-implemented copy. -->
                                         <ItemsControl ItemsSource="{Binding Event.EffectiveSegments}"
                                                       ItemTemplate="{StaticResource EventTextSegmentTemplate}">
                                             <ItemsControl.ItemsPanel>
@@ -501,13 +283,7 @@
                         <views:JumpToNewestButton TargetListBox="{Binding #DashboardEventsListBox}"/>
                     </Grid>
 
-                    <!-- "Who's chatting" - a Server+Slot pair, deliberately
-                         separate from the filter row above (dev's explicit
-                         call). Picking the Slot here IS the real leader
-                         switch (same as the tab's own "Chat as" dropdown),
-                         since it binds straight to
-                         SelectedSendServerGroup.Slots/.SelectedChatSlot -
-                         the group's own live state, not a Dashboard copy. -->
+                    <!-- Picking the slot here is the real leader switch: binds to the group's own live state. -->
                     <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
                         <TextBlock Text="Send as:" Opacity="0.7" VerticalAlignment="Center"/>
                         <ComboBox Name="DashboardSendServerComboBox" Width="130"
@@ -530,14 +306,8 @@
                         </ComboBox>
                     </StackPanel>
 
-                    <!-- Send row - grayed out (not hidden), same "Add slot"
-                         philosophy, while no server is picked or that
-                         server's leader isn't connected. IsEnabled binds to
-                         CanSendMessage, NOT a nested
-                         SelectedSendServerGroup.IsLeaderConnected path - see
-                         that property's own doc comment for why the nested
-                         version doesn't reliably gray out with nothing
-                         selected. -->
+                    <!-- Binds CanSendMessage, not a nested SelectedSendServerGroup.IsLeaderConnected path, which
+                         doesn't reliably gray out with nothing selected. -->
                     <Grid Grid.Row="2" ColumnDefinitions="*,Auto" Margin="0,4,0,0">
                         <TextBox Grid.Column="0" Text="{Binding SelectedSendServerGroup.MessageToSend}" PlaceholderText="Message..."
                                  IsEnabled="{Binding CanSendMessage}">
@@ -553,18 +323,9 @@
 
             <GridSplitter Grid.Column="1" Classes="panel-divider"/>
 
-            <!-- ── Hints (right): shared, server-spanning, open-only ── -->
             <Grid Grid.Column="2" MinWidth="150" RowDefinitions="Auto,*">
-                <!-- Server/slot filter and item-category buttons in one
-                     WrapPanel (Kompakteres-Layout.md Teil
-                     B/C) - used to be a "Hints · unfound only" heading plus
-                     two separate rows; collapsible since Teil D. "Unfound
-                     only" now lives in this bar's tooltip (on the filters rather than the list, so it
-                     doesn't pop up over the click-to-navigate hint rows). The slot dropdown is disabled (not just
-                     visually inert) while "All servers" is selected, so it's
-                     clear the slot filter only applies once a concrete
-                     server is picked. Same single-select filter-toggle-button
-                     pattern as every other item-category filter row. -->
+                <!-- "Unfound only" note lives in the bar's tooltip, not the list's, so it doesn't pop up
+                     over the click-to-navigate hint rows. -->
                 <views:CollapsibleFilterBar Grid.Row="0" ToolTip.Tip="Showing unfound hints only, across all servers"
                                             IsExpanded="{Binding FilterLayout.DashboardHintsFiltersExpanded}"
                                             Summary="{Binding HintFilterSummaryText}">
@@ -572,19 +333,14 @@
                         <ComboBox Width="130"
                                   ItemsSource="{Binding HintFilter.ServerOptions}" SelectedItem="{Binding HintFilter.SelectedServer}">
                             <ComboBox.ItemTemplate>
-                                <!-- Deliberately untyped (no x:DataType): the leading entry is a
-                                     null placeholder for "All servers" (see HintServerFilterOptions),
-                                     and a compiled binding typed to GroupViewModel wouldn't match it. -->
+                                <!-- Deliberately untyped (no x:DataType): the leading entry is a null "All servers"
+                                     placeholder a compiled GroupViewModel binding wouldn't match. -->
                                 <DataTemplate>
                                     <TextBlock Text="{Binding Converter={StaticResource DashboardServerFilterDisplayConverter}}"
                                                MaxWidth="110" TextTrimming="CharacterEllipsis"/>
                                 </DataTemplate>
                             </ComboBox.ItemTemplate>
                         </ComboBox>
-                        <!-- Disabled (not just visually inert) while "All servers"
-                             is selected, so it's clear the slot filter only
-                             applies once a concrete server is picked - see the
-                             plan's UI section. -->
                         <ComboBox Width="130"
                                   ItemsSource="{Binding HintFilter.SlotOptions}" SelectedItem="{Binding HintFilter.SelectedSlot}"
                                   IsEnabled="{Binding HintFilter.SelectedServer, Converter={x:Static avconv:ObjectConverters.IsNotNull}}">

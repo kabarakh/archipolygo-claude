@@ -6,12 +6,7 @@ using Archipolygo.ViewModels;
 
 namespace Archipolygo.TestSupport;
 
-/// <summary>
-/// Records every <see cref="Report"/> call - lets a trigger-site test
-/// (hint, DeathLink, item, chat) assert exactly when and with which
-/// <see cref="AttentionCategory"/> it reported, independent of what the
-/// real <see cref="AttentionTracker"/> would then decide.
-/// </summary>
+/// <summary>Records every Report call, independent of what the real AttentionTracker would decide.</summary>
 public sealed class FakeAttentionTracker : IAttentionTracker
 {
     public List<(Guid GroupId, AttentionCategory Category)> Reports { get; } = new();

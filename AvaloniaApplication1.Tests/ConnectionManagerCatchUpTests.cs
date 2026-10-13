@@ -7,11 +7,6 @@ using static AvaloniaApplication1.Tests.ConnectionManagerTestHelpers;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie B (Test-Umsetzungsplan.md): <see cref="Archipolygo.Services.ConnectionManager.CatchUpSyncAsync"/>'s
-/// serialization against an in-flight sweep/switch/disconnect via the
-/// per-group gate - no real waiting anywhere in these tests.
-/// </summary>
 public class ConnectionManagerCatchUpTests
 {
     [AvaloniaFact(Timeout = 5000)]
@@ -21,17 +16,14 @@ public class ConnectionManagerCatchUpTests
         var (vm, group) = MakeGroup(manager, "Alice");
         var alice = group.Slots[0];
 
-        // Establish the leader first, with no siblings yet - no sweep to
-        // entangle this test with.
+        // Leader first with no siblings, so no sweep is involved.
         var aliceSession = new FakeArchipelagoSession(numericSlot: 1);
         factory.Enqueue(aliceSession);
         aliceSession.CompleteLoginSuccessfully(slot: 1);
         await manager.SwitchLeaderAsync(vm, alice);
         Dispatcher.UIThread.RunJobs();
 
-        // Two slots added after the group is already online - mirrors
-        // MainWindowViewModel.AddSlotsToGroup's batch of individual
-        // CatchUpSyncAsync calls.
+        // Mirrors AddSlotsToGroup's individual CatchUpSyncAsync calls.
         var bob = new SlotProfile { GroupId = group.Id, SlotName = "Bob" };
         var carol = new SlotProfile { GroupId = group.Id, SlotName = "Carol" };
         group.Slots.Add(bob);
@@ -46,9 +38,6 @@ public class ConnectionManagerCatchUpTests
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(2, factory.CreatedSessions.Count); // alice + bob's catch-up in flight
 
-        // Carol's call arrives while Bob's is still in flight - must queue
-        // behind it instead of opening a second, concurrent connection for
-        // the same server.
         var carolCatchUpTask = manager.CatchUpSyncAsync(vm, carol);
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(2, factory.CreatedSessions.Count); // carol not started yet
@@ -57,7 +46,6 @@ public class ConnectionManagerCatchUpTests
         await bobCatchUpTask;
         Dispatcher.UIThread.RunJobs();
 
-        // Bob's call released the gate - Carol's queued call can now proceed.
         Assert.Equal(3, factory.CreatedSessions.Count);
         Assert.Same(carolSession, factory.CreatedSessions[2]);
 
@@ -81,17 +69,12 @@ public class ConnectionManagerCatchUpTests
         var bobSession = new FakeArchipelagoSession(numericSlot: 2);
         factory.Enqueue(bobSession); // part of the sweep's own sibling list, computed at sweep start
 
-        // Alice's connect is the group's first ever - triggers a sweep whose
-        // sibling list is just [Bob] (Dave doesn't exist yet).
+        // The sweep's sibling list is just [Bob]; Dave doesn't exist yet.
         var switchTask = manager.SwitchLeaderAsync(vm, alice);
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(2, factory.CreatedSessions.Count); // alice + bob's sweep catch-up in flight
 
-        // A brand-new slot added WHILE the sweep is still processing Bob -
-        // e.g. the user ran "Add slot" mid-startup. It was never part of the
-        // sweep's own (already-computed) sibling list, so the only way it
-        // gets caught up at all is this explicit call queuing behind the
-        // same gate the sweep is holding.
+        // Dave isn't in the sweep's precomputed list, so only this explicit call (queued on the gate) catches him up.
         var dave = new SlotProfile { GroupId = group.Id, SlotName = "Dave" };
         group.Slots.Add(dave);
         var daveSession = new FakeArchipelagoSession(numericSlot: 3);
@@ -105,12 +88,7 @@ public class ConnectionManagerCatchUpTests
         await switchTask;
         Dispatcher.UIThread.RunJobs();
 
-        // The sweep itself finished (having only ever touched Bob) and, by
-        // releasing the gate, immediately let Dave's already-queued call
-        // start its own connect - his session exists now, but (since his
-        // login is still deliberately left pending) hasn't gone anywhere
-        // yet, proving it started only once the gate freed, not any earlier
-        // and not from within the sweep's own loop.
+        // Dave's connect started only once the sweep released the gate.
         Assert.Equal(3, factory.CreatedSessions.Count);
         Assert.Same(daveSession, factory.CreatedSessions[2]);
         Assert.Equal(0, daveSession.Socket.DisconnectCallCount);
@@ -136,11 +114,7 @@ public class ConnectionManagerCatchUpTests
 
         var bobSession = new FakeArchipelagoSession(numericSlot: 2);
         factory.Enqueue(bobSession);
-        // Deliberately nothing enqueued for Carol - if her turn is ever
-        // actually attempted despite being removed, the factory hands out a
-        // fresh default session whose login never completes, hanging this
-        // test (caught by the Timeout above) - the clearest possible signal
-        // that the removal wasn't actually honored.
+        // Nothing enqueued for Carol: if her turn runs anyway, the default session's login never completes and the Timeout trips.
 
         var switchTask = manager.SwitchLeaderAsync(vm, alice);
         Dispatcher.UIThread.RunJobs();
@@ -152,7 +126,6 @@ public class ConnectionManagerCatchUpTests
         await switchTask;
         Dispatcher.UIThread.RunJobs();
 
-        // Carol's turn came and went as a no-op - no third session ever created.
         Assert.Equal(2, factory.CreatedSessions.Count);
     }
 
@@ -172,8 +145,6 @@ public class ConnectionManagerCatchUpTests
         var bob = new SlotProfile { GroupId = group.Id, SlotName = "Bob" };
         group.Slots.Add(bob);
 
-        // Something else holds the group's gate first (e.g. another slot's
-        // own catch-up already in flight).
         var otherSlot = new SlotProfile { GroupId = group.Id, SlotName = "Other" };
         group.Slots.Add(otherSlot);
         var otherSession = new FakeArchipelagoSession(numericSlot: 3);

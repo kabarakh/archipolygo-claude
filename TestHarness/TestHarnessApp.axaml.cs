@@ -24,27 +24,15 @@ public partial class TestHarnessApp : Application
             var persistenceService = new FakePersistenceService();
             var connectionManager = new FakeConnectionManager();
 
-            // Real attention pipeline (Benachrichtigungen.md) - the same
-            // tracker/platform layer as App.axaml.cs, so ControlPanelWindow's
-            // "Notifications" buttons really blink this harness's window and
-            // update its tab badge/title.
+            // Real attention pipeline so the control panel's notification buttons really blink/badge this window.
             var groupWindowLocator = new Archipolygo.Services.GroupWindowLocator();
             var attentionTracker = new Archipolygo.Services.AttentionTracker(
                 new Archipolygo.Services.WindowAttentionService(groupWindowLocator), persistenceService);
-            // Fake tracker so the Admin view (Admin-Funktionen.md) has status/
-            // checks/inactivity to show - see SeedAdminDemo below.
             var trackerService = new FakeMultiworldTrackerService();
             var mainWindowViewModel = new MainWindowViewModel(persistenceService, connectionManager, trackerService,
                 attentionTracker: attentionTracker);
 
-            // One demo server with two slots, connected as leader right away
-            // (see FakeConnectionManager.SwitchLeaderAsync) - enough to
-            // exercise the Events/Hints/Items panels without any real
-            // network activity. The second slot exists specifically so
-            // ControlPanelWindow's "Hint routing" section can demonstrate the
-            // leader-vs-non-leader hint bug fixed in ConnectionManager.cs
-            // (see FakeConnectionManager's fake hint room) - a single-slot
-            // group can't show that scenario at all.
+            // The second slot lets the control panel demonstrate leader-vs-non-leader hint routing.
             mainWindowViewModel.AddNewGroup("TestServer", "localhost", 38281, string.Empty, "TestSlot", autoConnect: true);
             var groupViewModel = mainWindowViewModel.Groups[0];
             var slot = groupViewModel.Group.Slots[0];
@@ -55,20 +43,9 @@ public partial class TestHarnessApp : Application
             });
             var siblingSlot = groupViewModel.Group.Slots[1];
 
-            // AddNewGroup's leader connect above already ran before this
-            // sibling existed, so its subscription loop never saw it (same as
-            // a real leader session that doesn't re-scan for new slots on its
-            // own - see ConnectionManager.cs). Re-run the leader "connect" now
-            // that both slots are configured, exactly as a real leader
-            // reconnect/switch would, so the sibling's hint key actually gets
-            // tracked.
+            // The leader connected before this sibling existed; re-run it so the sibling's hint key gets tracked.
             _ = connectionManager.SwitchLeaderAsync(groupViewModel, slot);
 
-            // Seeds the real "Hint..." picker's Location mode (see
-            // HintPickerViewModel, Feature-Plaene/Archiv/Hint-Eingabefeld.md)
-            // with something to click through - Item mode needs no seeding
-            // of its own, it already reads live off whatever ControlPanelWindow's
-            // "Add item"/"Add hint" buttons feed into groupViewModel.ReceivedItems/Hints.
             connectionManager.SetHintableLocations(slot, new List<Archipolygo.Models.HintableLocation>
             {
                 new() { LocationId = 1, Name = "Cave Entrance - Chest" },
@@ -78,30 +55,17 @@ public partial class TestHarnessApp : Application
                 new() { LocationId = 5, Name = "Village Square - Well" },
             });
 
-            // Three more demo servers, deliberately not auto-connecting
-            // (nothing here exercises their connection state) - purely so
-            // there's more than one tab/Overview row to actually drag
-            // around (see Feature-Plaene/Tab-Reihenfolge.md). "TestServer"
-            // above stays first since ControlPanelWindow's buttons are all
-            // wired to that one specifically.
+            // More servers purely so there are tabs/rows to drag; TestServer stays first since the control panel targets it.
             mainWindowViewModel.AddNewGroup("AlphaServer", "alpha.example", 38281, string.Empty, "AlphaSlot", autoConnect: false);
             mainWindowViewModel.AddNewGroup("BravoServer", "bravo.example", 38281, string.Empty, "BravoSlot", autoConnect: false);
             mainWindowViewModel.AddNewGroup("CharlieServer", "charlie.example", 38281, string.Empty, "CharlieSlot", autoConnect: false);
 
-            // AddNewGroup above always selects whichever group it just added
-            // - reselect TestServer so the app doesn't open on CharlieServer's
-            // (empty) tab, and so the Dashboard's default view (see
-            // MainWindowViewModel.IsDashboardVisible) shows all four rows
-            // with TestServer's own data visible first if "Tab View" is
-            // clicked.
+            // AddNewGroup selects the last added group; reselect TestServer.
             mainWindowViewModel.SelectedGroup = groupViewModel;
 
             SeedAdminDemo(groupViewModel, connectionManager, trackerService);
 
-            // Explicit manual position so the main window can never overlap
-            // ControlPanelWindow (which sits at (20,20), 260 wide) - keeps
-            // both fully visible side by side for whoever is clicking
-            // through this (see .claude/skills/ui-feature-prototyp/SKILL.md).
+            // Positioned so it never overlaps ControlPanelWindow at (20,20), 260 wide.
             var mainWindow = new MainWindow
             {
                 DataContext = mainWindowViewModel,
@@ -109,11 +73,7 @@ public partial class TestHarnessApp : Application
                 Position = new Avalonia.PixelPoint(300, 20)
             };
 
-            // Same wiring as the real App.axaml.cs - without this, clicking
-            // "Remove server" or hitting a password-needed slot here would
-            // silently skip the dialog the real app shows, which isn't what
-            // this harness is for (see .claude/skills/ui-feature-prototyp/SKILL.md -
-            // it should behave like the real app minus the network).
+            // Same dialog wiring as App.axaml.cs so the harness behaves like the real app minus the network.
             mainWindowViewModel.ShowPasswordPromptDialogAsync =
                 (viewModel, cancellationToken) => PasswordPromptWindow.ShowDialogAsync(mainWindow, viewModel, cancellationToken);
             mainWindowViewModel.ShowConfirmationDialogAsync =
@@ -133,12 +93,7 @@ public partial class TestHarnessApp : Application
         base.OnFrameworkInitializationCompleted();
     }
 
-    /// <summary>
-    /// Admin-Funktionen.md: TestServer is marked "I'm the admin" and gets a
-    /// fake room roster, fake tracker data (status/checks/last activity),
-    /// DataPackage names per game and room settings. The fake admin server
-    /// in FakeConnectionManager accepts the password "admin".
-    /// </summary>
+    /// <summary>Marks TestServer as admin with fake roster/tracker data; the fake admin password is "admin".</summary>
     private static void SeedAdminDemo(GroupViewModel group, FakeConnectionManager connectionManager, FakeMultiworldTrackerService trackerService)
     {
         const string trackerId = "demo-tracker";
@@ -197,7 +152,6 @@ public partial class TestHarnessApp : Application
                 ChecksTotal = p.Total,
                 ClientStatus = p.Status,
                 LastActivity = p.Inactive is { } inactive ? now - inactive : null,
-                // Roughly the same share of this demo's few locations as of the real total.
                 CheckedLocationIds = locationIds[p.Game].Values.Take(p.Done * locationIds[p.Game].Count / p.Total).ToList(),
             }).ToList(),
         });

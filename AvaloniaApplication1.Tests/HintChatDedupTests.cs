@@ -11,12 +11,8 @@ using Avalonia.Threading;
 namespace AvaloniaApplication1.Tests;
 
 /// <summary>
-/// Kategorie A (Test-Umsetzungsplan.md): <see cref="HintService.AddHintFromChat"/> -
-/// hints announced by a "[Hint]: ..." chat line feed the Hints panel, but
-/// never as a second entry for a hint that's already there (same key, or
-/// same finder + location), in either arrival order relative to TrackHints'
-/// <see cref="HintService.SyncHints"/>. [AvaloniaFact] for the same
-/// Dispatcher-ownership reason as <see cref="HintServiceFilterTests"/>.
+/// "[Hint]: ..." chat lines must never duplicate a hint (same key, or same finder + location) in either arrival order
+/// relative to SyncHints. [AvaloniaFact] for Dispatcher thread ownership.
 /// </summary>
 public class HintChatDedupTests
 {
@@ -54,7 +50,6 @@ public class HintChatDedupTests
         Dispatcher.UIThread.RunJobs();
 
         Assert.Single(group.Hints);
-        // The chat line itself is the event - no second "Hint: ..." entry.
         Assert.Empty(group.Events);
     }
 
@@ -65,8 +60,7 @@ public class HintChatDedupTests
         var hintService = new HintService(new InMemoryProfileSyncStateStore());
 
         hintService.AddHintFromChat(group, Snapshot("1:2:10:20", slot.Id));
-        // Replayed on the next connect - even with a differing key, finder +
-        // location alone identifies the same hint.
+        // Replayed on reconnect with a different key: finder + location alone identifies the hint.
         hintService.AddHintFromChat(group, Snapshot("other-key", slot.Id));
         Dispatcher.UIThread.RunJobs();
 

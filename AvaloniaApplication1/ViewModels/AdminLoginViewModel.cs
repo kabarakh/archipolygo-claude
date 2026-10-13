@@ -3,11 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace Archipolygo.ViewModels;
 
-/// <summary>
-/// The password dialog shown when "Admin" is clicked while not logged in
-/// (Admin-Funktionen.md in the feature-plan archive). Server answers are
-/// shown right in the dialog instead of only as a chat line.
-/// </summary>
+/// <summary>Admin password dialog; shows the server's answer inline instead of only as a chat line.</summary>
 public partial class AdminLoginViewModel : ViewModelBase
 {
     private readonly AdminPanelViewModel _admin;
@@ -42,7 +38,6 @@ public partial class AdminLoginViewModel : ViewModelBase
 
     public bool CanLogin => !IsBusy;
 
-    /// <summary>True once logged in - the view closes itself then.</summary>
     public async Task<bool> TryLoginAsync()
     {
         IsBusy = true;

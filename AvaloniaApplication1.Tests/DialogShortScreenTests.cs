@@ -11,12 +11,8 @@ using Avalonia.VisualTree;
 namespace AvaloniaApplication1.Tests;
 
 /// <summary>
-/// Kategorie C (Test-Umsetzungsplan.md): on a short screen (e.g. a 2560x720
-/// ultrawide), <see cref="DialogScreenFit"/> caps a dialog's height to the
-/// screen's working area. These check the other half of that fix - that the
-/// real <c>.axaml</c> then scrolls its body instead of clipping, so Save stays
-/// fully inside the window. The cap itself is set directly here (the headless
-/// platform has no real screen to measure).
+/// Kategorie C: with the height capped as <see cref="DialogScreenFit"/> would on a short screen, the real dialog
+/// scrolls its body instead of clipping Save. The cap is set directly; the headless platform has no real screen.
 /// </summary>
 public class DialogShortScreenTests
 {
@@ -52,9 +48,7 @@ public class DialogShortScreenTests
 
         AssertButtonFullyInside(window, viewModel.SaveButtonText);
 
-        // One scrollbar for the whole dialog - the slot list must not bring
-        // its own nested ScrollViewer back (TextBoxes' template-internal ones
-        // don't count, hence the TemplatedParent filter).
+        // One ScrollViewer for the whole dialog, no nested one for the slot list (TextBoxes' template-internal ones excluded).
         var ownScrollViewers = window.GetVisualDescendants().OfType<ScrollViewer>()
             .Where(s => s.TemplatedParent is null);
         Assert.Single(ownScrollViewers);
@@ -72,8 +66,7 @@ public class DialogShortScreenTests
         Assert.True(bottomRight!.Value.Y <= window.Bounds.Height,
             $"\"{content}\" ends at y={bottomRight.Value.Y}, below the window's {window.Bounds.Height}px height.");
 
-        // The body above it must actually be the part that got squeezed into
-        // a scrolling area, not just silently clipped.
+        // The body must actually scroll, not be silently clipped.
         var scrollViewer = window.GetVisualDescendants().OfType<ScrollViewer>().First();
         Assert.True(scrollViewer.Extent.Height > scrollViewer.Viewport.Height);
     }

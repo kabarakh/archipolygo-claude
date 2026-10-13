@@ -4,13 +4,6 @@ using Archipolygo.ViewModels;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie A (Test-Umsetzungsplan.md): <see cref="ConnectionEditorViewModel.TryResolveTrackerReferenceAsync"/> -
-/// plain async C# logic (no session, no Avalonia layout) driving Tier 2 of
-/// Feature-Plaene/Archiv/Fortschrittsanzeigen.md. The UI-visibility/binding side of
-/// this (the "Multiworld tracker" field itself) is covered separately in
-/// <see cref="ConnectionEditorWindowProgressTests"/>.
-/// </summary>
 public class ConnectionEditorViewModelTrackerTests
 {
     private static ConnectionEditorViewModel ForEditGroupWithResolver(System.Func<string, Task<string?>>? resolveTrackerId = null)

@@ -5,14 +5,7 @@ using Archipolygo.Services;
 
 namespace Archipolygo.TestSupport;
 
-/// <summary>
-/// In-memory stand-in for <see cref="IPersistenceService"/> - shared by
-/// TestHarness (see .claude/skills/ui-feature-prototyp) and
-/// AvaloniaApplication1.Tests (see Test-Umsetzungsplan.md) so it isn't
-/// duplicated between the two. Never touches the real
-/// %AppData%/Archipolygo files; starts with zero groups and silently
-/// discards every save.
-/// </summary>
+/// <summary>In-memory stand-in: starts with zero groups and silently discards every save.</summary>
 public sealed class FakePersistenceService : IPersistenceService
 {
     public List<ServerConnectionGroup> LoadGroups() => new();

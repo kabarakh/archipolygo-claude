@@ -11,13 +11,6 @@ using Avalonia.VisualTree;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie C (Test-Umsetzungsplan.md): the Admin view's wiring in the real
-/// <c>.axaml</c> (Admin-Funktionen.md in the feature-plan archive) - the
-/// "Admin" button next to Hints/Items only for a server marked "I'm the
-/// admin", and the Admin view replacing the Hints/Items filter bar and lists.
-/// Plus the "I'm the admin" checkbox's round trip through the editor.
-/// </summary>
 public class AdminViewTests
 {
     private static (MainWindow window, GroupViewModel group) SetUpTab(bool isAdmin)

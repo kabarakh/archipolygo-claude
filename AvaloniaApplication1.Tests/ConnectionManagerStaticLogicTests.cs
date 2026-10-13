@@ -6,13 +6,6 @@ using Archipolygo.Services;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie A (Test-Umsetzungsplan.md): only the pure, session-less helper
-/// functions on <see cref="ConnectionManager"/> - no <c>ArchipelagoSession</c>,
-/// no dispatcher, no Avalonia needed. These are <c>internal static</c> rather
-/// than <c>private static</c> specifically so this project can call them
-/// directly (see the <c>InternalsVisibleTo</c> in AvaloniaApplication1.csproj).
-/// </summary>
 public class ConnectionManagerStaticLogicTests
 {
     [Fact]
@@ -89,7 +82,7 @@ public class ConnectionManagerStaticLogicTests
         new ArgumentException(),
     };
 
-    /// <summary>Admin-Funktionen.md (feature-plan archive): the settings dialog shows RoomState's flags as the exact strings "/option ..._mode" accepts.</summary>
+    /// <summary>RoomState's flags must be the exact strings "/option ..._mode" accepts.</summary>
     [Theory]
     [InlineData(Permissions.Disabled, "disabled")]
     [InlineData(Permissions.Enabled, "enabled")]

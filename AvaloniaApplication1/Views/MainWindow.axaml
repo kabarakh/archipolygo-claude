@@ -14,89 +14,43 @@
         Title="{Binding MainWindowTitle}">
 
     <Window.Resources>
-        <!-- SegmentKindToBrushConverter/EventTextSegmentTemplate come from
-             App.axaml's merged Views/SharedTemplates.axaml (shared with
-             DashboardView.axaml) - not redeclared here. SlotFilterDisplayConverter/
-             CountToStarWidthConverter moved into GroupDetailView.axaml's own
-             resources (Feature-Plaene/Tab-Eigenes-Fenster.md) - only the tab
-             header template below still needs these two. -->
         <conv:EnumEqualsConverter x:Key="EnumEqualsConverter"/>
         <conv:ConnectionStateToBrushConverter x:Key="ConnectionStateToBrushConverter"/>
     </Window.Resources>
 
     <Window.Styles>
-        <!-- Makes the currently active tab's header text stand out, beyond
-             just the Fluent theme's default selection underline. -->
         <Style Selector="TabItem:selected">
             <Setter Property="FontWeight" Value="Bold"/>
         </Style>
 
-        <!-- Zeroes out Fluent's own default TabItem Padding (themed as
-             {DynamicResource TabItemHeaderMargin}, not actually a Margin
-             despite the resource's name - the theme's own TabItem Margin
-             is already 0) - manual tab-reordering's insertion-line
-             indicator (Feature-Plaene/Tab-Reihenfolge.md) sits at the edge
-             of the tab header's own custom Border further down, and that
-             Border's Padding is now the *only* spacing around a tab's
-             content (see that Border's own comment). Without this, the
-             indicator would sit inset from the true boundary between two
-             tabs by the theme's own padding on top of that, reading as
-             "stuck to the text with a dead gap on the other side" instead
-             of a single clean line exactly between the two tabs. -->
+        <!-- Zeroed (themed as TabItemHeaderMargin) so the header Border's bounds
+             equal the tab's and the insertion lines sit exactly between two tabs. -->
         <Style Selector="TabItem">
             <Setter Property="Padding" Value="0"/>
         </Style>
 
-        <!-- Button.filter-toggle / .active live in Styles/FilterStyles.axaml
-             (included app-wide from App.axaml) since Kompakteres-Layout.md -
-             they used to be declared here, which left DetachedGroupWindow's
-             copy of the same filter buttons unstyled. -->
-
     </Window.Styles>
 
     <Design.DataContext>
-        <!-- This only sets the DataContext for the previewer in an IDE,
-             to set the actual DataContext for runtime, set the DataContext property in code (look at App.axaml.cs) -->
         <vm:MainWindowViewModel/>
     </Design.DataContext>
 
     <DockPanel>
-        <!-- Grid, not just the StackPanel below, so the theme button can sit
-             at the very right edge of the WINDOW - appending it to the end
-             of the StackPanel would only put it right of the last toolbar
-             button, not at the window edge (explicit user expectation - "da
-             erwarten Leute sowas", see
-             Feature-Plaene/Theme-Umschalter-und-Server-Farbwaehler.md). -->
+        <!-- Grid so the theme button sits at the window's right edge, not just right
+             of the last toolbar button. -->
         <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto">
         <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="8" Spacing="8" VerticalAlignment="Center">
             <Image Source="/Assets/project-logo.png" Width="28" Height="28" VerticalAlignment="Center"/>
-            <!-- Feature-Plaene/Archiv/Dashboard-Tab.md: toggles the whole main area
-                 between the normal TabControl and DashboardView (see the
-                 Grid further down) - a view swap, not a real TabItem, so
-                 Groups never needs a mixed-type collection. Text flips
-                 instead of a separate state indicator. First in the toolbar
-                 and set off with its own divider, since it's a mode switch
-                 for the whole window rather than one more per-server action. -->
             <Button Content="{Binding DashboardToggleButtonText}" Command="{Binding ToggleDashboardCommand}"/>
             <Border Width="1" Background="Gray" Opacity="0.5" VerticalAlignment="Stretch" Margin="0,2"/>
-            <!-- These four act on SelectedGroup (the active tab) - hidden
-                 while the Dashboard is shown instead of the TabControl,
-                 since there's no single "current" server to visibly apply
-                 them to there (see Feature-Plaene/Archiv/Dashboard-Tab.md's
-                 Status note). "Add server..." and "Disconnect all" don't
-                 depend on SelectedGroup, so they stay. -->
+            <!-- Hidden on the Dashboard: these act on SelectedGroup, and there's no
+                 single current server there. -->
             <Button Content="Add server..." Click="OnAddServerClick"/>
             <Button Content="Add slot..." Click="OnAddSlotClick" IsVisible="{Binding !IsDashboardVisible}"/>
             <Button Content="Edit server..." Click="OnEditServerClick" IsVisible="{Binding !IsDashboardVisible}"/>
             <Button Content="Remove server" Command="{Binding RemoveSelectedGroupCommand}" IsVisible="{Binding !IsDashboardVisible}"/>
             <Button Content="Disconnect all" Command="{Binding DisconnectAllGroupsCommand}"/>
             <Button Content="Settings..." Click="OnSettingsClick"/>
-            <!-- Feature-Plaene/Archiv/Auto-Update.md's update-available signal -
-                 originally a tiny 8x8 dot overlaying "Settings...", which was
-                 too easy to miss entirely. Now a real, labeled button of its
-                 own so it reads as an actual call to action instead of
-                 something you had to notice first. Click opens the same
-                 update Flyout as before with the version + "Update now". -->
             <Button Name="UpdateAvailableButton" Content="Update available" Background="OrangeRed" Foreground="White"
                     IsVisible="{Binding IsUpdateAvailable}" Click="OnUpdateBadgeClick">
                 <FlyoutBase.AttachedFlyout>
@@ -111,24 +65,12 @@
             </Button>
         </StackPanel>
 
-        <!-- Cycles System -> Light -> Dark -> System -> ... on each click
-             (Services/ThemeService.Next) - plain Unicode glyph, same
-             convention as the rest of this app's dialogs rather than an
-             icon font dependency just for this one button. -->
         <Button Grid.Column="1" Content="{Binding ThemeButtonGlyph}"
                 ToolTip.Tip="{Binding ThemeButtonTooltip}"
                 Command="{Binding CycleThemeCommand}"
                 FontSize="16" Margin="8" VerticalAlignment="Center"/>
         </Grid>
 
-        <!-- Startup-only progress indicator - visible while
-             MainWindowViewModel.InitializeGroupsAsync is still working
-             through every configured slot's initial catch-up sync (leader
-             connects and non-leader catch-up dips alike); disappears again
-             once that one-time startup pass finishes. The bar itself is
-             purely cosmetic (Value/Maximum mirror the same two counts as
-             the text underneath) - it's there so progress reads as a
-             visibly filling bar rather than just a changing number. -->
         <Border DockPanel.Dock="Top" Background="#332196F3" Padding="8,4"
                 IsVisible="{Binding IsStartupSyncing}">
             <StackPanel Spacing="2">
@@ -138,36 +80,18 @@
             </StackPanel>
         </Border>
 
-        <!-- Feature-Plaene/Archiv/Dashboard-Tab.md: TabControl and DashboardView
-             share this same fill area, only one visible at a time - not a
-             real TabItem mixed into Groups (see that plan's "Warum nicht
-             als echtes TabItem" section for why), so the TabControl itself
-             is completely untouched below. -->
+        <!-- A view swap rather than a real TabItem, so Groups never needs a
+             mixed-type collection. -->
         <Grid>
         <TabControl IsVisible="{Binding !IsDashboardVisible}" ItemsSource="{Binding DockedGroups}" SelectedItem="{Binding SelectedGroup}">
             <TabControl.ItemTemplate>
                 <DataTemplate DataType="vm:GroupViewModel">
-                    <!-- Border, not a bare StackPanel: manual tab-reordering
-                         (Feature-Plaene/Tab-Reihenfolge.md) needs a place to
-                         hang AllowDrop/drag handlers on, and a Grid inside it
-                         to layer the insertion-line indicators (see below)
-                         over the header content. A plain click still selects
-                         the tab exactly as before - nothing here marks
-                         PointerPressed Handled, so TabControl's own
-                         press-selects-tab behavior is untouched; only a move
-                         past the threshold turns it into a drag instead. -->
-                    <!-- Background="Transparent" (not just left unset) - a Border
-                         with no Background at all isn't hit-test visible across its
-                         own empty area in Avalonia, only its BorderBrush stroke and
-                         its children are; without this, a press landing in any gap
-                         between this header's children would fall straight through
-                         instead of reaching the drag handlers below. -->
-                    <!-- Tag, not Name - a repeated x:Name inside a DataTemplate collides
-                         once more than one tab is realized at once (same reasoning as
-                         DashboardView.axaml's per-row icon buttons); lets a test find
-                         "this group's own tab header Border" the same way.
-                         No Padding here, deliberately - see the StackPanel's own
-                         Margin below for why. -->
+                    <!-- Nothing here marks PointerPressed Handled, so a plain click still selects
+                         the tab; only a move past the threshold starts a drag. -->
+                    <!-- Transparent, not unset: a Border without a Background isn't hit-test
+                         visible across its empty area. -->
+                    <!-- Tag, not Name: a repeated x:Name in a DataTemplate collides once several
+                         tabs are realized. No Padding, see the StackPanel's Margin. -->
                     <Border Background="Transparent"
                             Tag="GroupTabHeader"
                             DragDrop.AllowDrop="True"
@@ -177,38 +101,18 @@
                             DragDrop.DragOver="OnGroupTabDragOver"
                             DragDrop.DragLeave="OnGroupTabDragLeave"
                             DragDrop.Drop="OnGroupTabDrop">
-                        <!-- Right-click to detach (Feature-Plaene/Tab-Eigenes-Fenster.md) -
-                             a context menu instead of a drag gesture, since dragging a
-                             tab clean out of the TabControl and across into a brand-new
-                             native window turned out unreliable in practice (dev
-                             feedback: couldn't pull a tab out at all). -->
+                        <!-- A context menu rather than a drag gesture: dragging a tab out into a new
+                             native window proved unreliable. -->
                         <Border.ContextMenu>
                             <ContextMenu>
                                 <MenuItem Header="Open in new window" Click="OnDetachTabMenuClick"/>
                                 <MenuItem Header="{Binding MuteMenuHeader}" Click="OnToggleMuteMenuClick"/>
                             </ContextMenu>
                         </Border.ContextMenu>
-                        <!-- Grid, not the StackPanel directly as the Border's child -
-                             lets the two insertion-line Rectangles below sit layered
-                             on top of the header content instead of pushed beside it
-                             (a Grid with no explicit Row/ColumnDefinitions puts every
-                             child in the same single cell, overlapping). -->
                         <Grid>
-                            <!-- The content's breathing room lives here, as a Margin
-                                 on the content itself, not as Padding on the Border
-                                 above: a Border's Padding insets its whole Child (this
-                                 Grid), which would inset the Rectangles below by the
-                                 same amount and defeat their whole point - TabItem's
-                                 own Padding is zeroed out above (its Margin already
-                                 was 0), so this Border's bounds are exactly the tab's
-                                 bounds, and the Rectangles (anchored to the Grid's own
-                                 edge, i.e. this Border's true outer edge) land exactly
-                                 on the boundary between two adjacent tabs instead of
-                                 inset from it. -->
+                            <!-- Margin here, not Padding on the Border: Padding would also inset the
+                                 insertion-line Rectangles away from the true tab boundary. -->
                             <StackPanel Orientation="Horizontal" Spacing="6" Margin="10,6" VerticalAlignment="Center">
-                                <!-- Server color (Feature-Plaene/Server-Farben.md) - a small
-                                     dot, separate from the connection-state Ellipse right
-                                     after it, so the two stay independently readable. -->
                                 <Ellipse Width="6" Height="6" VerticalAlignment="Center"
                                          Fill="{Binding ColorBrush}"/>
                                 <Ellipse Width="8" Height="8" VerticalAlignment="Center"
@@ -220,31 +124,14 @@
                                                FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 </Border>
                                 <TextBlock Text="{Binding HeaderText}" Foreground="{Binding ColorBrush}"/>
-                                <!-- Benachrichtigungen.md: this server is muted (Edit server /
-                                     right-click "Mute notifications"). -->
                                 <Path Data="{StaticResource BellOffGeometry}" Width="11" Height="11" Stretch="Uniform"
                                       Stroke="{Binding $parent[TabItem].Foreground}" StrokeThickness="1.4" Opacity="0.6"
                                       VerticalAlignment="Center" IsVisible="{Binding IsNotificationsMuted}"
                                       ToolTip.Tip="Notifications muted for this server"/>
-                                <!-- Only shown while there's no live leader connection,
-                                     so the tab itself surfaces "disconnected"/
-                                     "connecting"/"reconnecting"/"error" without
-                                     needing to select it. -->
                                 <TextBlock Text="{Binding ConnectionState}" FontSize="11" Opacity="0.7"
                                            VerticalAlignment="Center" IsVisible="{Binding !IsLeaderConnected}"/>
                             </StackPanel>
 
-                            <!-- Manual tab-reordering insertion-line indicators
-                                 (Feature-Plaene/Tab-Reihenfolge.md) - a thin bar at
-                                 this tab's leading (Before) or trailing (After) edge
-                                 while a reorder drag hovers here on that side (see
-                                 GroupViewModel.DropIndicator, set by
-                                 OnGroupTabDragOver/Leave in MainWindow.axaml.cs).
-                                 Tab headers lay out horizontally, so Before = left
-                                 edge, After = right edge. Fill is a plain per-instance
-                                 value, not a Style Setter this time - no local-value-
-                                 beats-style-setter trap to worry about (see CLAUDE.md's
-                                 gotcha on that, from this element's first design). -->
                             <Rectangle Width="3" HorizontalAlignment="Left" VerticalAlignment="Stretch" Fill="DodgerBlue"
                                        IsVisible="{Binding DropIndicator, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Before}"/>
                             <Rectangle Width="3" HorizontalAlignment="Right" VerticalAlignment="Stretch" Fill="DodgerBlue"
@@ -254,27 +141,16 @@
                 </DataTemplate>
             </TabControl.ItemTemplate>
             <TabControl.ContentTemplate>
-                <!-- The actual Events/Hints/Items content is shared with
-                     DetachedGroupWindow (Feature-Plaene/Tab-Eigenes-Fenster.md)
-                     via GroupDetailView - see that control's own doc comment.
-                     DataType stays declared here so compiled bindings inside
-                     this DataTemplate (none currently, but kept for
-                     consistency with the ItemTemplate above) still resolve. -->
                 <DataTemplate DataType="vm:GroupViewModel">
                     <views:GroupDetailView/>
                 </DataTemplate>
             </TabControl.ContentTemplate>
         </TabControl>
 
-        <!-- IsVisible lives on this wrapper, not on DashboardView itself:
-             DashboardView's own DataContext is overridden to Dashboard
-             (a DashboardViewModel, which has no IsDashboardVisible of its
-             own) - putting IsVisible on the same element would resolve
-             against that DataContext instead of MainWindowViewModel's. -->
-        <!-- Padding: same inset the TabControl above gives each tab's
-             content (TabControl.Padding = {DynamicResource TabItemMargin}
-             in Fluent), so switching between Dashboard and Tab View doesn't
-             shift the panels' distance from the window edge. -->
+        <!-- IsVisible on this wrapper: DashboardView's DataContext is Dashboard,
+             which has no IsDashboardVisible. -->
+        <!-- Same inset as the TabControl's content, so toggling the Dashboard
+             doesn't shift the panels. -->
         <Border IsVisible="{Binding IsDashboardVisible}" Padding="{DynamicResource TabItemMargin}">
             <views:DashboardView x:Name="DashboardViewControl" DataContext="{Binding Dashboard}"/>
         </Border>

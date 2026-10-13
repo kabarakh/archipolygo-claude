@@ -14,15 +14,9 @@ using Avalonia.VisualTree;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kompakteres-Layout.md, Teil D: collapsible filter bars -
-/// the collapsed summary texts, the expanded state shared across tabs and
-/// persisted across restarts, and the real <see cref="CollapsibleFilterBar"/>
-/// inside a server tab.
-/// </summary>
 public class CollapsibleFilterBarTests
 {
-    /// <summary>Like <see cref="FakePersistenceService"/>, but keeps saved settings so a restart can read them back.</summary>
+    /// <summary>Unlike FakePersistenceService, keeps saved settings so a restart can read them back.</summary>
     private sealed class SettingsKeepingPersistence : IPersistenceService
     {
         public AppSettings Settings { get; private set; } = new();
@@ -78,7 +72,7 @@ public class CollapsibleFilterBarTests
         viewModel.AddNewGroup("Server1", "host1", 1, string.Empty, "Alice", autoConnect: false);
         var group = viewModel.Groups[0];
 
-        // Hints panel defaults to Unfound - that narrows the list, so it's named.
+        // Hints panel defaults to Unfound, which narrows the list, so it's named.
         Assert.Equal("Unfound", group.RightPanelFilterSummaryText);
 
         group.SelectedHintRoleFilter = HintRoleFilter.IReceive;

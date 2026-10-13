@@ -3,7 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace Archipolygo.ViewModels;
 
-/// <summary>One row of the Settings dialog's "Notifications" table - the two independent toggles of an <see cref="AttentionCategorySetting"/>, see the feature-plan archive's <c>Benachrichtigungen.md</c>.</summary>
+/// <summary>One row of the Settings dialog's Notifications table (an <see cref="AttentionCategorySetting"/>).</summary>
 public partial class AttentionCategoryRowViewModel : ObservableObject
 {
     public required AttentionCategory Category { get; init; }

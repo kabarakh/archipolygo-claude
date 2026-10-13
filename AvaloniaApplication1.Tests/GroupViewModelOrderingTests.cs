@@ -5,14 +5,6 @@ using Archipolygo.ViewModels;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie A (Test-Umsetzungsplan.md): <see cref="GroupViewModel.RefreshSlotOrder"/>'s
-/// sort rule (leader first, then alphabetical). No Avalonia bindings/dispatcher
-/// involved in this path (see <see cref="GroupViewModel"/>'s constructor and
-/// <c>OnSlotsCollectionChanged</c>/<c>OnLeaderSlotIdChanged</c>), so a plain
-/// <see cref="FakeConnectionManager"/> stand-in is enough - no real connection
-/// is ever attempted here.
-/// </summary>
 public class GroupViewModelOrderingTests
 {
     private static (GroupViewModel viewModel, ServerConnectionGroup group) MakeGroup(params string[] slotNames)
@@ -72,7 +64,6 @@ public class GroupViewModelOrderingTests
         var newSlot = new SlotProfile { GroupId = group.Id, SlotName = "Bob" };
         viewModel.AddSlotsToGroup(new[] { newSlot });
 
-        // Leader (index 0) untouched; "Bob" inserted alphabetically after it.
         Assert.Equal(new[] { "Charlie", "Alice", "Bob" }, viewModel.Slots.Select(s => s.SlotName));
     }
 
@@ -85,7 +76,6 @@ public class GroupViewModelOrderingTests
         viewModel.RemoveSlotFromGroup(bob);
 
         Assert.Equal(new[] { "Alice", "Charlie" }, viewModel.Slots.Select(s => s.SlotName));
-        // SlotFilterOptions keeps its leading null ("All slots") entry plus the remaining slots.
         Assert.Equal(new string?[] { null, "Alice", "Charlie" }, viewModel.SlotFilterOptions.Select(s => s?.SlotName));
     }
 
@@ -99,7 +89,7 @@ public class GroupViewModelOrderingTests
         var bob = group.Slots.Single(s => s.SlotName == "Bob");
         viewModel.SetLeaderStateWithoutTriggeringSwitch(bob.Id, bob);
 
-        // The rebuild in RefreshSlotOrder must not silently drop a still-valid selection.
+        // The rebuild must not silently drop a still-valid selection.
         Assert.Equal(alice, viewModel.SelectedEventsSlotFilter);
     }
 }

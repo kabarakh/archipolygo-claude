@@ -13,22 +13,8 @@ using static AvaloniaApplication1.Tests.ConnectionManagerTestHelpers;
 namespace AvaloniaApplication1.Tests;
 
 /// <summary>
-/// Kategorie A/B (Test-Umsetzungsplan.md): the attention trigger sites
-/// report the right <see cref="AttentionCategory"/> to
-/// <see cref="IAttentionTracker"/> - a genuinely new, still-unfound, live
-/// hint (<see cref="HintService"/>) and any DeathLink
-/// (<see cref="Services.ConnectionManager"/>, Kategorie B via a real
-/// session like <see cref="ConnectionManagerDeathLinkTests"/>). What the
-/// tracker then decides is covered separately by <see cref="AttentionTrackerTests"/>,
-/// the chat rules by <see cref="ChatAttentionClassifierTests"/>.
-///
-/// The item and chat trigger sites (in <see cref="SessionEventTranslator"/>)
-/// aren't covered here - the shared <see cref="FakeReceivedItemsHelper"/>'s
-/// <c>AllItemsReceived</c> throws <see cref="System.NotImplementedException"/>,
-/// and <c>ChatLogMessage</c>/<c>ItemSendLogMessage</c> only have internal
-/// constructors in Archipelago.MultiClient.Net, so a fake session can't
-/// raise them. Honestly documented rather than silently skipped, same
-/// spirit as <see cref="GroupReorderTests"/>' own drag-gesture gap note.
+/// Item/chat trigger sites aren't covered: the fake's AllItemsReceived throws and ChatLogMessage/ItemSendLogMessage
+/// only have internal constructors, so a fake session can't raise them.
 /// </summary>
 public class AttentionTriggerTests
 {
@@ -69,7 +55,7 @@ public class AttentionTriggerTests
         Assert.Equal(new[] { (groupViewModel.Group.Id, AttentionCategory.OwnHint) }, attentionTracker.Reports);
     }
 
-    /// <summary>An already-found hint at first sight is historical noise - see SyncHints' own "only generate an event-log entry for unfound hints" comment; the flash trigger reuses that exact condition.</summary>
+    /// <summary>An already-found hint at first sight is historical noise (same condition as SyncHints' event-log entry).</summary>
     [AvaloniaFact]
     public void SyncHints_NewButAlreadyFoundHint_DoesNotReport()
     {
@@ -83,7 +69,6 @@ public class AttentionTriggerTests
         Assert.Empty(attentionTracker.Reports);
     }
 
-    /// <summary>A hint's Found flag flipping on a later re-sync is not a "new" arrival - no repeat flash for the same hint.</summary>
     [AvaloniaFact]
     public void SyncHints_ExistingHintJustFlippingFound_DoesNotReportAgain()
     {
@@ -101,11 +86,7 @@ public class AttentionTriggerTests
         Assert.Empty(attentionTracker.Reports);
     }
 
-    /// <summary>
-    /// A hint that's new to this slot but arrives as backlog (catch-up
-    /// session, or the leader's initial replay) is still added and flagged
-    /// new - it just never asks for attention (Benachrichtigungen.md, "nur live").
-    /// </summary>
+    /// <summary>Backlog (catch-up or initial replay) is flagged new but never asks for attention.</summary>
     [AvaloniaFact]
     public void SyncHints_NewUnfoundHintFromBacklog_IsAddedButNotReported()
     {

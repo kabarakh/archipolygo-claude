@@ -10,23 +10,10 @@ using Avalonia.Input.Platform;
 
 namespace Archipolygo.Views;
 
-/// <summary>
-/// Shared "Ctrl/Cmd+C copies the selected rows' text" mechanism - every
-/// multi-select list in this app that supports it (MainWindow's own
-/// Events/Hints lists, DashboardView's shared Events list) used to
-/// hand-roll an identical copy of the actual selection-to-clipboard logic;
-/// this is that logic, written once. Only "what counts as the copy
-/// shortcut" and "what text to build per row" are still each caller's own
-/// concern (see e.g. <see cref="MainWindow.OnEventsListKeyDown"/> vs.
-/// <see cref="DashboardView.OnDashboardEventsListKeyDown"/>).
-/// </summary>
+/// <summary>Shared Ctrl/Cmd+C selection-to-clipboard logic for the app's multi-select lists.</summary>
 public static class ClipboardCopyHelper
 {
-    /// <summary>
-    /// Copies one plain string (e.g. a server's "host:port") to the
-    /// clipboard. Returns <c>false</c> if no clipboard could be resolved.
-    /// </summary>
-    /// <param name="anchor">Any control in a window's visual tree - pass the hosting view rather than a <see cref="MenuItem"/>, whose own TopLevel is the popup, not the window.</param>
+    /// <param name="anchor">Pass the hosting view, not a <see cref="MenuItem"/>, whose TopLevel is the popup rather than the window.</param>
     public static async Task<bool> CopyTextAsync(Visual anchor, string text)
     {
         var clipboard = TopLevel.GetTopLevel(anchor)?.Clipboard;
@@ -42,14 +29,7 @@ public static class ClipboardCopyHelper
     public static bool IsCopyShortcut(KeyEventArgs e) =>
         e.Key == Key.C && (e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta));
 
-    /// <summary>
-    /// Builds one line of text per selected item (via <paramref name="toText"/>)
-    /// and copies them all, newline-separated, to the clipboard - in the
-    /// order the items appear in the list, not selection order, so a
-    /// ctrl-clicked-out-of-order selection still copies chronologically.
-    /// No-op (returns <c>false</c>) if nothing is selected or the resulting
-    /// text would be empty.
-    /// </summary>
+    /// <summary>Copies selected rows in display order, not selection order, so out-of-order picks stay chronological.</summary>
     /// <param name="anchor">Any control in the same visual tree as <paramref name="listBox"/> - used only to resolve the hosting <see cref="TopLevel"/>'s clipboard.</param>
     public static async Task<bool> CopySelectedLinesAsync<T>(Visual anchor, ListBox listBox, Func<T, string> toText) where T : class
     {
@@ -77,16 +57,7 @@ public static class ClipboardCopyHelper
         return true;
     }
 
-    /// <summary>
-    /// "Copy from here" - unlike <see cref="CopySelectedLinesAsync{T}"/>
-    /// (which copies exactly the selected rows), this copies the earliest
-    /// selected row (in display order, not selection order - so shift-clicking
-    /// out of order still anchors on the topmost pick) plus every row after it,
-    /// regardless of whether those later rows are themselves selected. Built
-    /// for sharing "everything since this point" without having to shift-click
-    /// all the way to the newest entry. No-op (returns <c>false</c>) if
-    /// nothing is selected.
-    /// </summary>
+    /// <summary>Copies the topmost selected row (in display order) plus every row after it, selected or not.</summary>
     /// <param name="anchor">Any control in the same visual tree as <paramref name="listBox"/> - used only to resolve the hosting <see cref="TopLevel"/>'s clipboard.</param>
     public static async Task<bool> CopyFromSelectedOnwardsAsync<T>(Visual anchor, ListBox listBox, Func<T, string> toText) where T : class
     {

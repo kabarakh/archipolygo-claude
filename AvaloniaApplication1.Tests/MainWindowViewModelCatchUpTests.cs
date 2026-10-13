@@ -9,16 +9,7 @@ using Avalonia.Threading;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie B (Test-Umsetzungsplan.md): <see cref="MainWindowViewModel"/>'s
-/// own <c>CatchUpNewSlotsSequentiallyAsync</c> (private, only reachable via
-/// <see cref="MainWindowViewModel.AddSlotsToGroup"/>) - a different layer
-/// than <see cref="Archipolygo.Services.ConnectionManager"/>'s own gate
-/// (see <see cref="ConnectionManagerCatchUpTests"/>), but the same "one
-/// slot's catch-up at a time" invariant: firing several new slots'
-/// connects concurrently is exactly the simultaneous-handshake burst this
-/// exists to avoid.
-/// </summary>
+/// <summary>Same one-catch-up-at-a-time invariant as ConnectionManager's gate, at the AddSlotsToGroup layer.</summary>
 public class MainWindowViewModelCatchUpTests
 {
     [AvaloniaFact(Timeout = 5000)]
@@ -51,7 +42,6 @@ public class MainWindowViewModelCatchUpTests
         });
         Dispatcher.UIThread.RunJobs();
 
-        // Bob's catch-up in flight; Carol's must not have started yet.
         Assert.Equal(2, factory.CreatedSessions.Count);
         Assert.Same(bobSession, factory.CreatedSessions[1]);
 

@@ -20,8 +20,7 @@ public sealed class UnreadBadgeService : IUnreadBadgeService
             return;
         }
 
-        // Best-effort, same as WindowAttentionService: a failed interop call
-        // must never take the app down over a cosmetic badge.
+        // A failed interop call must never take the app down over a cosmetic badge.
         try
         {
             WindowsTaskbarBadge.Set(window, count);
@@ -47,23 +46,15 @@ public sealed class UnreadBadgeService : IUnreadBadgeService
         }
     }
 
-    /// <summary>What the badge shows - capped so it stays readable in the few pixels each platform gives it. Null = no badge.</summary>
+    /// <summary>Capped to stay readable in a few pixels. Null = no badge.</summary>
     public static string? BadgeText(int count, int max) =>
         count <= 0 ? null : count > max ? $"{max}+" : count.ToString(CultureInfo.InvariantCulture);
 }
 
 /// <summary>
-/// Windows: <c>ITaskbarList3::SetOverlayIcon</c> (shell32 COM object
-/// <c>CLSID_TaskbarList</c>), the same overlay Discord's red number uses.
-/// Interface GUID and vtable order cross-checked against Avalonia 12.0.4's
-/// own <c>Avalonia.Win32.Interop.TaskBarList</c>/<c>ITaskBarList3VTable</c>,
-/// which uses this very call - with a null icon, from its <c>RefreshIcon</c>
-/// on every DPI change and window-icon change, which wipes our overlay.
-/// Callers re-apply on <see cref="TopLevel.ScalingChanged"/> for that reason
-/// (Avalonia raises it right after that clear). The icon itself is drawn
-/// with Avalonia and handed to <c>CreateIconFromResourceEx</c> as PNG bytes -
-/// "Since Windows Vista RT_ICON ... may contain PNG-compressed image data"
-/// (Microsoft Learn, Resource File Formats).
+/// Windows: <c>ITaskbarList3::SetOverlayIcon</c> (vtable order matches Avalonia's own TaskBarList).
+/// Avalonia's RefreshIcon clears the overlay on every DPI change, so callers re-apply on
+/// <see cref="TopLevel.ScalingChanged"/>. The icon is passed as PNG bytes, valid since Vista.
 /// </summary>
 internal static class WindowsTaskbarBadge
 {
@@ -119,7 +110,7 @@ internal static class WindowsTaskbarBadge
 
     private static ITaskbarList3? _taskbar;
 
-    /// <summary>One icon per badge text, created once and kept for the app's lifetime (at most ten: "1"-"9", "9+") - so replacing a window's overlay never has to destroy an icon another window might still show.</summary>
+    /// <summary>Icons are never destroyed, so replacing one window's overlay can't break another's (at most ten).</summary>
     private static readonly Dictionary<string, IntPtr> IconCache = new();
 
     public static void Set(Window window, int count)
@@ -158,7 +149,6 @@ internal static class WindowsTaskbarBadge
         _taskbar.SetOverlayIcon(handle.Handle, icon, $"{count} unread");
     }
 
-    /// <summary>Red circle with a white number, sized to the system's small-icon metric (16px at 100% scaling).</summary>
     private static IntPtr CreateBadgeIcon(string text)
     {
         var size = Math.Max(16, GetSystemMetrics(SmCxSmIcon));
@@ -178,12 +168,7 @@ internal static class WindowsTaskbarBadge
     }
 }
 
-/// <summary>
-/// macOS: <c>NSApplication.sharedApplication.dockTile.badgeLabel</c> (an
-/// optional string - nil removes the badge, per Apple's NSDockTile docs),
-/// through the Objective-C runtime like <see cref="MacWindowAttention"/>.
-/// The Dock badge is per app, so it shows the total across all windows.
-/// </summary>
+/// <summary>macOS: <c>dockTile.badgeLabel</c> via the ObjC runtime; per app, so it shows the total. nil removes it.</summary>
 internal static class MacDockBadge
 {
     private const int BadgeMax = 99;

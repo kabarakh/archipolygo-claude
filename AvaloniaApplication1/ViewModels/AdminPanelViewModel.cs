@@ -25,23 +25,11 @@ public enum AdminLoginResult
 }
 
 /// <summary>
-/// Everything behind one server tab's Admin view (Admin-Funktionen.md in the
-/// feature-plan archive): the "!admin login" state, sending admin commands
-/// and collecting the server's answers, and the room's player list.
-///
-/// The server never correlates a reply with the command that caused it, and
-/// most successful admin actions ("/send", "/release", ...) don't reply at
-/// all - they're only announced room-wide. So a command's "answer" here is
-/// whatever command result/broadcast text arrives on the leader session
-/// within a short window after sending (see <see cref="SendCommandAsync"/>);
-/// commands are sent one at a time so those windows never overlap.
-///
-/// The login belongs to the leader's socket: a new leader connection (account
-/// switch via "Chat as", reconnect after a drop) is logged out server-side,
-/// and so is this client when any other client logs in as admin (the server
-/// has exactly one admin and doesn't tell the previous one). Both are healed
-/// automatically while the password is still in memory - never persisted,
-/// same as <see cref="ServerConnectionGroup.Password"/>.
+/// One server tab's Admin view: "!admin login" state, admin commands and the player list.
+/// The server never correlates replies with commands and most successful actions only broadcast,
+/// so a command's answer is whatever arrives within a short window; commands go one at a time.
+/// The login dies with the leader socket or when another client logs in as admin; both are healed
+/// automatically while the (never persisted) password is in memory.
 /// </summary>
 public partial class AdminPanelViewModel : ViewModelBase
 {
@@ -54,7 +42,7 @@ public partial class AdminPanelViewModel : ViewModelBase
     private readonly Func<DateTimeOffset> _clock;
     private readonly DispatcherTimer? _ticker;
 
-    // Commands (and logins) are strictly one at a time - see class comment.
+    // Commands and logins strictly one at a time, so reply windows never overlap.
     private readonly System.Threading.SemaphoreSlim _sendGate = new(1, 1);
 
     private string? _password;
@@ -74,8 +62,7 @@ public partial class AdminPanelViewModel : ViewModelBase
         _connectionManager.LeaderConnected += OnLeaderConnected;
         _group.PropertyChanged += OnGroupPropertyChanged;
 
-        // Live-counting inactivity. No timer outside a running Avalonia app
-        // (plain unit tests) - nothing would render it there anyway.
+        // No timer outside a running Avalonia app (plain unit tests).
         if (Avalonia.Application.Current is not null)
         {
             _ticker = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
@@ -99,13 +86,11 @@ public partial class AdminPanelViewModel : ViewModelBase
         ? $"🛡 Admin via {_group.SelectedChatSlot?.DisplayName ?? "?"}"
         : "Not logged in as admin";
 
-    // Every room player from the last refresh; Players is the filtered and
-    // sorted view of it the list shows.
+    // Players is the filtered/sorted view of this.
     private readonly List<AdminPlayerRowViewModel> _allPlayers = new();
 
     public ObservableCollection<AdminPlayerRowViewModel> Players { get; } = new();
 
-    /// <summary>"Exclude goaled slots" - hides players the tracker reports as finished (<see cref="AdminPlayerRowViewModel.IsGoal"/>).</summary>
     [ObservableProperty]
     private bool _excludeGoaled;
 
@@ -280,13 +265,8 @@ public partial class AdminPanelViewModel : ViewModelBase
     // ── Commands ──
 
     /// <summary>
-    /// Sends one "!admin ..." line and returns what the dialog shows as the
-    /// server's answer. <paramref name="expectsDirectReply"/>: the command
-    /// always answers with its own result line on success too ("/option"),
-    /// so this can return as soon as that arrives instead of waiting out
-    /// <see cref="ReplyWindow"/>. If the server says we're not logged in
-    /// (another client took the admin login over), logs in again once with
-    /// the remembered password and resends.
+    /// <paramref name="expectsDirectReply"/>: the command (e.g. "/option") always replies, so return on that
+    /// instead of waiting out <see cref="ReplyWindow"/>. On "must first login" re-logs in once and resends.
     /// </summary>
     public async Task<string> SendCommandAsync(string commandLine, bool expectsDirectReply = false)
     {
@@ -420,11 +400,7 @@ public partial class AdminPanelViewModel : ViewModelBase
 
     partial void OnSortByInactivityChanged(bool value) => RebuildVisiblePlayers();
 
-    /// <summary>
-    /// Room roster from the live connection, joined with the tracker's
-    /// per-player status/checks/activity by (team, slot). The tracker service
-    /// itself never fetches more often than its documented cache timers.
-    /// </summary>
+    /// <summary>Roster joined with the tracker's per-player progress by (team, slot); the tracker service rate-limits itself.</summary>
     [RelayCommand]
     public async Task RefreshPlayersAsync()
     {

@@ -5,21 +5,10 @@ using Velopack.Sources;
 
 namespace Archipolygo.Services;
 
-/// <summary>
-/// Real <see cref="IUpdateService"/> - wraps Velopack's own <see cref="UpdateManager"/>,
-/// pointed at this repo's GitHub Releases (the same place release.yml
-/// already publishes every build to). Package version pinned per CLAUDE.md's
-/// rule: verified against Velopack 1.2.0's actual source at that tag
-/// (ArchipelagoMW-style - not the locally installed DLL, not a newer/older
-/// version's docs).
-/// </summary>
+/// <summary>Wraps Velopack's <see cref="UpdateManager"/> against this repo's GitHub Releases.</summary>
 public class UpdateService : IUpdateService
 {
-    // Matches this repo's own remote (see release.yml, which publishes every
-    // build here) - GithubSource resolves the latest release's Velopack
-    // assets (the .nupkg/releases.{channel}.json vpk pack produces) from
-    // this URL, not the plain .zip downloads release.yml already attaches
-    // for manual installs.
+    // GithubSource reads the Velopack assets (releases.{channel}.json), not the plain zips, from this repo's releases.
     private const string RepoUrl = "https://github.com/kabarakh/archipolygo-claude";
 
     private readonly UpdateManager? _updateManager;
@@ -28,10 +17,7 @@ public class UpdateService : IUpdateService
 
     public bool IsManagedInstall => _updateManager?.IsInstalled ?? false;
 
-    // release.yml only ever produces a Velopack package for win-x64/linux-x64 -
-    // see that workflow's own doc comment for why macOS is excluded
-    // (codesign/xcrun/productbuild are hard macOS-only dependencies vpk pack
-    // can't satisfy by cross-compiling from the Linux runner it uses).
+    // release.yml produces no Velopack package for macOS (vpk can't cross-compile its codesign/productbuild steps).
     public bool SupportsManagedInstall => !OperatingSystem.IsMacOS();
 
     public UpdateService(IDiagnosticLogger? diagnosticLogger = null)
@@ -40,19 +26,13 @@ public class UpdateService : IUpdateService
 
         try
         {
-            // No access token (public repo, anonymous rate limits are fine
-            // for one check per app start) and no prereleases (only real,
-            // published releases - see release.yml's
-            // "on: release: types: [published]").
+            // Public repo (anonymous rate limit is fine for one check per start); published releases only.
             var source = new GithubSource(RepoUrl, accessToken: null, prerelease: false);
             _updateManager = new UpdateManager(source);
         }
         catch (Exception ex)
         {
-            // Never let a construction-time failure here take the whole app
-            // down with it - see this class's doc comment/CheckForUpdatesAsync's
-            // "never throws" contract. _updateManager stays null; every
-            // other member below already guards against that.
+            // Must never take the app down; every member guards against a null manager.
             _diagnosticLogger.Warning($"Failed to construct UpdateManager, update checks disabled for this session: {ex.Message}");
             _updateManager = null;
         }
@@ -60,11 +40,7 @@ public class UpdateService : IUpdateService
 
     public async Task<string?> CheckForUpdatesAsync()
     {
-        // Not a Velopack-installed build at all (every local dotnet build/run,
-        // and any manually-unzipped install from before this feature existed -
-        // see Feature-Plaene/Archiv/Auto-Update.md's "migration path" note) - nothing
-        // to check, and calling CheckForUpdatesAsync on an unmanaged install
-        // would just fail anyway.
+        // Unmanaged (local build or unzipped install): checking would just fail.
         if (_updateManager is null || !_updateManager.IsInstalled)
         {
             return null;
@@ -82,10 +58,7 @@ public class UpdateService : IUpdateService
         }
         catch (Exception ex)
         {
-            // Offline, feed unreachable, malformed release, ... - silently
-            // treated the same as "no update available" rather than
-            // surfacing an error the user can't act on. See this method's
-            // doc comment.
+            // Offline, unreachable feed, malformed release: treated as "no update", nothing the user can act on.
             _diagnosticLogger.Warning($"Update check failed, treating as up to date: {ex.Message}");
             _pendingUpdate = null;
             return null;
@@ -103,20 +76,11 @@ public class UpdateService : IUpdateService
         {
             await _updateManager.DownloadUpdatesAsync(_pendingUpdate);
 
-            // Closes this process and relaunches the new version - the user
-            // has already explicitly confirmed this via the "Update now"
-            // button (see MainWindowViewModel.UpdateNowAsync), never
-            // triggered automatically in the background while a connection
-            // might be live. See Feature-Plaene/Archiv/Auto-Update.md's "explicitly
-            // not part of this plan" note for why there's no unattended-
-            // restart path here at all.
+            // Restarts the app; only ever after the user's explicit "Update now", never unattended.
             _updateManager.ApplyUpdatesAndRestart(_pendingUpdate.TargetFullRelease);
         }
         catch (Exception ex)
         {
-            // Best-effort; a failed download/apply just leaves the app
-            // running on its current version. Nothing left pending either
-            // way - the next manual/startup check starts fresh.
             _diagnosticLogger.Error($"Failed to download/apply update {_pendingUpdate.TargetFullRelease.Version}", ex);
             _pendingUpdate = null;
         }

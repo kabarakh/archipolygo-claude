@@ -1,6 +1,4 @@
-<!-- The Admin view's "Server settings..." dialog (Admin-Funktionen.md in the
-     feature-plan archive): Save sends one "/option" per changed value.
-     Deliberately no way to shut the server down ("/exit") here. -->
+<!-- Deliberately no way to shut the server down ("/exit") here. -->
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:Archipolygo.ViewModels"
@@ -56,10 +54,8 @@
             <CheckBox Content="Remove the room password" IsChecked="{Binding RemoveRoomPassword}"/>
         </StackPanel>
 
-        <!-- Set apart: changing it can lock others (and you) out. No
-             confirmation dialog - those are only for Release/Collect - but
-             Archipolygo updates the admin password it keeps in memory so the
-             automatic re-login keeps working. -->
+        <!-- No confirmation dialog, but the in-memory admin password is updated
+             so the automatic re-login keeps working. -->
         <Border BorderBrush="#88E53935" BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,6,0,0">
             <StackPanel Spacing="4">
                 <TextBlock Text="Admin password (server_password)" FontWeight="SemiBold"/>

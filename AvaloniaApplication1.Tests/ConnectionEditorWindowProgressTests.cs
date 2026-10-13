@@ -9,12 +9,6 @@ using Avalonia.VisualTree;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie C (Test-Umsetzungsplan.md): Feature-Plaene/Archiv/Fortschrittsanzeigen.md's
-/// Tier 1 per-slot progress row and the Tier 2 "Multiworld tracker" field in
-/// <see cref="ConnectionEditorWindow"/>, against the real <c>.axaml</c> and a
-/// real layout pass - same style as <see cref="RemoveConfiguredSlotButtonTests"/>.
-/// </summary>
 public class ConnectionEditorWindowProgressTests
 {
     [AvaloniaFact]
@@ -39,9 +33,7 @@ public class ConnectionEditorWindowProgressTests
         var syncedBar = progressBars.Single(p => ((ConfiguredSlotRow)p.DataContext!).Slot == synced);
         var unsyncedBar = progressBars.Single(p => ((ConfiguredSlotRow)p.DataContext!).Slot == unsynced);
 
-        // IsVisible is bound directly on the row's containing Grid, not the
-        // ProgressBar itself - check the actual rendered state, not just the
-        // element's own (always-true-by-default) property.
+        // IsVisible is bound on the containing Grid, so check the effective state.
         Assert.True(syncedBar.IsEffectivelyVisible, "a slot that has synced must show its progress row.");
         Assert.False(unsyncedBar.IsEffectivelyVisible, "a slot that has never synced must show no progress row at all, not a misleading 0/0.");
 

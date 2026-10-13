@@ -3,15 +3,7 @@ using System.Linq;
 
 namespace Archipolygo.Models;
 
-/// <summary>
-/// The fixed set of colors used to tell servers (<see cref="ServerConnectionGroup"/>s)
-/// apart at a glance across the app - tab headers, Dashboard Overview, and the
-/// consolidated cross-server Events/Hints lists (see Feature-Plaene/Server-Farben.md).
-/// Named Avalonia brushes, same convention as
-/// <see cref="Converters.EventTextSegmentKindToBrushConverter"/> - no per-theme
-/// variants, since neither that converter nor the app's own <c>App.axaml</c>
-/// has any theme-aware color resources to draw from.
-/// </summary>
+/// <summary>Fixed palette of named Avalonia brushes used to tell servers apart across the app.</summary>
 public static class ServerColorPalette
 {
     public static readonly IReadOnlyList<string> Colors = new[]
@@ -29,13 +21,8 @@ public static class ServerColorPalette
     };
 
     /// <summary>
-    /// Same order/index as <see cref="Colors"/> - Light-theme counterparts,
-    /// same hue but hand-derived (lightness lowered until WCAG contrast
-    /// against white reaches at least 4.5:1, computed rather than guessed)
-    /// since every <see cref="Colors"/> entry already tests well against a
-    /// dark background but poorly against a light one - see
-    /// Feature-Plaene/Theme-Umschalter-und-Server-Farbwaehler.md's "Konkrete
-    /// Farbwerte" table. Only used via <see cref="ResolveDisplayColor"/>.
+    /// Light-theme counterparts by index: same hue, darkened until WCAG contrast against white is at least 4.5:1
+    /// (the <see cref="Colors"/> entries only read well on dark backgrounds).
     /// </summary>
     private static readonly IReadOnlyList<string> LightColors = new[]
     {
@@ -52,15 +39,8 @@ public static class ServerColorPalette
     };
 
     /// <summary>
-    /// What a group's stored <see cref="ServerConnectionGroup.Color"/> should
-    /// actually be rendered as right now - unchanged for Dark (that's what
-    /// <see cref="Colors"/> already contains), swapped for its
-    /// <see cref="LightColors"/> counterpart for Light *only* when
-    /// <paramref name="storedColor"/> is still exactly one of the automatic
-    /// <see cref="Colors"/> values. A manually picked color (see the
-    /// Connection Editor's color picker) is a deliberate, free RGB choice
-    /// with no known "light variant" to derive - passed through unchanged
-    /// either way, since there's nothing meaningful to substitute it with.
+    /// Swaps a palette color for its light variant in the Light theme; a manually picked RGB color has no
+    /// known light variant and passes through unchanged.
     /// </summary>
     public static string ResolveDisplayColor(string storedColor, bool isLightTheme)
     {
@@ -80,17 +60,7 @@ public static class ServerColorPalette
         return storedColor;
     }
 
-    /// <summary>
-    /// Picks the next color for a newly created/still-colorless group, given
-    /// the colors every other currently-configured group already has (see
-    /// Server-Farben.md's "Zuweisungsalgorithmus"). Counts how many groups
-    /// currently hold each palette color and returns the least-used one,
-    /// ties broken by palette order - which means the first
-    /// <see cref="Colors"/>.Count groups each get a distinct, unused color,
-    /// and the palette then deterministically wraps back around to
-    /// <see cref="Colors"/>[0] from the next group onward, without any
-    /// separate "is the palette full" branch.
-    /// </summary>
+    /// <summary>Least-used palette color, ties broken by palette order - so it wraps around once all are taken.</summary>
     public static string AssignColor(IEnumerable<string> alreadyAssignedColors)
     {
         var usageCounts = alreadyAssignedColors

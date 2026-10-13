@@ -11,20 +11,13 @@ using Avalonia.VisualTree;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie C (Test-Umsetzungsplan.md): the Events/Hints panels sit the same
-/// distance from the window's left/right/bottom edge in a MainWindow tab, on
-/// the Dashboard and in a <see cref="DetachedGroupWindow"/>. A tab's content
-/// gets an extra inset from Fluent's own <c>TabControl.Padding</c>
-/// (<c>TabItemMargin</c>) that the other two hosts used to lack, so their
-/// panels sat visibly closer to the window edge.
-/// </summary>
+/// <summary>Fluent's TabControl.Padding gives tab content an extra inset; the Dashboard and detached windows must match it.</summary>
 public class ContentInsetTests
 {
     private const double WindowWidth = 1200;
     private const double WindowHeight = 600;
 
-    /// <summary>Left, right and bottom distance from <paramref name="window"/>'s edges to <paramref name="view"/>'s root layout Grid (the element carrying the view's own Margin="12").</summary>
+    /// <summary>Distances to the view's root Grid (the one carrying Margin="12").</summary>
     private static (double Left, double Right, double Bottom) InsetOf(Window window, UserControl view)
     {
         var rootGrid = (Control)view.Content!;

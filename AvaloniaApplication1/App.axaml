@@ -3,7 +3,6 @@
              x:Class="Archipolygo.App"
              xmlns:local="using:Archipolygo"
              RequestedThemeVariant="Default">
-             <!-- "Default" ThemeVariant follows system theme variant. "Dark" or "Light" are other available options. -->
 
     <Application.DataTemplates>
         <local:ViewLocator/>
@@ -12,26 +11,15 @@
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
-                <!-- Shared Events-list rendering pieces (per-segment colored
-                     TextBlock + its converter) - see the file's own header
-                     comment for which views reuse this instead of each
-                     re-implementing it. -->
                 <ResourceInclude Source="avares://Archipolygo/Views/SharedTemplates.axaml"/>
-                <!-- CollapsibleFilterBar's ControlTheme (Kompakteres-Layout.md Teil D). -->
                 <ResourceInclude Source="avares://Archipolygo/Views/CollapsibleFilterBar.axaml"/>
             </ResourceDictionary.MergedDictionaries>
-            <!-- Events | Hints/Items divider (GridSplitter.panel-divider in
-                 FilterStyles.axaml). Solid per-theme colors rather than one
-                 semi-transparent gray: raising a gray overlay's opacity
-                 makes it *lighter* on the dark theme's near-black
-                 background, not darker. Dark: near-black, darker than the
-                 panels. Light: near-white, a step brighter than the
-                 panels' own #F3F3F3-ish background but not pure white. -->
+            <!-- Solid per-theme divider colors: a semi-transparent gray overlay
+                 gets lighter, not darker, on the dark theme's near-black background. -->
             <ResourceDictionary.ThemeDictionaries>
                 <ResourceDictionary x:Key="Light">
                     <SolidColorBrush x:Key="PanelDividerBrush" Color="#FAFAFA"/>
-                    <!-- Floating list-overlay buttons (Styles/OverlayStyles.axaml):
-                         opaque, unlike Fluent's semi-transparent button fill. -->
+                    <!-- Opaque, unlike Fluent's semi-transparent button fill. -->
                     <SolidColorBrush x:Key="FloatingButtonBackground" Color="#FFFFFF"/>
                     <SolidColorBrush x:Key="FloatingButtonBackgroundPointerOver" Color="#F0F0F0"/>
                     <SolidColorBrush x:Key="FloatingButtonBackgroundPressed" Color="#E4E4E4"/>
@@ -50,22 +38,11 @@
 
     <Application.Styles>
         <FluentTheme />
-        <!-- Standardized dialog-level tweaks (e.g. scrollbar/button spacing)
-             live here so they're made once and apply to every dialog that
-             opts in - see the file's own header comment. -->
         <StyleInclude Source="avares://Archipolygo/Styles/DialogStyles.axaml"/>
-        <!-- Filter-row buttons (Button.filter-toggle/.active) - see the file's
-             own header comment for why these are app-wide. -->
         <StyleInclude Source="avares://Archipolygo/Styles/FilterStyles.axaml"/>
-        <!-- Opaque look for buttons floating over a list (Button.floating-overlay). -->
         <StyleInclude Source="avares://Archipolygo/Styles/OverlayStyles.axaml"/>
-        <!-- Small flat icon buttons (Button.icon-button) - Dashboard row
-             actions, GroupDetailView's copy-host:port icon. -->
         <StyleInclude Source="avares://Archipolygo/Styles/IconButtonStyles.axaml"/>
-        <!-- Required for the ColorPicker control used by the Connection
-             Editor's server color picker - without this, ColorPicker/
-             ColorView render completely unstyled (see the
-             Avalonia.Controls.ColorPicker package reference in the .csproj). -->
+        <!-- Without this, ColorPicker/ColorView render completely unstyled. -->
         <StyleInclude Source="avares://Avalonia.Controls.ColorPicker/Themes/Fluent/Fluent.xaml"/>
     </Application.Styles>
 </Application>

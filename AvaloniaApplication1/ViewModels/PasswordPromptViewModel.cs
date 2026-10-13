@@ -5,12 +5,8 @@ using Archipolygo.Models;
 namespace Archipolygo.ViewModels;
 
 /// <summary>
-/// Backs <see cref="Views.PasswordPromptWindow"/> - the consolidated
-/// "passwords needed to connect" dialog from Feature-Plaene/Passwort-Speicherung.md.
-/// Built fresh by <see cref="MainWindowViewModel.HandlePasswordRequestedAsync"/>
-/// every time it's shown (covering every group/slot that currently needs a
-/// password, not just whichever one triggered this round) rather than kept
-/// as one long-lived instance across the whole app session.
+/// Consolidated "passwords needed to connect" dialog. Built fresh each time it's shown, covering every
+/// group/slot that currently needs a password, not just the one that triggered it.
 /// </summary>
 public partial class PasswordPromptViewModel : ViewModelBase
 {

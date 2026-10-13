@@ -11,7 +11,6 @@ public partial class AdminPlayerWindow : Window
         InitializeComponent();
     }
 
-    /// <summary>Modal like the "Hint..." picker; loads the player's game data once shown.</summary>
     public static async void Show(Window owner, AdminPlayerDialogViewModel viewModel)
     {
         var window = new AdminPlayerWindow { DataContext = viewModel };

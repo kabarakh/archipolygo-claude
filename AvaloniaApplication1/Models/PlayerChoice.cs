@@ -1,11 +1,8 @@
 namespace Archipolygo.Models;
 
 /// <summary>
-/// One selectable entry in the "Add slot" dialog's player dropdown: a player
-/// currently in the Archipelago room that isn't already configured as a slot
-/// on this server. <see cref="SlotName"/> is what's actually sent as the
-/// login slot name; <see cref="DisplayText"/> is what the dropdown shows,
-/// which also includes the alias when it differs from the slot name.
+/// A room player not yet configured on this server. <see cref="SlotName"/> is the login name;
+/// <see cref="DisplayText"/> also includes a differing alias.
 /// </summary>
 public class PlayerChoice
 {

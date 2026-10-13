@@ -3,11 +3,8 @@ using System.Collections.Generic;
 namespace Archipolygo.Models;
 
 /// <summary>
-/// Per-<see cref="AttentionCategory"/> toggles, stored in
-/// <see cref="AppSettings.AttentionCategories"/>. "Count" and "Blink" are
-/// deliberately independent (see the feature-plan archive's
-/// <c>Benachrichtigungen.md</c>): e.g. counting every item quietly without
-/// blinking for any of them.
+/// Per-<see cref="AttentionCategory"/> toggles. Count and Blink are deliberately independent,
+/// e.g. counting every item quietly without blinking for any.
 /// </summary>
 public class AttentionCategorySetting
 {
@@ -17,12 +14,7 @@ public class AttentionCategorySetting
 
     public AttentionCategorySetting Clone() => new() { Count = Count, Blink = Blink };
 
-    /// <summary>
-    /// Out-of-the-box behavior - chosen so an existing install behaves
-    /// almost exactly as before this setting existed (the same three
-    /// triggers that already blinked, plus chat mentions), with everything
-    /// noisier opt-in.
-    /// </summary>
+    /// <summary>Defaults: only the important triggers are on; everything noisier is opt-in.</summary>
     public static AttentionCategorySetting DefaultFor(AttentionCategory category) => category switch
     {
         AttentionCategory.OwnHint or AttentionCategory.DeathLink or AttentionCategory.ProgressionItem or AttentionCategory.ChatMention

@@ -11,14 +11,8 @@ using CommunityToolkit.Mvvm.Input;
 namespace Archipolygo.ViewModels;
 
 /// <summary>
-/// Backs the toggleable Dashboard view (Feature-Plaene/Archiv/Dashboard-Tab.md) -
-/// an "all servers at a glance" overview shown instead of (not alongside)
-/// <see cref="MainWindowViewModel"/>'s <c>TabControl</c>, see
-/// <see cref="MainWindowViewModel.IsDashboardVisible"/>. Holds a live
-/// reference to <see cref="MainWindowViewModel.Groups"/> (not a copy) plus a
-/// callback to actually select a group and leave the dashboard, so this
-/// class stays free of a hard reference to <see cref="MainWindowViewModel"/>
-/// itself - same callback-based decoupling as <see cref="ConnectionEditorViewModel"/>.
+/// The "all servers at a glance" Dashboard, shown instead of the tab strip. Takes callbacks
+/// rather than a <see cref="MainWindowViewModel"/> reference to stay decoupled from it.
 /// </summary>
 public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
 {
@@ -26,24 +20,19 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
     private readonly Action<GroupViewModel> _selectGroupAndLeaveDashboard;
     private readonly Action<GroupViewModel, GroupViewModel, bool> _reorderGroups;
 
-    /// <summary>Handlers currently subscribed to each group's <see cref="GroupViewModel.Hints"/> collection, so <see cref="UnsubscribeGroup"/> can remove the exact same delegate instance later.</summary>
+    // Kept so UnsubscribeGroup can remove the exact same delegate instances.
     private readonly Dictionary<GroupViewModel, NotifyCollectionChangedEventHandler> _hintsCollectionHandlers = new();
 
-    /// <summary>Same as <see cref="_hintsCollectionHandlers"/>, for each group's <see cref="GroupViewModel.Events"/> collection instead.</summary>
     private readonly Dictionary<GroupViewModel, NotifyCollectionChangedEventHandler> _eventsCollectionHandlers = new();
 
     public ObservableCollection<GroupViewModel> Groups => _groups;
 
-    /// <summary>Server+slot display filter for <see cref="VisibleHints"/> - see <see cref="DashboardServerSlotFilter"/>.</summary>
     public DashboardServerSlotFilter HintFilter { get; }
 
-    /// <summary>Server+slot display filter for <see cref="VisibleEvents"/> - see <see cref="DashboardServerSlotFilter"/>.</summary>
     public DashboardServerSlotFilter EventsFilter { get; }
 
-    /// <summary>Shared filter-bar expanded state - see <see cref="GroupViewModel.FilterLayout"/>.</summary>
     public FilterBarLayoutState FilterLayout { get; }
 
-    /// <summary>Collapsed-bar summary of the Events panel filters - see <see cref="FilterSummaryText"/>.</summary>
     public string EventFilterSummaryText => FilterSummaryText.Join(
         FilterSummaryText.Relevance(SelectedEventRelevanceFilter),
         FilterSummaryText.Category(SelectedEventCategoryFilter),
@@ -51,13 +40,12 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
         EventsFilter.SelectedServer?.HeaderText,
         FilterSummaryText.Slot(EventsFilter.SelectedSlot));
 
-    /// <summary>Collapsed-bar summary of the Hints column filters.</summary>
     public string HintFilterSummaryText => FilterSummaryText.Join(
         HintFilter.SelectedServer?.HeaderText,
         FilterSummaryText.Slot(HintFilter.SelectedSlot),
         FilterSummaryText.ItemCategory(SelectedHintItemCategoryFilter));
 
-    /// <summary>Same piggyback-on-VisibleX approach as <see cref="GroupViewModel"/>'s own override.</summary>
+    /// <summary>Every filter change already raises VisibleX, so the summary texts piggyback on that.</summary>
     protected override void OnPropertyChanged(PropertyChangedEventArgs e)
     {
         base.OnPropertyChanged(e);
@@ -94,7 +82,6 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
         }
     }
 
-    /// <summary>Either filter's selection changed (server or slot) - re-raise the dependent <c>VisibleX</c> property so bound lists refresh.</summary>
     private void OnFilterPropertyChanged(PropertyChangedEventArgs e, string visiblePropertyName)
     {
         if (e.PropertyName is nameof(DashboardServerSlotFilter.SelectedServer) or nameof(DashboardServerSlotFilter.SelectedSlot))
@@ -103,40 +90,20 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
         }
     }
 
-    /// <summary>
-    /// Row click (Overview list, or a row in the shared Hints list below) -
-    /// selects the clicked server's tab and switches back to the normal
-    /// <c>TabControl</c> view.
-    /// </summary>
     public void SelectGroupAndLeaveDashboard(GroupViewModel group) => _selectGroupAndLeaveDashboard(group);
 
-    /// <summary>
-    /// Overview-row drag-reorder (Feature-Plaene/Tab-Reihenfolge.md) -
-    /// delegates to <see cref="MainWindowViewModel.ReorderGroup"/> via the
-    /// same callback-based decoupling as <see cref="SelectGroupAndLeaveDashboard"/>,
-    /// so this class still never references <see cref="MainWindowViewModel"/>
-    /// directly.
-    /// </summary>
     public void ReorderGroup(GroupViewModel source, GroupViewModel target, bool insertAfter) => _reorderGroups(source, target, insertAfter);
 
     public int TotalServers => _groups.Count;
 
-    /// <summary>Sum of every group's <see cref="GroupViewModel.UnreadAttentionCount"/> - the Dashboard itself doesn't reset these (it isn't "seen", see that property's doc comment).</summary>
+    /// <summary>The Dashboard doesn't count as "seen", so it never resets these counts.</summary>
     public int TotalUnreadEvents => _groups.Sum(g => g.UnreadAttentionCount);
 
     public int TotalUnfoundHints => _groups.Sum(g => g.UnfoundHintCount);
 
-    /// <summary>Header line for <see cref="Views.DashboardView"/> - "N servers · M unread events · K open hints", see the mockup.</summary>
     public string SummaryText => $"{TotalServers} servers · {TotalUnreadEvents} unread events · {TotalUnfoundHints} open hints";
 
-    /// <summary>
-    /// Which panel the left column shows - the per-server Overview list, or
-    /// the shared Events view (see <see cref="VisibleEvents"/>). A
-    /// Button+IsVisible toggle in <see cref="Views.DashboardView"/>, not a
-    /// real <c>TabControl</c> - see <see cref="DashboardLeftPanel"/>'s doc
-    /// comment for why. Defaults to Overview (dev decision) - the "at a
-    /// glance" view is what the Dashboard is for first.
-    /// </summary>
+    /// <summary>Button+IsVisible toggle rather than a real <c>TabControl</c>, see <see cref="DashboardLeftPanel"/>.</summary>
     [ObservableProperty]
     private DashboardLeftPanel _selectedLeftPanel = DashboardLeftPanel.Overview;
 
@@ -185,9 +152,7 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
             hint.PropertyChanged += OnHintEntryPropertyChanged;
         }
 
-        // EventEntry is immutable (see its own doc comment) - unlike Hints,
-        // no per-entry PropertyChanged subscription is needed, just the
-        // collection itself.
+        // EventEntry is immutable, so unlike hints no per-entry subscription is needed.
         NotifyCollectionChangedEventHandler eventsHandler = (_, _) => OnPropertyChanged(nameof(VisibleEvents));
         _eventsCollectionHandlers[group] = eventsHandler;
         group.Events.CollectionChanged += eventsHandler;
@@ -239,7 +204,6 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
         }
     }
 
-    /// <summary>A hint was added/removed on some group's (unfiltered) <see cref="GroupViewModel.Hints"/> - keep this list's own per-entry <c>Found</c> subscriptions and <see cref="VisibleHints"/> current.</summary>
     private void OnGroupHintsCollectionChanged(NotifyCollectionChangedEventArgs e)
     {
         if (e.OldItems is not null)
@@ -261,7 +225,7 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
         OnPropertyChanged(nameof(VisibleHints));
     }
 
-    /// <summary>A hint flips <c>Found</c> - unlike a tab's own Hints panel, this view shows only open hints, so the hint simply drops out of <see cref="VisibleHints"/> rather than changing a checkmark.</summary>
+    /// <summary>Only open hints show here, so a hint flipping to found simply drops out of <see cref="VisibleHints"/>.</summary>
     private void OnHintEntryPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(HintEntry.Found))
@@ -279,31 +243,14 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
     }
 
     // ── Shared, server-spanning Hints overview ──
-    // See Feature-Plaene/Archiv/Dashboard-Tab.md's "Geteilte Hints-Übersicht" section.
-    // Deliberately reads the raw (unfiltered) GroupViewModel.Hints of every
-    // group rather than each tab's own already-filtered VisibleHints - a
-    // narrow filter left set on some tab the user forgot about must not
-    // silently hide hints here too, and this view's own filter selections
-    // must not leak back into that tab's filters either (see the plan's
-    // "Warum nebeneinander..." section for the full reasoning).
+    // Deliberately reads each group's raw, unfiltered Hints rather than its VisibleHints: a filter
+    // forgotten on some tab must not hide hints here, and this view's filters must not leak into tabs.
 
-    /// <summary>
-    /// Own, independent instance - never the same one as any tab's own
-    /// <see cref="GroupViewModel.SelectedHintItemCategoryFilter"/>, so
-    /// changing this filter here never affects (or is affected by) any
-    /// individual server tab. The only filter dimension here that isn't
-    /// covered by <see cref="HintFilter"/> - Events has no equivalent.
-    /// </summary>
+    /// <summary>Independent of every tab's own filter instance, so neither affects the other.</summary>
     [ObservableProperty]
     private ItemCategoryFilter _selectedHintItemCategoryFilter = ItemCategoryFilter.All;
 
-    /// <summary>
-    /// Every configured server's open hints, tagged with their owning group
-    /// (see <see cref="DashboardHintRow"/>), narrowed by <see cref="HintFilter"/>'s
-    /// server/slot selection and item category. Found/unfound is
-    /// deliberately not a filter dimension here - only open hints ever show,
-    /// see the plan's "Found/Unfound ist hier bewusst kein Filter" section.
-    /// </summary>
+    /// <summary>Open hints only - found/unfound is deliberately not a filter dimension here.</summary>
     public IEnumerable<DashboardHintRow> VisibleHints
     {
         get
@@ -349,37 +296,16 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
     private void ShowTrapHintItems() => SelectedHintItemCategoryFilter = ItemCategoryFilter.Trap;
 
     // ── Shared, server-spanning Events view ──
-    // Follow-up to the Hints section above (dev request, 2026-09-11, revised
-    // 2026-09-12): the Server+Slot dropdowns up top are a pure display
-    // filter, exactly like the Hints ones (VisibleEvents reads the raw,
-    // unfiltered GroupViewModel.Events of every group, same "don't leak tab
-    // filters in either direction" reasoning as VisibleHints) - picking a
-    // slot there never touches any live connection. "Who to send as" is a
-    // deliberately separate, unrelated control down by the message box (see
-    // SelectedSendServerGroup below) - the dev's explicit call to decouple
-    // filtering from "who's chatting".
+    // Same raw-collection, no-leaking reasoning as the Hints section. The Server+Slot filter is
+    // display-only; who to send as is a deliberately separate control (SelectedSendServerGroup).
 
-    /// <summary>
-    /// Own, independent instance - never the same one as any tab's own
-    /// <see cref="GroupViewModel.SelectedEventRelevanceFilter"/>, so changing
-    /// this filter here never affects (or is affected by) any individual
-    /// server tab. Same isolation rule as <see cref="SelectedHintItemCategoryFilter"/>
-    /// above.
-    /// </summary>
+    /// <summary>Independent of every tab's own filter instance, so neither affects the other.</summary>
     [ObservableProperty]
     private EventRelevanceFilter _selectedEventRelevanceFilter = EventRelevanceFilter.All;
 
-    /// <summary>Own, independent instance - see <see cref="SelectedEventRelevanceFilter"/>'s doc comment.</summary>
     [ObservableProperty]
     private EventCategoryFilter _selectedEventCategoryFilter = EventCategoryFilter.All;
 
-    /// <summary>
-    /// Independent checkbox filter narrowing <see cref="VisibleEvents"/> by
-    /// item category, own instances separate from any tab's own
-    /// <see cref="GroupViewModel.ShowProgressionItemEvents"/> etc. - see that
-    /// property's doc comment for the full filtering semantics (combines
-    /// with <see cref="SelectedEventCategoryFilter"/> rather than replacing it).
-    /// </summary>
     [ObservableProperty]
     private bool _showProgressionItemEvents = true;
 
@@ -438,20 +364,9 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
     [RelayCommand]
     private void ShowAdminEventsOnly() => SelectedEventCategoryFilter = EventCategoryFilter.Admin;
 
-    /// <summary>The "Admin" category button only makes sense once at least one server is marked "I'm the admin".</summary>
     public bool HasAdminServer => _groups.Any(g => g.ShowAdminButton);
 
-    /// <summary>
-    /// Every configured server's events, tagged with their owning group (see
-    /// <see cref="DashboardEventRow"/>), narrowed by relevance, category and
-    /// item-kind (own, independent filter state - see
-    /// <see cref="SelectedEventRelevanceFilter"/>'s doc comment), then by
-    /// <see cref="EventsFilter"/>'s server/slot selection - exactly the same
-    /// two-stage server/slot cascade as <see cref="VisibleHints"/> (both
-    /// share <see cref="DashboardServerSlotFilter"/>). A room-wide entry
-    /// (<see cref="EventEntry.SlotId"/> null, e.g. plain chat) always passes
-    /// the slot filter, same as a tab's own Events list.
-    /// </summary>
+    /// <summary>Room-wide entries (<see cref="EventEntry.SlotId"/> null, e.g. plain chat) always pass the slot filter.</summary>
     public IEnumerable<DashboardEventRow> VisibleEvents
     {
         get
@@ -491,48 +406,23 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
                 rows = rows.Where(r => r.Event.SlotId is null || r.Event.SlotId == filterId);
             }
 
-            // Each group's own Events list is already chronological, but the
-            // SelectMany above still yields one server's whole block before
-            // the next - sort purely by timestamp so the global list is a
-            // true cross-server merge, not "server, then time".
+            // SelectMany yields server by server; sort so the result is a true cross-server merge.
             return rows.OrderBy(r => r.Event.Timestamp);
         }
     }
 
     // ── "Who's chatting" - deliberately separate from the filter above ──
 
-    /// <summary>
-    /// Which server to send through - lives down by the message box in
-    /// Views/DashboardView.axaml, completely independent of
-    /// <see cref="SelectedEventsServerFilter"/> (the dev's explicit call:
-    /// filtering what you see must not be tangled up with who you're
-    /// chatting as). No "All servers" entry - <c>ItemsSource</c> binds
-    /// straight to <see cref="Groups"/>, since sending needs one concrete
-    /// server or not at all.
-    /// </summary>
+    /// <summary>No "All servers" entry: sending needs one concrete server.</summary>
     [ObservableProperty]
     private GroupViewModel? _selectedSendServerGroup;
 
     /// <summary>
-    /// Whether the message row is usable - a concrete server is picked (via
-    /// <see cref="SelectedSendServerGroup"/>) and its leader is actually
-    /// connected. A plain nested binding straight to
-    /// <c>SelectedSendServerGroup.IsLeaderConnected</c> does not reliably
-    /// fall back to <c>false</c> when the intermediate is null - that
-    /// silently left "Send" enabled with nothing selected (caught by
-    /// DashboardTabTests.EventsPanel_SlotAndSendControls_DisabledUntilAServerIsPicked),
-    /// so this is a real, independently-notified property instead (see
-    /// <see cref="OnGroupPropertyChanged"/>/<see cref="OnSelectedSendServerGroupChanged"/>
-    /// for what keeps it current).
+    /// A nested binding to <c>SelectedSendServerGroup.IsLeaderConnected</c> didn't reliably fall back
+    /// to false when the group was null (left "Send" enabled), hence this separately notified property.
     /// </summary>
     public bool CanSendMessage => SelectedSendServerGroup?.IsLeaderConnected == true;
 
-    /// <summary>
-    /// Picking a slot in Views/DashboardView.axaml's send-row Slot dropdown
-    /// (bound to <c>SelectedSendServerGroup.Slots</c>/<c>.SelectedChatSlot</c>)
-    /// is a real leader switch - the exact same live property/collection the
-    /// tab's own "Chat as" dropdown uses, not a Dashboard-local copy, since
-    /// both must always agree on the one true current leader.
-    /// </summary>
+    /// <summary>The send-row Slot dropdown binds to the group's live <c>SelectedChatSlot</c>, so picking one is a real leader switch.</summary>
     partial void OnSelectedSendServerGroupChanged(GroupViewModel? value) => OnPropertyChanged(nameof(CanSendMessage));
 }

@@ -11,7 +11,7 @@ public sealed class WindowAttentionService : IWindowAttentionService
 {
     private readonly IGroupWindowLocator _locator;
 
-    /// <summary>Windows whose Activated/Closed events are already forwarded to <see cref="WindowAcknowledged"/> - hooked lazily on first resolve, since detached windows come and go.</summary>
+    /// <summary>Hooked lazily on first resolve, since detached windows come and go.</summary>
     private readonly HashSet<Window> _hookedWindows = new(ReferenceEqualityComparer.Instance);
 
     public WindowAttentionService(IGroupWindowLocator locator)
@@ -46,11 +46,7 @@ public sealed class WindowAttentionService : IWindowAttentionService
             return;
         }
 
-        // Every platform call below is best-effort - a failed/unsupported
-        // interop call here must never take the whole app down over a
-        // cosmetic attention request. See each helper's own doc comment for
-        // the platform-specific API this wraps (the feature-plan archive's
-        // Tab-Eigenes-Fenster.md, Phase 2's API research).
+        // Best-effort: a failed interop call must never take the app down over a cosmetic request.
         try
         {
             var untilFocus = mode == AttentionBlinkMode.UntilFocus;
@@ -64,14 +60,12 @@ public sealed class WindowAttentionService : IWindowAttentionService
             }
             else if (OperatingSystem.IsLinux())
             {
-                // No "how long" knob exists here - the window manager
-                // decides how (and for how long) to show the hint.
+                // No duration knob: the window manager decides how to show the hint.
                 LinuxWindowAttention.RequestAttention(avaloniaWindow);
             }
         }
         catch
         {
-            // Best-effort only - see this method's own doc comment.
         }
     }
 
@@ -98,13 +92,8 @@ public sealed class WindowAttentionService : IWindowAttentionService
 }
 
 /// <summary>
-/// Windows: <c>FlashWindowEx</c> (user32.dll) - flashes the taskbar button
-/// and caption either a fixed number of times, after which Windows itself
-/// leaves the taskbar button highlighted until the window is activated (the
-/// Discord-style "blink briefly, then stay marked" behavior, the default),
-/// or with <c>FLASHW_TIMERNOFG</c> for as long as the window stays unfocused
-/// (the original behavior, now opt-in via
-/// <see cref="Models.AttentionBlinkMode.UntilFocus"/>).
+/// Windows: <c>FlashWindowEx</c>. After a counted flash Windows keeps the taskbar button highlighted
+/// until activation; <c>FLASHW_TIMERNOFG</c> flashes for as long as the window stays unfocused.
 /// </summary>
 internal static class WindowsWindowAttention
 {
@@ -118,10 +107,10 @@ internal static class WindowsWindowAttention
         public uint dwTimeout;
     }
 
-    /// <summary>FLASHW_CAPTION | FLASHW_TRAY - flash both the title bar and the taskbar button.</summary>
+    /// <summary>FLASHW_CAPTION | FLASHW_TRAY.</summary>
     private const uint FlashwAll = 0x00000003;
 
-    /// <summary>FLASHW_TIMERNOFG - keep flashing until the window comes to the foreground.</summary>
+    /// <summary>FLASHW_TIMERNOFG - until the window comes to the foreground.</summary>
     private const uint FlashwTimerNoFg = 0x0000000C;
 
     [DllImport("user32.dll")]
@@ -149,16 +138,8 @@ internal static class WindowsWindowAttention
 }
 
 /// <summary>
-/// macOS: no per-window title-bar flash concept exists at all - the closest
-/// equivalent is bouncing the whole app's Dock icon via AppKit's
-/// <c>NSApplication.requestUserAttention:</c>, called through the
-/// Objective-C runtime directly (no AppKit binding is otherwise referenced
-/// by this cross-platform Avalonia app - see Feature-Plaene/Tab-Eigenes-Fenster.md).
-/// <c>NSInformationalRequest</c> (10) bounces once - AppKit offers no
-/// "bounce N times" equivalent of Windows' flash count, so this is the
-/// closest match to the capped Windows flash. <c>NSCriticalRequest</c> (0)
-/// bounces continuously until the app is activated - used for
-/// <see cref="Models.AttentionBlinkMode.UntilFocus"/>.
+/// macOS: no per-window flash, so bounce the Dock icon via the ObjC runtime. Informational bounces
+/// once (no "N times" option); Critical bounces until activation (<see cref="Models.AttentionBlinkMode.UntilFocus"/>).
 /// </summary>
 internal static class MacWindowAttention
 {
@@ -186,20 +167,9 @@ internal static class MacWindowAttention
 }
 
 /// <summary>
-/// Linux/X11: appends the <c>_NET_WM_STATE_DEMANDS_ATTENTION</c> EWMH atom
-/// directly onto the window's <c>_NET_WM_STATE</c> property via
-/// <c>XChangeProperty</c> - not the fully spec-compliant ClientMessage/
-/// <c>XSendEvent</c> path (which needs a hand-marshaled <c>XClientMessageEvent</c>
-/// struct whose layout risks a native crash if ever gotten wrong), so this
-/// is a deliberately simpler, lower-risk best-effort: only scalar
-/// <see cref="IntPtr"/>/<c>long[]</c> P/Invoke signatures, no custom struct
-/// marshaling. Many window managers already react to a direct property
-/// change; whichever doesn't (or ignores this entirely under Wayland) was
-/// already an accepted limitation, not something this feature promises to
-/// fix - see Feature-Plaene/Tab-Eigenes-Fenster.md's own API research.
-/// The current property value is read first (<c>XGetWindowProperty</c>,
-/// again scalar-only signatures) so repeated requests don't keep appending
-/// the same atom over and over.
+/// Linux/X11: appends <c>_NET_WM_STATE_DEMANDS_ATTENTION</c> via <c>XChangeProperty</c> instead of the
+/// ClientMessage path, avoiding hand-marshaled structs; many WMs react to it, Wayland may not.
+/// Reads the property first so repeated requests don't append the atom again.
 /// </summary>
 internal static class LinuxWindowAttention
 {
@@ -265,7 +235,7 @@ internal static class LinuxWindowAttention
         }
     }
 
-    /// <summary>Whether <paramref name="atom"/> is already part of the window's <c>_NET_WM_STATE</c> list. Format-32 property data is an array of C <c>long</c>s, i.e. pointer-sized on Linux.</summary>
+    /// <summary>Format-32 property data is an array of C <c>long</c>s, i.e. pointer-sized on Linux.</summary>
     private static bool HasAtom(IntPtr display, IntPtr window, IntPtr property, IntPtr atom)
     {
         const int success = 0;

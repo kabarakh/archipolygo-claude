@@ -5,15 +5,8 @@ using Avalonia.Data.Converters;
 namespace Archipolygo.Converters;
 
 /// <summary>
-/// Reports whether a bound enum value equals a given <c>ConverterParameter</c>
-/// (the enum member's name). Used with Avalonia's "Classes.xyz" style-class
-/// binding syntax to highlight whichever filter button currently represents
-/// the active value of an enum-typed view model property, e.g.:
-/// <c>Classes.active="{Binding SelectedHintFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Unfound}"</c>.
-/// One-way only (target is a style class, applied/removed automatically as
-/// the source enum changes) - the actual filter switching happens via a
-/// separate <c>Command</c> on the same button, so <see cref="ConvertBack"/>
-/// is never actually invoked.
+/// True when the bound enum value's name equals <c>ConverterParameter</c>; used for
+/// <c>Classes.active</c> bindings on filter buttons. One-way only.
 /// </summary>
 public class EnumEqualsConverter : IValueConverter
 {

@@ -10,11 +10,6 @@ using static AvaloniaApplication1.Tests.ConnectionManagerTestHelpers;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie B (Test-Umsetzungsplan.md): the transient-retry path in
-/// <c>ConnectSlotSessionAsync</c>, and <c>DisconnectGroupAsync</c>'s
-/// AutoConnect/GroupPersistNeeded bookkeeping.
-/// </summary>
 public class ConnectionManagerRetryAndDisconnectTests
 {
     [AvaloniaFact(Timeout = 5000)]
@@ -24,11 +19,7 @@ public class ConnectionManagerRetryAndDisconnectTests
         var (vm, group) = MakeGroup(manager, "Alice");
         var alice = group.Slots[0];
 
-        // Two attempts that fail exactly the way a transient hiccup does -
-        // the underlying task itself faults, not a LoginFailure result (see
-        // IsTransientConnectFailure) - then a third, brand-new session (a
-        // fresh one per attempt, exactly like the real ConnectSlotSessionAsync
-        // loop) that succeeds.
+        // Transient failures fault the task (not a LoginFailure result); each attempt gets a fresh session.
         var attempt1 = new FakeArchipelagoSession(numericSlot: 1);
         attempt1.LoginResultSource.SetException(new TaskCanceledException());
         var attempt2 = new FakeArchipelagoSession(numericSlot: 1);
@@ -55,10 +46,7 @@ public class ConnectionManagerRetryAndDisconnectTests
         var (vm, group) = MakeGroup(manager, "Alice");
         var alice = group.Slots[0];
 
-        // A genuine rejection comes back as a LoginFailure *result*, never
-        // as a thrown/faulted task - see IsTransientConnectFailure's doc
-        // comment on why that distinction is what actually decides whether
-        // a failure gets retried.
+        // A genuine rejection is a LoginFailure result, never a faulted task - so it's not retried.
         var session = new FakeArchipelagoSession(numericSlot: 1);
         session.LoginResultSource.SetResult(new LoginFailure("bad password"));
         factory.Enqueue(session);

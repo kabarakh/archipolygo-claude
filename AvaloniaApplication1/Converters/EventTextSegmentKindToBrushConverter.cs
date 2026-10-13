@@ -10,45 +10,21 @@ using Archipolygo.Models;
 namespace Archipolygo.Converters;
 
 /// <summary>
-/// Maps <see cref="EventTextSegmentKind"/> to a foreground brush for the
-/// events log. The Dark-theme item-related colors (trap/progression/useful/
-/// other) are the official Archipelago client's own exact values (from
-/// ArchipelagoMW/Archipelago's <c>NetUtils.py</c>/<c>data/client.kv</c>,
-/// checked directly rather than assumed - see CLAUDE.md), so they match
-/// familiar to players coming from other AP trackers; the player-name colors
-/// follow the same Magenta-for-yourself convention, with
-/// <see cref="OtherSlotNameDark"/> deliberately kept as the existing `Gold`
-/// rather than switched to AP's own very pale `yellow` (better distinguishable
-/// from plain text - see Feature-Plaene/Theme-Umschalter-und-Server-Farbwaehler.md),
-/// plus an extra color for players tracked by another tab of this app on the
-/// same server instance. Every Light-theme color is a hand-derived,
-/// hue-preserving darker variant of its Dark counterpart (WCAG contrast
-/// against white checked to be at least 4.5:1, computed rather than guessed) -
-/// Archipelago itself has no light-theme variant of this palette to draw on
-/// (its own GUI client uses the exact same colors regardless of its
-/// Light/Dark chrome setting), so these had to be derived here instead. See
-/// that same plan document's "Konkrete Farbwerte" table for the values and
-/// how they were computed. Known limitation: a row already rendered before a
-/// live theme switch keeps its old color until something else re-triggers
-/// its binding (a fresh event, or an app restart) - Avalonia only
-/// re-invokes a converter when its *source* value changes, not on an
-/// unrelated global theme-variant change, and reworking this into
-/// theme-variant resource dictionaries instead (which would auto-update
-/// every already-rendered row) was out of scope for this pass.
+/// Maps <see cref="EventTextSegmentKind"/> to an event-log brush. Dark item colors are the official
+/// Archipelago client's values; Light variants are darker hue-preserving derivations (WCAG >= 4.5:1 on white).
+/// Known limitation: already-rendered rows keep their color after a live theme switch, because Avalonia only
+/// re-runs a converter when its source value changes.
 /// </summary>
 public class EventTextSegmentKindToBrushConverter : IValueConverter
 {
     private static readonly IBrush OwnSlotNameDark = Brush.Parse("#EE00EE");
     private static readonly IBrush OwnSlotNameLight = Brush.Parse("#D100D1");
 
-    // App-specific - no Archipelago equivalent (AP only distinguishes
-    // "yourself" from "everyone else"; this app additionally distinguishes a
-    // player tracked passively via another one of this app's own tabs).
+    // App-specific: a player tracked by another tab of this app (AP only knows "you" vs. "others").
     private static readonly IBrush ConnectedSlotNameDark = Brushes.Orange;
     private static readonly IBrush ConnectedSlotNameLight = Brush.Parse("#A46A00");
 
-    // Kept as Gold rather than AP's own very pale "yellow" (#FAFAD2) - see
-    // this class's own doc comment.
+    // Deliberately Gold rather than AP's very pale "yellow" (#FAFAD2), which is hard to tell from plain text.
     private static readonly IBrush OtherSlotNameDark = Brushes.Gold;
     private static readonly IBrush OtherSlotNameLight = Brush.Parse("#8B7500");
 
@@ -64,12 +40,7 @@ public class EventTextSegmentKindToBrushConverter : IValueConverter
     private static readonly IBrush ItemOtherDark = Brush.Parse("#00EEEE");
     private static readonly IBrush ItemOtherLight = Brush.Parse("#008484");
 
-    // App-specific (no Archipelago equivalent) - deliberately distinct from
-    // every item/player color above so an incoming DeathLink
-    // (Feature-Plaene/Archiv/DeathLink.md) stands out at a glance in the
-    // event log, evoking "death" the way other AP trackers do. Firebrick
-    // itself already tests well against a light background (6.7:1), so only
-    // Dark gets a brightened variant.
+    // App-specific, distinct from every item/player color; Firebrick already has enough contrast on light backgrounds.
     private static readonly IBrush DeathLinkDark = Brush.Parse("#E05B5B");
     private static readonly IBrush DeathLinkLight = Brushes.Firebrick;
 
@@ -87,8 +58,7 @@ public class EventTextSegmentKindToBrushConverter : IValueConverter
             EventTextSegmentKind.ItemUseful => isLightTheme ? ItemUsefulLight : ItemUsefulDark,
             EventTextSegmentKind.ItemOther => isLightTheme ? ItemOtherLight : ItemOtherDark,
             EventTextSegmentKind.DeathLink => isLightTheme ? DeathLinkLight : DeathLinkDark,
-            // PlainText: don't touch Foreground at all, so the TextBlock keeps
-            // whatever the theme/inherited default would otherwise be.
+            // PlainText: leave Foreground untouched so the inherited default applies.
             _ => BindingOperations.DoNothing
         };
     }

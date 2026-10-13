@@ -1,19 +1,14 @@
 using System;
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Text.Json.Serialization;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace Archipolygo.Models;
 
 /// <summary>
-/// A single Archipelago server (Host+Port+Password), and every slot the user
-/// has configured on it. Introduced in Phase 6: previously each slot got its
-/// own independent <c>ServerProfile</c> (Host+Port+SlotName+Password all on
-/// one record) with its own connection; now Host/Port/Password live once per
-/// server, and <see cref="Slots"/> hold only what actually differs between
-/// slots on the same server (the slot name). At most one slot per group is
-/// ever the persistently-connected "leader" at a time - see
-/// <see cref="Services.ConnectionManager"/>.
+/// One Archipelago server (Host, Port, shared Password) and every slot configured on it.
+/// At most one slot per group is the connected "leader" at a time - see <see cref="Services.ConnectionManager"/>.
 /// </summary>
 public partial class ServerConnectionGroup : ObservableObject
 {
@@ -29,105 +24,62 @@ public partial class ServerConnectionGroup : ObservableObject
     [ObservableProperty]
     private int _port = 38281;
 
-    /// <summary>
-    /// Room password, shared by every slot on this server. Purely in-memory/
-    /// per-session (see <see cref="JsonIgnoreAttribute"/>) - see
-    /// Feature-Plaene/Passwort-Speicherung.md: never written to
-    /// <c>groups.json</c>. <see cref="SlotProfile.RequiresPassword"/> is the
-    /// persisted stand-in per slot.
-    /// </summary>
+    /// <summary>Room password shared by every slot; in-memory only, never persisted (<see cref="SlotProfile.RequiresPassword"/> is).</summary>
     [ObservableProperty]
     [property: JsonIgnore]
     private string _password = string.Empty;
 
     /// <summary>
-    /// Whether this group should connect its leader automatically at
-    /// startup, and try to bring the leader back (as whichever slot was
-    /// actually connected) after an unexpected drop. Group-level equivalent
-    /// of the old per-profile <c>AutoConnect</c> flag - since only one
-    /// connection per group exists at a time, this can no longer be a
-    /// per-slot setting.
+    /// Connect the leader at startup and auto-reconnect after a drop. Set by any successful leader connect,
+    /// cleared by an explicit disconnect (see ConnectionManager).
     /// </summary>
     [ObservableProperty]
     private bool _autoConnect;
 
-    /// <summary>
-    /// Id of the <see cref="SlotProfile"/> that should become the leader at
-    /// startup, if <see cref="AutoConnect"/> is set. Falls back to the first
-    /// configured slot if unset (e.g. right after adding the first slot to a
-    /// brand-new group).
-    /// </summary>
+    /// <summary>The slot to become leader at startup; updated to whichever slot last connected as leader. Null falls back to the first slot.</summary>
     [ObservableProperty]
     private Guid? _preferredLeaderSlotId;
 
-    /// <summary>
-    /// Per-server override of every global notification setting: a muted
-    /// server never counts or blinks, whatever the per-category toggles say
-    /// (see <see cref="Services.AttentionTracker"/> and the feature-plan
-    /// archive's <c>Benachrichtigungen.md</c>). Missing from an older
-    /// <c>groups.json</c> simply reads as false.
-    /// </summary>
+    /// <summary>A muted server never counts or blinks, overriding every per-category setting.</summary>
     [ObservableProperty]
     private bool _notificationsMuted;
 
-    /// <summary>
-    /// "I'm the admin" in the add/edit server dialog (Admin-Funktionen.md in
-    /// the feature-plan archive): shows the Admin view next to Hints/Items in
-    /// this server's tab. Only an opt-in for the UI - the admin password
-    /// itself is asked for when that view is opened and never persisted.
-    /// Missing from an older <c>groups.json</c> simply reads as false.
-    /// </summary>
+    /// <summary>"I'm the admin": only shows the Admin view; the admin password is asked for there and never persisted.</summary>
     [ObservableProperty]
     private bool _isAdmin;
 
     /// <summary>
-    /// Every slot name configured for this server. Order is preserved across
-    /// edits/saves so the UI (tab header, account dropdown, slot filter)
-    /// stays stable.
+    /// Get-only, so PersistenceService needs JsonObjectCreationHandling.Populate or this deserializes empty.
+    /// Order is preserved so the UI stays stable.
     /// </summary>
     public ObservableCollection<SlotProfile> Slots { get; } = new();
 
     /// <summary>
-    /// The color used to tell this server apart from others across the app -
-    /// a name from <see cref="ServerColorPalette.Colors"/>, assigned once
-    /// (see <see cref="Services.PersistenceService"/>/<c>MainWindowViewModel.AddNewGroup</c>)
-    /// and never reassigned afterward, even if that frees up a color another
-    /// group could otherwise have deduplicated against - see
-    /// Feature-Plaene/Server-Farben.md. Empty only in the brief window
-    /// between deserializing/creating a group and that assignment running;
-    /// never empty on a group a <see cref="ViewModels.GroupViewModel"/> has
-    /// already wrapped.
+    /// A <see cref="ServerColorPalette.Colors"/> name (or a manually picked color), assigned once and never reassigned.
+    /// Empty only briefly between creating/deserializing a group and that assignment.
     /// </summary>
     [ObservableProperty]
     private string _color = string.Empty;
 
     /// <summary>
-    /// Tier 2 of Fortschrittsanzeigen.md (whole-multiworld progress, not just
-    /// this app's own configured slots): exactly what the user originally
-    /// typed into the tracker field - the bare tracker SUUID, a room URL, or
-    /// a tracker URL. Kept separately from <see cref="TrackerId"/> (the
-    /// actually-resolved id <see cref="Services.IMultiworldTrackerService"/>
-    /// polls) purely so the connection editor can show back what the user
-    /// typed when they reopen it - a single combined field couldn't tell a
-    /// room URL apart from an already-resolved tracker id on redisplay. Null/
-    /// empty means Tier 2 is disabled for this group (the common case for a
-    /// custom-hosted room with no webhost at all).
+    /// Exactly what the user typed into the tracker field (tracker id, room URL or tracker URL), kept so the editor
+    /// can redisplay it; <see cref="TrackerId"/> holds the resolved id. Null/empty disables whole-room progress.
     /// </summary>
     [ObservableProperty]
     private string? _trackerReferenceInput;
 
-    /// <summary>
-    /// The resolved tracker SUUID <see cref="Services.IMultiworldTrackerService"/>
-    /// actually polls - either <see cref="TrackerReferenceInput"/> verbatim
-    /// (if it was already a bare tracker id/tracker URL) or the result of
-    /// resolving a room URL via <c>/room_status/&lt;room_id&gt;</c>. Null
-    /// means Tier 2 is a no-op for this group.
-    /// </summary>
+    /// <summary>The resolved tracker id that gets polled; null means no whole-room progress for this group.</summary>
     [ObservableProperty]
     private string? _trackerId;
 
-    /// <summary>"host:port" with no surrounding/inner whitespace, for compact display.</summary>
     public string HostPort => $"{Host}:{Port}";
+
+    /// <summary>
+    /// <see cref="PreferredLeaderSlotId"/> if still configured, else the first slot. A method rather than a
+    /// property so it never ends up in groups.json.
+    /// </summary>
+    public SlotProfile? ResolveStartupLeader() =>
+        Slots.FirstOrDefault(s => s.Id == PreferredLeaderSlotId) ?? Slots.FirstOrDefault();
 
     partial void OnHostChanged(string value) => OnPropertyChanged(nameof(HostPort));
 

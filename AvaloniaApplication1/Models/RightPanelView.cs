@@ -1,10 +1,6 @@
 namespace Archipolygo.Models;
 
-/// <summary>
-/// Which panel is shown on the right side of a tab: the hint list, the
-/// full received-items list, or (only for a server marked "I'm the admin",
-/// see <see cref="ServerConnectionGroup.IsAdmin"/>) the Admin view.
-/// </summary>
+/// <summary>The right-hand panel of a tab; <see cref="Admin"/> only exists when <see cref="ServerConnectionGroup.IsAdmin"/> is set.</summary>
 public enum RightPanelView
 {
     Hints,

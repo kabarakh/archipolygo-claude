@@ -14,25 +14,8 @@ using Avalonia.VisualTree;
 namespace AvaloniaApplication1.Tests;
 
 /// <summary>
-/// Kategorie C (Test-Umsetzungsplan.md): clicking "✕" in <see cref="ConnectionEditorWindow"/>'s
-/// slot-management list must confirm (see <see cref="ConnectionEditorWindow.ShowConfirmationDialogAsync"/>,
-/// stubbed here instead of popping a real nested dialog) and only then
-/// *stage* a removal - not remove/disconnect the slot right away. A real
-/// simulated click, wired via code-behind (<c>OnRemoveConfiguredSlotClick</c>)
-/// rather than calling the command property directly, so a future edit that
-/// gets the generated command name wrong there would actually be caught by
-/// this test (<c>[RelayCommand]</c> on the now-synchronous
-/// <c>RemoveConfiguredSlot</c> still generates <c>RemoveConfiguredSlotCommand</c>
-/// - see CLAUDE.md's trailing-"Async"-stripping gotcha, which only applies to
-/// the async case, not this one).
-///
-/// The staging behavior itself exists because the old design - removing
-/// (and disconnecting, if it was the live leader) the instant "✕" was
-/// clicked - meant "make a different slot the default, then remove the old
-/// leader" in the same Edit Server session could disconnect the user before
-/// they'd even clicked Save, with no way to reconsider via Cancel. See
-/// <see cref="MainWindowViewModel.UpdateGroup"/>'s doc comment for where the
-/// actual removal now happens instead.
+/// A real click through the code-behind handler, so a wrong generated command name would be caught.
+/// Removal is only staged (applied on Save) so removing the live leader can't disconnect before the user saves.
 /// </summary>
 public class RemoveConfiguredSlotButtonTests
 {
@@ -55,25 +38,19 @@ public class RemoveConfiguredSlotButtonTests
         var removeButtonForBob = window.GetVisualDescendants().OfType<Button>()
             .First(b => Equals(b.Content, "✕") && (b.DataContext as ConfiguredSlotRow)?.Slot == removedSlot);
 
-        // Bounds.Center is in the button's own parent's coordinate space, not
-        // the button's local space - translate a local-space center point
-        // instead (Bounds.Width/Height are the same regardless of space).
+        // Bounds.Center is in the parent's coordinate space; use a local-space center.
         var localCenter = new Point(removeButtonForBob.Bounds.Width / 2, removeButtonForBob.Bounds.Height / 2);
         var pointInWindow = removeButtonForBob.TranslatePoint(localCenter, window) ?? localCenter;
         window.MouseDown(pointInWindow, MouseButton.Left);
         window.MouseUp(pointInWindow, MouseButton.Left);
         Dispatcher.UIThread.RunJobs();
 
-        // The row disappears from the dialog's own list right away (visible
-        // feedback that the click did something)...
         Assert.DoesNotContain(viewModel.ConfiguredSlotRows, r => r.Slot == removedSlot);
         Assert.Contains(viewModel.ConfiguredSlotRows, r => r.Slot == keptSlot);
 
-        // ...but the slot itself is untouched in the real, live configuration -
-        // nothing has actually removed it (or disconnected anything) yet.
+        // ...but the live configuration is untouched until Save.
         Assert.Contains(removedSlot, group.Slots);
 
-        // The removal is only staged, to be applied on Save.
         Assert.True(viewModel.TryBuildResult(out var result));
         Assert.Contains(removedSlot, result.SlotsToRemove);
         Assert.DoesNotContain(keptSlot, result.SlotsToRemove);
@@ -106,10 +83,6 @@ public class RemoveConfiguredSlotButtonTests
         Assert.Null(result.PreferredLeaderSlotId);
     }
 
-    /// <summary>
-    /// Declining the confirmation must leave everything untouched - no staged
-    /// removal, row still in the list - not just skip the disconnect.
-    /// </summary>
     [AvaloniaFact]
     public void DecliningTheConfirmation_LeavesTheRowAndSlotUntouched()
     {

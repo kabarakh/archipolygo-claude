@@ -10,7 +10,6 @@ using Avalonia.VisualTree;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>Kategorie C (Test-Umsetzungsplan.md): SettingsView_DisplaysCurrentAppVersion.</summary>
 public class SettingsWindowTests
 {
     [AvaloniaFact]
@@ -22,10 +21,7 @@ public class SettingsWindowTests
         window.Show();
         Dispatcher.UIThread.RunJobs();
 
-        // AppVersionInfo.Current is "dev" for every local/test build (see its
-        // doc comment) and only ever a real tag for a release.yml publish -
-        // compare against it directly rather than hardcoding "dev", so this
-        // doesn't need updating if that convention ever changes.
+        // Compare against AppVersionInfo.Current ("dev" locally) rather than hardcoding it.
         var expectedText = $"Version {AppVersionInfo.Current}";
         var versionText = window.GetVisualDescendants().OfType<TextBlock>()
             .FirstOrDefault(t => t.Text == expectedText);
@@ -33,11 +29,6 @@ public class SettingsWindowTests
         Assert.NotNull(versionText);
     }
 
-    /// <summary>
-    /// Feature-Plaene/Archiv/Auto-Update.md: the default (managed-install-or-macOS)
-    /// case - "Check for updates" is the normal, clickable path, and the
-    /// unmanaged-install hint is nowhere to be seen.
-    /// </summary>
     [AvaloniaFact]
     public void SettingsWindow_ManagedInstall_ShowsCheckForUpdatesButton_NoHint()
     {
@@ -56,7 +47,6 @@ public class SettingsWindowTests
         Assert.False(hint?.IsEffectivelyVisible ?? false);
     }
 
-    /// <summary>The unmanaged-install case - the hint replaces "Check for updates" entirely, not just alongside it.</summary>
     [AvaloniaFact]
     public void SettingsWindow_UnmanagedInstall_ShowsHint_HidesCheckForUpdatesButton()
     {
@@ -74,8 +64,7 @@ public class SettingsWindowTests
         Assert.NotNull(hint);
         Assert.True(hint!.IsEffectivelyVisible);
 
-        // The version number is still shown somewhere - just not in the
-        // now-hidden "Check for updates" row.
+        // The version is still shown, just not in the hidden "Check for updates" row.
         var expectedVersionText = $"Version {AppVersionInfo.Current}";
         Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == expectedVersionText && t.IsEffectivelyVisible);
     }

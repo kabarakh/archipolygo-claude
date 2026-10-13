@@ -11,13 +11,8 @@ using Newtonsoft.Json;
 namespace Archipolygo.Services;
 
 /// <summary>
-/// Closes an <see cref="IArchipelagoSession"/>'s socket and works around two
-/// Archipelago.MultiClient.Net memory-leak bugs that DisconnectAsync() alone
-/// doesn't fix. See Umsetzungsplan.md, section "Socket-Cleanup: der
-/// Speicherleck-Workaround" for the full analysis (verified against
-/// Archipelago.MultiClient.Net 6.7.1's source and a live GC-root trace).
-/// Split out of <see cref="ConnectionManager"/> since it needs almost none
-/// of that class's connection/leader state - just logging.
+/// Closes a session's socket and works around two Archipelago.MultiClient.Net memory leaks DisconnectAsync() doesn't fix.
+/// See Umsetzungsplan.md, section "Socket-Cleanup: der Speicherleck-Workaround".
 /// </summary>
 internal sealed class SocketCleanup
 {
@@ -30,11 +25,6 @@ internal sealed class SocketCleanup
         _diagnosticLogger = diagnosticLogger;
     }
 
-    /// <summary>
-    /// Closes <paramref name="session"/>'s socket and actually waits for it,
-    /// then applies the reflection-based cleanup below. See this class's own
-    /// doc comment.
-    /// </summary>
     public async Task CloseAsync(GroupViewModel group, SlotProfile? slot, IArchipelagoSession session)
     {
         try
@@ -43,12 +33,9 @@ internal sealed class SocketCleanup
         }
         catch
         {
-            // Best-effort cleanup; nothing more to do.
+            // Best-effort.
         }
 
-        // Two independent library bugs neither of which DisconnectAsync
-        // actually fixes - see Umsetzungsplan.md, section "Socket-Cleanup:
-        // der Speicherleck-Workaround" for the full analysis.
         try
         {
             if (FindClientWebSocket(session.Socket) is { } rawSocket)
@@ -58,8 +45,7 @@ internal sealed class SocketCleanup
         }
         catch (Exception ex)
         {
-            // Best-effort; logged visibly since silently failing here would
-            // silently reopen the memory leak this exists to fix.
+            // Logged visibly: failing silently would reopen the memory leak.
             _messageHistoryService.HandleError(
                 group, $"[{slot?.DisplayName ?? "unknown slot"}] internal cleanup workaround (socket abort) failed: {ex.Message}");
             _diagnosticLogger.Error($"[{group.Group.Name}] [{slot?.DisplayName ?? "unknown slot"}] Socket abort cleanup workaround failed - may leak the session", ex);
@@ -71,19 +57,13 @@ internal sealed class SocketCleanup
         }
         catch (Exception ex)
         {
-            // See above - same reasoning, other half of the workaround.
             _messageHistoryService.HandleError(
                 group, $"[{slot?.DisplayName ?? "unknown slot"}] internal cleanup workaround (send queue) failed: {ex.Message}");
             _diagnosticLogger.Error($"[{group.Group.Name}] [{slot?.DisplayName ?? "unknown slot"}] Send queue cleanup workaround failed - may leak the session", ex);
         }
     }
 
-    /// <summary>
-    /// Reaches through <see cref="IArchipelagoSocketHelper"/> to the
-    /// internal <c>ClientWebSocket</c> field so <see cref="CloseAsync"/> can
-    /// abort it directly. See Umsetzungsplan.md, section "Socket-Cleanup:
-    /// der Speicherleck-Workaround".
-    /// </summary>
+    /// <summary>Reflects into the internal <c>ClientWebSocket</c>. See Umsetzungsplan.md, section "Socket-Cleanup: der Speicherleck-Workaround".</summary>
     private static WebSocket? FindClientWebSocket(IArchipelagoSocketHelper socketHelper)
     {
         for (var type = socketHelper.GetType(); type is not null; type = type.BaseType)
@@ -99,10 +79,8 @@ internal sealed class SocketCleanup
     }
 
     /// <summary>
-    /// Reaches through <see cref="IArchipelagoSocketHelper"/> to the
-    /// internal <c>sendQueue</c> and calls <c>CompleteAdding()</c> to
-    /// unstick a blocked <c>SendLoop</c>. See Umsetzungsplan.md, section
-    /// "Socket-Cleanup: der Speicherleck-Workaround".
+    /// Completes the internal <c>sendQueue</c> to unstick a blocked <c>SendLoop</c>.
+    /// See Umsetzungsplan.md, section "Socket-Cleanup: der Speicherleck-Workaround".
     /// </summary>
     private static void CompleteSendQueue(IArchipelagoSocketHelper socketHelper)
     {
@@ -121,19 +99,16 @@ internal sealed class SocketCleanup
     }
 
     /// <summary>
-    /// True for the exact exception <see cref="CompleteSendQueue"/>
-    /// deliberately provokes - the intended result of that workaround, not a
-    /// real failure. See Umsetzungsplan.md, section "Erwartete Exceptions
-    /// durch die eigenen Workarounds".
+    /// The exception <see cref="CompleteSendQueue"/> deliberately provokes.
+    /// See Umsetzungsplan.md, section "Erwartete Exceptions durch die eigenen Workarounds".
     /// </summary>
     public static bool IsExpectedSendQueueCompletionError(Exception ex) =>
         ex is InvalidOperationException &&
         ex.Message.Contains("marked as complete with regards to additions", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// True for a malformed incoming <c>Bounced</c> packet from another
-    /// client/game in the room, not a bug here. See Umsetzungsplan.md,
-    /// section "Erwartete Exceptions durch die eigenen Workarounds".
+    /// A malformed <c>Bounced</c> packet from another client in the room.
+    /// See Umsetzungsplan.md, section "Erwartete Exceptions durch die eigenen Workarounds".
     /// </summary>
     public static bool IsMalformedBounceDataError(Exception ex) =>
         ex is JsonSerializationException &&

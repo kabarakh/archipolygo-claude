@@ -12,14 +12,7 @@ sealed class Program
     [STAThread]
     public static void Main(string[] args)
     {
-        // Must run before anything else - this is what lets Velopack
-        // intercept the app's own install/update/uninstall hooks (e.g. a
-        // freshly-applied update relaunching this same exe) before the real
-        // Avalonia app ever starts. A no-op on every ordinary launch,
-        // including every local `dotnet run`/`dotnet build` (see
-        // Services/UpdateService.cs's own IsInstalled guard for the
-        // update-check side of this - this call itself is always safe to
-        // make, installed or not).
+        // Must run first so Velopack can handle install/update/uninstall hooks; a no-op on ordinary launches.
         VelopackApp.Build().Run();
 
         BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);

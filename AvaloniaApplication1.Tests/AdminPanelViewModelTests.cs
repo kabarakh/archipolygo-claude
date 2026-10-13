@@ -8,13 +8,7 @@ using Archipolygo.ViewModels;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie A (Test-Umsetzungsplan.md): <see cref="AdminPanelViewModel"/>'s
-/// login/re-login/command flow (Admin-Funktionen.md in the feature-plan
-/// archive) against <see cref="FakeConnectionManager"/>'s fake admin server,
-/// which answers synchronously - so <see cref="AdminPanelViewModel.ReplyWindow"/>
-/// can be zero and nothing here waits on real time.
-/// </summary>
+/// <summary>The fake admin server answers synchronously, so ReplyWindow can be zero.</summary>
 public class AdminPanelViewModelTests
 {
     private static (GroupViewModel group, FakeConnectionManager manager, AdminPanelViewModel admin) MakeConnectedGroup()
@@ -133,7 +127,7 @@ public class AdminPanelViewModelTests
         Assert.True(admin.IsLoggedIn);
     }
 
-    /// <summary>The admin password must never end up anywhere readable after login: not in the event log (server answers are masked), not in the message history.</summary>
+    /// <summary>Server answers are masked and the password stays out of the message history.</summary>
     [Fact]
     public async Task AdminPassword_NeverAppearsInTheEventLog()
     {
@@ -262,7 +256,7 @@ public class AdminPanelViewModelTests
         Assert.Equal(critical, row.IsInactiveCritical);
     }
 
-    /// <summary>Regression: PlayerInfo.Alias can already be "Done (LinkMK8Dx)" - must not show as "Done (LinkMK8Dx) (LinkMK8Dx)".</summary>
+    /// <summary>Regression: PlayerInfo.Alias can already be "Done (LinkMK8Dx)".</summary>
     [Theory]
     [InlineData("LinkMK8Dx", "Done (LinkMK8Dx)", "LinkMK8Dx (Done)")]
     [InlineData("LinkMK8Dx", "Done", "LinkMK8Dx (Done)")]

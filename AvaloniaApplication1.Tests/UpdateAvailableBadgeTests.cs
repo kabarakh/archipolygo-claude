@@ -11,12 +11,6 @@ using Avalonia.VisualTree;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie C (Test-Umsetzungsplan.md): Feature-Plaene/Archiv/Auto-Update.md's
-/// update-available signal next to "Settings..." in <see cref="MainWindow"/>
-/// - a labeled <c>Button</c> (originally a barely-visible 8x8 dot, replaced
-/// for discoverability), against the real <c>.axaml</c> and a real layout pass.
-/// </summary>
 public class UpdateAvailableBadgeTests
 {
     [AvaloniaFact]
@@ -54,11 +48,7 @@ public class UpdateAvailableBadgeTests
         var badge = window.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "UpdateAvailableButton");
         Assert.True(badge.IsEffectivelyVisible);
 
-        // Same "force the DataContext" trick as the combined progress bar's
-        // tooltip test - the attached Flyout's content is a realized control
-        // tree the moment the Border itself loads, but isn't attached to the
-        // logical tree (so its bindings never inherit a DataContext) until
-        // the popup actually opens.
+        // The attached Flyout's content isn't in the logical tree until it opens, so it never inherits a DataContext; set it.
         var flyout = Assert.IsType<Flyout>(FlyoutBase.GetAttachedFlyout(badge));
         var flyoutContent = Assert.IsAssignableFrom<Control>(flyout.Content);
         flyoutContent.DataContext = mainWindowViewModel;

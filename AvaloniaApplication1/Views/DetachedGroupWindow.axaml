@@ -12,15 +12,7 @@
         Title="{Binding DetachedWindowTitle}">
 
     <DockPanel>
-        <!-- "Dock to main window" button re-docks the group (see
-             MainWindowViewModel.RedockGroup, invoked via the redockRequested
-             callback passed to Create below) - originally a drag-back
-             gesture, replaced with a plain button because dragging a tab
-             out into (and back from) a brand-new native window turned out
-             unreliable in practice (Feature-Plaene/Tab-Eigenes-Fenster.md).
-             Plain window-close (the "X" button/Alt+F4) still re-docks too,
-             via MainWindow's own Closed subscription on this window - this
-             class doesn't need to know about that either. -->
+        <!-- Closing the window (X/Alt+F4) re-docks too, via MainWindow's Closed subscription. -->
         <Border DockPanel.Dock="Top" Padding="8,6">
             <Grid ColumnDefinitions="*,Auto">
                 <TextBlock Grid.Column="0" Text="{Binding HeaderText}" FontWeight="Bold"
@@ -29,12 +21,8 @@
             </Grid>
         </Border>
 
-        <!-- Same Padding Fluent's TabControl puts around its content
-             (TabControl.Padding = {DynamicResource TabItemMargin}), so the
-             panels sit exactly as far from the window edge here as they do
-             inside a MainWindow tab - GroupDetailView's own Margin="12"
-             alone was visibly tighter. A DynamicResource rather than a
-             copied number: its value depends on the Density setting. -->
+        <!-- Same Padding as Fluent's TabControl content (TabItemMargin); a
+             DynamicResource because it depends on the Density setting. -->
         <Border Padding="{DynamicResource TabItemMargin}">
             <views:GroupDetailView/>
         </Border>

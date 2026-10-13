@@ -2,13 +2,7 @@ using Archipolygo.Services;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie A (Test-Umsetzungsplan.md): the exact "!admin" lines the Admin
-/// view sends (Admin-Funktionen.md in the feature-plan archive). The quoting
-/// rule differs per command - see <see cref="AdminCommands"/>'s doc comment:
-/// shlex-parsed commands get quoted names, raw ones ("/release", "/collect")
-/// must not, since MultiServer.py compares their raw text to the name exactly.
-/// </summary>
+/// <summary>shlex-parsed commands get quoted names; raw ones ("/release", "/collect") must not, since MultiServer.py compares the raw text exactly.</summary>
 public class AdminCommandsTests
 {
     [Fact]

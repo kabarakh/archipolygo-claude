@@ -16,11 +16,7 @@ public partial class ConfirmationWindow : Window
 
     private void OnCancelClick(object? sender, RoutedEventArgs e) => Close(false);
 
-    /// <summary>
-    /// Shows the dialog and returns whether the confirm button was clicked
-    /// (as opposed to Cancel, Escape, or the title bar's close button - all
-    /// three count as declined, same convention as <see cref="PasswordPromptWindow.ShowDialogAsync"/>).
-    /// </summary>
+    /// <summary>True only if Confirm was clicked; Cancel, Escape and the close button all count as declined.</summary>
     public static async Task<bool> ShowDialogAsync(Window owner, ConfirmationViewModel viewModel)
     {
         var window = new ConfirmationWindow { DataContext = viewModel };

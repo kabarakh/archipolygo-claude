@@ -12,31 +12,17 @@ using CommunityToolkit.Mvvm.Input;
 
 namespace Archipolygo.ViewModels;
 
-/// <summary>Which action <see cref="ConnectionEditorViewModel"/> is set up to perform - see its factory methods.</summary>
 public enum ConnectionEditorMode
 {
-    /// <summary>Create a brand-new server (<see cref="ServerConnectionGroup"/>) with its first slot.</summary>
     NewGroup,
 
-    /// <summary>
-    /// Add one or more slots to an already-existing server. Host/Port are
-    /// shown read-only; slots are picked via a searchable, checkable list of
-    /// the room's player roster (see
-    /// <see cref="ConnectionEditorViewModel.FilteredSlotRows"/>) rather than
-    /// typed, so several can be added together in one go instead of one
-    /// dialog round-trip each.
-    /// </summary>
+    /// <summary>Slots are picked from the room roster (several at once), Host/Port read-only.</summary>
     AddSlot,
 
-    /// <summary>
-    /// Edit an existing server's Name/Host/Port/Password/AutoConnect, and
-    /// manage its already-configured slots: pick which one is the default
-    /// leader, or remove one entirely (see <see cref="ConnectionEditorViewModel.ConfiguredSlotRows"/>).
-    /// </summary>
+    /// <summary>Also manages configured slots: default leader, remove.</summary>
     EditGroup
 }
 
-/// <summary>Validated output of <see cref="ConnectionEditorViewModel.TryBuildResult"/>, for the view's code-behind to apply.</summary>
 public class ConnectionEditorResult
 {
     public required ConnectionEditorMode Mode { get; init; }
@@ -45,275 +31,129 @@ public class ConnectionEditorResult
     public int Port { get; init; }
     public string Password { get; init; } = string.Empty;
 
-    /// <summary><see cref="ConnectionEditorMode.NewGroup"/> only: the free-typed name of the server's first slot.</summary>
     public string SlotName { get; init; } = string.Empty;
 
     public bool AutoConnect { get; init; }
 
-    /// <summary><see cref="ConnectionEditorMode.EditGroup"/> only: see <see cref="Models.ServerConnectionGroup.NotificationsMuted"/>. Always false for every other mode.</summary>
     public bool NotificationsMuted { get; init; }
 
-    /// <summary><see cref="ConnectionEditorMode.NewGroup"/>/<see cref="ConnectionEditorMode.EditGroup"/> only: see <see cref="Models.ServerConnectionGroup.IsAdmin"/>. Always false for <see cref="ConnectionEditorMode.AddSlot"/>.</summary>
     public bool IsAdmin { get; init; }
 
-    /// <summary>Tier 2 of Feature-Plaene/Archiv/Fortschrittsanzeigen.md: exactly what the user typed - see <see cref="Models.ServerConnectionGroup.TrackerReferenceInput"/>.</summary>
     public string? TrackerReferenceInput { get; init; }
 
-    /// <summary>The resolved tracker id, if any - see <see cref="Models.ServerConnectionGroup.TrackerId"/> and <see cref="ConnectionEditorViewModel.TryResolveTrackerReferenceAsync"/>.</summary>
     public string? TrackerId { get; init; }
 
-    /// <summary>
-    /// <see cref="ConnectionEditorMode.AddSlot"/> only: every checked slot in
-    /// the picker, each with its own optional per-slot password override
-    /// (see <see cref="StagedSlot.Password"/>) - see
-    /// <see cref="ConnectionEditorViewModel.BuildSlotsToAdd"/>. Empty for
-    /// every other mode.
-    /// </summary>
     public IReadOnlyList<StagedSlot> SlotsToAdd { get; init; } = Array.Empty<StagedSlot>();
 
-    /// <summary>
-    /// <see cref="ConnectionEditorMode.EditGroup"/> only: the slot that
-    /// should become the leader automatically at startup (see
-    /// <see cref="ServerConnectionGroup.PreferredLeaderSlotId"/>), as picked
-    /// via "Make default" in the slot-management list, or null if none/not
-    /// applicable.
-    /// </summary>
     public Guid? PreferredLeaderSlotId { get; init; }
 
     /// <summary>
-    /// <see cref="ConnectionEditorMode.EditGroup"/> only: every slot the user
-    /// clicked "✕" on in the slot-management list during this dialog session -
-    /// see <see cref="ConnectionEditorViewModel.RemoveConfiguredSlot"/>.
-    /// Staged, not applied until Save: clicking "✕" used to remove a slot
-    /// (and disconnect it, if it was the live leader) immediately, which
-    /// meant "make a different slot the default, then remove the old
-    /// leader" could disconnect the user mid-edit, before they'd even
-    /// clicked Save. Applying every removal here instead, in one batch, once
-    /// the whole edit is confirmed, means Cancel now actually cancels a
-    /// removal too - not just every other field in this dialog.
+    /// Removals are staged until Save, so "make another slot default, then remove the old leader" can't disconnect
+    /// the user mid-edit, and Cancel also cancels removals.
     /// </summary>
     public IReadOnlyList<SlotProfile> SlotsToRemove { get; init; } = Array.Empty<SlotProfile>();
 
-    /// <summary>
-    /// <see cref="ConnectionEditorMode.NewGroup"/>/<see cref="ConnectionEditorMode.EditGroup"/>
-    /// only (see <see cref="ConnectionEditorViewModel.ShowColorPicker"/>) -
-    /// the server's color, as picked (or left at its suggested/existing
-    /// value) via the <c>ColorPicker</c> in the editor. Empty for
-    /// <see cref="ConnectionEditorMode.AddSlot"/>, where the server already
-    /// has a color that this dialog doesn't touch.
-    /// </summary>
+    /// <summary>Empty for <see cref="ConnectionEditorMode.AddSlot"/>, which doesn't touch the server's color.</summary>
     public string Color { get; init; } = string.Empty;
 }
 
-/// <summary>
-/// Editor view model for creating a new server, adding one or more slots to
-/// an existing one, or editing an existing server's connection details.
-/// Shown as a dialog by <see cref="Views.ConnectionEditorWindow"/>; which
-/// fields are actually editable in that view depends on <see cref="Mode"/>.
-/// </summary>
+/// <summary>Dialog view model for creating a server, adding slots to one, or editing one - see <see cref="Mode"/>.</summary>
 public partial class ConnectionEditorViewModel : ViewModelBase
 {
     [ObservableProperty]
     private string _name = string.Empty;
 
     /// <summary>
-    /// Host and port combined into one "host:port" field, so the whole
-    /// address can be copy/pasted in one piece instead of being split across
-    /// a text box and a numeric field. Parsed back into Host/Port by
-    /// <see cref="TryBuildResult"/>. Also accepts a room link/id in place of
-    /// "host:port" - see <see cref="TryResolveHostPortAsync"/>, which
-    /// resolves that into an actual "host:port" and overwrites this field
-    /// with it before <see cref="TryBuildResult"/> ever runs, so
-    /// <see cref="TryBuildResult"/> itself never needs to know the
-    /// difference.
+    /// One "host:port" field so the address pastes in one piece. May also hold a room link/id, which
+    /// <see cref="TryResolveHostPortAsync"/> replaces with the real "host:port" before <see cref="TryBuildResult"/>.
     /// </summary>
     [ObservableProperty]
     private string _hostPortInput = "archipelago.gg:38281";
 
-    /// <summary>Whether a room-link lookup (a <c>/room_status/...</c> call, via <see cref="_resolveRoomConnectionInfo"/>) is currently in flight - lets the view show a brief loading state instead of looking stuck, same idea as <see cref="IsResolvingTracker"/>.</summary>
     [ObservableProperty]
     private bool _isResolvingHostPort;
 
-    /// <summary>Free-text slot name - only used for <see cref="ConnectionEditorMode.NewGroup"/>, where no room roster is available yet to pick from.</summary>
+    /// <summary>NewGroup only - no room roster is available yet to pick from.</summary>
     [ObservableProperty]
     private string _slotName = string.Empty;
 
-    /// <summary>
-    /// The room's shared password - only relevant for
-    /// <see cref="ConnectionEditorMode.NewGroup"/>/<see cref="ConnectionEditorMode.EditGroup"/>.
-    /// <see cref="ConnectionEditorMode.AddSlot"/> doesn't use this field at
-    /// all: the group's shared password was already entered when its leader
-    /// first connected, before any slot picking happens here - each row in
-    /// the picker instead carries its own optional override (see
-    /// <see cref="Models.SelectableSlotRow.OverridePassword"/>).
-    /// </summary>
+    /// <summary>Unused for AddSlot: the shared password is already known; picker rows carry optional overrides.</summary>
     [ObservableProperty]
     private string _password = string.Empty;
 
     [ObservableProperty]
     private bool _autoConnect;
 
-    /// <summary>See <see cref="Models.ServerConnectionGroup.NotificationsMuted"/> and <see cref="ShowNotificationsMuted"/>.</summary>
     [ObservableProperty]
     private bool _notificationsMuted;
 
-    /// <summary>"I'm the admin" - see <see cref="Models.ServerConnectionGroup.IsAdmin"/> and <see cref="ShowIsAdmin"/>.</summary>
     [ObservableProperty]
     private bool _isAdmin;
 
-    /// <summary>
-    /// Tier 2 of Feature-Plaene/Archiv/Fortschrittsanzeigen.md: the free-text field
-    /// accepting a bare tracker id, a tracker URL, or a room URL - see
-    /// <see cref="Services.TrackerReferenceParser"/>. Resolved into an actual
-    /// tracker id (see <see cref="Models.ServerConnectionGroup.TrackerId"/>)
-    /// by <see cref="TryResolveTrackerReferenceAsync"/>, which the view's
-    /// Save handler awaits before calling <see cref="TryBuildResult"/>.
-    /// </summary>
+    /// <summary>A bare tracker id, a tracker URL, or a room URL - resolved by <see cref="TryResolveTrackerReferenceAsync"/>.</summary>
     [ObservableProperty]
     private string _trackerReferenceInput = string.Empty;
 
-    /// <summary>Whether a room-URL resolution (a <c>/room_status/...</c> call, via <see cref="_resolveTrackerId"/>) is currently in flight - lets the view show a brief loading state instead of looking stuck.</summary>
     [ObservableProperty]
     private bool _isResolvingTracker;
 
-    /// <summary>
-    /// Resolves a room id into a tracker id (a <c>/room_status/&lt;id&gt;</c>
-    /// call) - delegated to whoever opened the dialog (see
-    /// <see cref="ForNewGroup"/>/<see cref="ForEditGroup"/>), since this
-    /// lightweight dialog view model has no <c>IMultiworldTrackerService</c>
-    /// of its own. Null in every mode/call site that doesn't wire one up, in
-    /// which case a room URL simply can't be resolved here (see
-    /// <see cref="TryResolveTrackerReferenceAsync"/>).
-    /// </summary>
+    /// <summary>Room id to tracker id; supplied by the caller since this dialog VM has no tracker service. May be null.</summary>
     private Func<string, Task<string?>>? _resolveTrackerId;
 
-    /// <summary>Set once <see cref="TryResolveTrackerReferenceAsync"/> has run successfully - what actually flows into <see cref="ConnectionEditorResult.TrackerId"/>.</summary>
     private string? _resolvedTrackerId;
 
-    /// <summary>
-    /// Resolves a room id into that room's actual Host/Port (a
-    /// <c>/room_status/&lt;id&gt;</c> call) - delegated the same way as
-    /// <see cref="_resolveTrackerId"/>, for the same reason. Null in every
-    /// call site that doesn't wire one up, in which case a room link/id
-    /// simply can't be resolved here (see <see cref="TryResolveHostPortAsync"/>).
-    /// </summary>
+    /// <summary>Room id to Host/Port; supplied by the caller like <see cref="_resolveTrackerId"/>. May be null.</summary>
     private Func<string, Task<RoomConnectionInfo?>>? _resolveRoomConnectionInfo;
 
     [ObservableProperty]
     private string? _validationError;
 
-    /// <summary>Free-text filter over <see cref="SelectableSlotRow.Player"/>'s name/display text - see <see cref="RefreshFilter"/>.</summary>
     [ObservableProperty]
     private string _searchText = string.Empty;
 
-    /// <summary>
-    /// Every room player not yet configured as a slot on this server,
-    /// wrapped as a checkbox row - populated once by <see cref="ForAddSlot"/>
-    /// and never re-ordered/removed afterwards (checking a row doesn't take
-    /// it out of the list, unlike the old stage-then-remove ComboBox flow).
-    /// </summary>
     private readonly List<SelectableSlotRow> _allSlotRows = new();
 
-    /// <summary>The subset of <see cref="_allSlotRows"/> matching <see cref="SearchText"/> right now - what the checkbox list actually shows, for the "Add slot" dialog's picker.</summary>
     public ObservableCollection<SelectableSlotRow> FilteredSlotRows { get; } = new();
 
-    /// <summary>How many rows across the whole (unfiltered) roster are currently checked - drives <see cref="CanApplyNow"/>/<see cref="SaveButtonText"/>.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanApplyNow))]
     [NotifyPropertyChangedFor(nameof(SaveButtonText))]
     private int _selectedSlotCount;
 
-    /// <summary>Whether the filtered list has nothing to show right now (distinct from <see cref="ValidationError"/>, which covers the room having no available players at all).</summary>
+    /// <summary>Distinct from <see cref="ValidationError"/>, which covers the room having no available players at all.</summary>
     public bool HasNoFilteredResults => FilteredSlotRows.Count == 0 && _allSlotRows.Count > 0;
 
-    /// <summary>Mirrors the design's "Select at least one slot to continue" rule - Save stays disabled for <see cref="ConnectionEditorMode.AddSlot"/> until at least one row is checked; irrelevant (always true) for every other mode.</summary>
     public bool CanApplyNow => Mode != ConnectionEditorMode.AddSlot || SelectedSlotCount > 0;
 
-    /// <summary>
-    /// <see cref="ConnectionEditorMode.EditGroup"/> only: every slot already
-    /// configured on this server, for the slot-management list (default
-    /// leader + remove per row) - see <see cref="ForEditGroup"/>,
-    /// <see cref="MakeDefaultLeader"/> and <see cref="RemoveConfiguredSlot"/>.
-    /// </summary>
     public ObservableCollection<ConfiguredSlotRow> ConfiguredSlotRows { get; } = new();
 
-    /// <summary>
-    /// The slot that should become the leader automatically at startup (see
-    /// <see cref="ServerConnectionGroup.PreferredLeaderSlotId"/>) - which row
-    /// in <see cref="ConfiguredSlotRows"/> has <c>IsDefaultLeader</c> set,
-    /// mirrored here so it flows out through <see cref="TryBuildResult"/>.
-    /// </summary>
     [ObservableProperty]
     private Guid? _preferredLeaderSlotId;
 
-    /// <summary>
-    /// Every slot clicked "✕" on so far this dialog session - see
-    /// <see cref="RemoveConfiguredSlot"/> and <see cref="ConnectionEditorResult.SlotsToRemove"/>.
-    /// Removing a configured slot has a real side effect (disconnecting a
-    /// live leader, if it's the current one) that this lightweight dialog
-    /// view model has no way to perform itself - unlike the old immediate-
-    /// removal design, though, that side effect is deliberately deferred to
-    /// Save (see <see cref="MainWindowViewModel.UpdateGroup"/>) rather than
-    /// applied the moment "✕" is clicked, so a same-session "make a
-    /// different slot the default, then remove the old leader" can no
-    /// longer disconnect the user mid-edit before they've even saved.
-    /// </summary>
+    /// <summary>Applied only on Save - see <see cref="ConnectionEditorResult.SlotsToRemove"/>.</summary>
     private readonly List<SlotProfile> _slotsToRemove = new();
 
     public ConnectionEditorMode Mode { get; private init; }
 
-    /// <summary>The slot-management list (default leader + remove) is only relevant when editing an already-existing server.</summary>
     public bool ShowSlotManagement => Mode == ConnectionEditorMode.EditGroup;
 
-    /// <summary>Host/Port are fixed (shown read-only) when adding a slot to an already-existing server.</summary>
     public bool IsServerReadOnly => Mode == ConnectionEditorMode.AddSlot;
 
-    /// <summary>The free-text slot name field is only shown when creating a brand-new server.</summary>
     public bool ShowSlotName => Mode == ConnectionEditorMode.NewGroup;
 
-    /// <summary>The searchable room-roster checkbox picker is only shown when adding slots to an already-existing server.</summary>
     public bool ShowPlayerPicker => Mode == ConnectionEditorMode.AddSlot;
 
-    /// <summary>Auto-connect is a server-level setting; not relevant when only adding slots to one.</summary>
     public bool ShowAutoConnect => Mode != ConnectionEditorMode.AddSlot;
 
-    /// <summary>
-    /// Per-server mute (feature-plan archive's <c>Benachrichtigungen.md</c>) -
-    /// only when editing: a brand-new server has nothing to be noisy about
-    /// yet, and muting is a reaction to a server turning out to be loud.
-    /// </summary>
+    /// <summary>Edit only: a brand-new server has nothing to be noisy about yet.</summary>
     public bool ShowNotificationsMuted => Mode == ConnectionEditorMode.EditGroup;
 
-    /// <summary>
-    /// "I'm the admin" (Admin-Funktionen.md in the feature-plan archive) - a
-    /// server-level setting like <see cref="ShowAutoConnect"/>, and unlike
-    /// the mute toggle already useful when adding a server you host yourself.
-    /// </summary>
     public bool ShowIsAdmin => Mode != ConnectionEditorMode.AddSlot;
 
-    /// <summary>Tier 2 of Feature-Plaene/Archiv/Fortschrittsanzeigen.md is a server-level setting too, same reasoning as <see cref="ShowAutoConnect"/> - not relevant when only adding slots to an existing server.</summary>
     public bool ShowMultiworldTracker => Mode != ConnectionEditorMode.AddSlot;
 
-    /// <summary>
-    /// The color picker is a server-level setting too, same reasoning as
-    /// <see cref="ShowAutoConnect"/>/<see cref="ShowMultiworldTracker"/> -
-    /// shown for both creating a new server and editing an existing one, not
-    /// for <see cref="ConnectionEditorMode.AddSlot"/> (the server it's adding
-    /// to already has a color). See
-    /// Feature-Plaene/Theme-Umschalter-und-Server-Farbwaehler.md.
-    /// </summary>
     public bool ShowColorPicker => Mode != ConnectionEditorMode.AddSlot;
 
-    /// <summary>
-    /// The server's color, bound to the <c>ColorPicker</c> - see
-    /// <see cref="ShowColorPicker"/>. Initialized by <see cref="ForNewGroup"/>
-    /// (to the same auto-assignment suggestion
-    /// <see cref="MainWindowViewModel.AddNewGroup"/> used to compute after
-    /// the fact) or <see cref="ForEditGroup"/> (to the group's existing
-    /// color), and can be reset back to a fresh suggestion via
-    /// <see cref="ResetColorToAutomatic"/>. Unused (default) for
-    /// <see cref="ConnectionEditorMode.AddSlot"/>.
-    /// </summary>
     [ObservableProperty]
     private Color _selectedColor;
 
@@ -325,7 +165,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         _ => "Connection"
     };
 
-    /// <summary>Reflects how many slots are currently checked - visible feedback that ticking boxes actually did something, since the dialog otherwise looks unchanged.</summary>
+    /// <summary>Shows the checked count - the only visible feedback that ticking boxes did something.</summary>
     public string SaveButtonText
     {
         get
@@ -339,10 +179,8 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         }
     }
 
-    /// <summary>Every currently configured server, used for duplicate checks.</summary>
     private IReadOnlyList<ServerConnectionGroup> _existingGroups = Array.Empty<ServerConnectionGroup>();
 
-    /// <summary>The server being added to/edited, for <see cref="ConnectionEditorMode.AddSlot"/>/<see cref="ConnectionEditorMode.EditGroup"/>.</summary>
     private ServerConnectionGroup? _targetGroup;
 
     partial void OnSearchTextChanged(string value) => RefreshFilter();
@@ -362,24 +200,12 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             _resolveRoomConnectionInfo = resolveRoomConnectionInfo
         };
 
-        // Same suggestion MainWindowViewModel.AddNewGroup used to compute
-        // itself after the fact - now shown up front and adjustable via the
-        // color picker before Save, instead of being assigned invisibly in
-        // the background (see ShowColorPicker's doc comment).
         viewModel.SelectedColor = ComputeSuggestedColor(viewModel._existingGroups, null);
 
         return viewModel;
     }
 
-    /// <summary>
-    /// <paramref name="availablePlayers"/> should already be filtered down to
-    /// players not yet configured as a slot on <paramref name="group"/> (see
-    /// <see cref="MainWindowViewModel.GetAvailableSlotsToAddAsync"/>). An
-    /// empty list is shown with an explanatory <see cref="ValidationError"/>
-    /// rather than falling back to free-text entry. Nothing is preselected -
-    /// Save stays disabled (<see cref="CanApplyNow"/>) until at least one row
-    /// is checked.
-    /// </summary>
+    /// <summary><paramref name="availablePlayers"/> must already exclude players configured on <paramref name="group"/>.</summary>
     public static ConnectionEditorViewModel ForAddSlot(ServerConnectionGroup group, IReadOnlyList<PlayerChoice> availablePlayers)
     {
         var viewModel = new ConnectionEditorViewModel
@@ -432,11 +258,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             SelectedColor = ParseColorOrFallback(group.Color)
         };
 
-        // Default leader first, then alphabetical - same ordering rule as
-        // GroupViewModel.RefreshSlotOrder's "Chat as"/slot-filter lists,
-        // applied here to the default-leader concept instead of the
-        // currently-connected one, since this dialog manages the server's
-        // configuration rather than a live connection.
+        // Ordered by the *default* leader, not the live one - this dialog edits configuration.
         foreach (var slot in SortSlotsForDisplay(group.Slots, group.PreferredLeaderSlotId))
         {
             viewModel.ConfiguredSlotRows.Add(new ConfiguredSlotRow
@@ -449,37 +271,17 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         return viewModel;
     }
 
-    /// <summary>Orders slots with <paramref name="leaderSlotId"/>'s slot (if any) first, then the rest alphabetically by name.</summary>
     private static IEnumerable<SlotProfile> SortSlotsForDisplay(IEnumerable<SlotProfile> slots, Guid? leaderSlotId) =>
         slots
             .OrderBy(s => s.Id == leaderSlotId ? 0 : 1)
             .ThenBy(s => s.SlotName, StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>
-    /// What <see cref="ResetColorToAutomatic"/> (and <see cref="ForNewGroup"/>,
-    /// for the initial suggestion) computes: the usual
-    /// <see cref="ServerColorPalette.AssignColor"/> suggestion, but counting
-    /// only every *other* configured group - <paramref name="existingGroups"/>
-    /// includes the group being edited itself (see how <see cref="ForEditGroup"/>
-    /// is called with <c>MainWindowViewModel.GetAllGroups()</c>), and that
-    /// group's own current color must not count against itself, or the
-    /// suggestion would be skewed by a color that's about to be replaced
-    /// anyway. <paramref name="targetGroup"/> is null for
-    /// <see cref="ConnectionEditorMode.NewGroup"/>, where there's no "self"
-    /// to exclude in the first place.
-    /// </summary>
+    /// <summary>Excludes <paramref name="targetGroup"/> itself, so its about-to-be-replaced color doesn't skew the suggestion.</summary>
     private static Color ComputeSuggestedColor(IReadOnlyList<ServerConnectionGroup> existingGroups, ServerConnectionGroup? targetGroup) =>
         ParseColorOrFallback(ServerColorPalette.AssignColor(
             existingGroups.Where(g => g != targetGroup).Select(g => g.Color)));
 
-    /// <summary>
-    /// Avalonia 12.0.4's <see cref="Color"/> (unlike <see cref="Avalonia.Media.Brush"/>,
-    /// which only offers a throwing <c>Parse</c> - see
-    /// <see cref="GroupViewModel.ColorBrush"/>'s own doc comment) has a real
-    /// <c>TryParse</c>, verified against that exact tag's source rather than
-    /// assumed (see CLAUDE.md). Falls back to the palette's first color for
-    /// the same "never throw into the view" reasoning as <c>ColorBrush</c>.
-    /// </summary>
+    /// <summary>Never throws into the view; falls back to the palette's first color.</summary>
     private static Color ParseColorOrFallback(string colorString) =>
         Color.TryParse(colorString, out var color) ? color : Color.Parse(ServerColorPalette.Colors[0]);
 
@@ -491,7 +293,6 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         }
     }
 
-    /// <summary>Rebuilds <see cref="FilteredSlotRows"/> from <see cref="_allSlotRows"/> by name/display text.</summary>
     private void RefreshFilter()
     {
         var query = SearchText.Trim();
@@ -510,7 +311,6 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         OnPropertyChanged(nameof(HasNoFilteredResults));
     }
 
-    /// <summary>Checks every row currently shown by the filter.</summary>
     [RelayCommand]
     private void SelectVisible()
     {
@@ -520,7 +320,6 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         }
     }
 
-    /// <summary>Unchecks every row currently shown by the filter.</summary>
     [RelayCommand]
     private void DeselectVisible()
     {
@@ -530,12 +329,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         }
     }
 
-    /// <summary>
-    /// Every checked row, turned into a <see cref="StagedSlot"/> - its own
-    /// override (if typed) wins, else null, meaning "fall back to the
-    /// group's own shared password" (see <see cref="Password"/>'s doc
-    /// comment for why there's no separate batch-wide password here).
-    /// </summary>
+    /// <summary>A null password means "use the group's shared password".</summary>
     private IReadOnlyList<StagedSlot> BuildSlotsToAdd() =>
         _allSlotRows
             .Where(r => r.IsSelected)
@@ -547,11 +341,6 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             })
             .ToList();
 
-    /// <summary>
-    /// Marks one row as the server's default/preferred leader, un-marking
-    /// whichever row had it before, and moves it to the front of the list
-    /// to match (see <see cref="SortSlotsForDisplay"/>).
-    /// </summary>
     [RelayCommand]
     private void MakeDefaultLeader(ConfiguredSlotRow row)
     {
@@ -573,15 +362,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         }
     }
 
-    /// <summary>
-    /// Stages a configured slot for removal (see <see cref="_slotsToRemove"/>)
-    /// and drops its row from the list right away, so the dialog reflects
-    /// the pending change - but the actual removal (and any disconnect it
-    /// triggers, if this was the live leader) only happens on Save, via
-    /// <see cref="ConnectionEditorResult.SlotsToRemove"/>. If the removed
-    /// slot was the default leader, that preference is cleared too rather
-    /// than silently pointing at a slot that's about to no longer exist.
-    /// </summary>
+    /// <summary>Only staged; the real removal (and possible leader disconnect) happens on Save.</summary>
     [RelayCommand]
     private void RemoveConfiguredSlot(ConfiguredSlotRow row)
     {
@@ -594,14 +375,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         }
     }
 
-    /// <summary>
-    /// Re-suggests <see cref="SelectedColor"/> via
-    /// <see cref="ComputeSuggestedColor"/> - "reset" in the sense of "give me
-    /// a fresh automatic suggestion again", not "restore whatever the exact
-    /// previous automatic value was" (nothing keeps that history once
-    /// overwritten - <see cref="ServerConnectionGroup.Color"/> is just a
-    /// free string, see Feature-Plaene/Archiv/Server-Farben.md).
-    /// </summary>
+    /// <summary>A fresh suggestion, not the previous automatic value - no history of that is kept.</summary>
     [RelayCommand]
     private void ResetColorToAutomatic()
     {
@@ -609,23 +383,8 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Resolves <see cref="HostPortInput"/> for <see cref="ConnectionEditorMode.NewGroup"/>/
-    /// <see cref="ConnectionEditorMode.EditGroup"/> - if it's already a plain
-    /// "host:port", nothing to do (the common case, no network call at all);
-    /// otherwise it's tried as a room link/id (a <c>/room_status/...</c> call
-    /// via <see cref="_resolveRoomConnectionInfo"/>, mirroring how a room URL
-    /// is resolved for <see cref="TrackerReferenceInput"/>) and, on success,
-    /// <see cref="HostPortInput"/> is overwritten with the actual resolved
-    /// "host:port" - so <see cref="TryBuildResult"/> never needs to know the
-    /// difference and can keep parsing it the same way it always has. If the
-    /// room also has a tracker and <see cref="TrackerReferenceInput"/> is
-    /// still empty, that gets filled in too (one lookup, two fields) - see
-    /// <see cref="Models.RoomConnectionInfo.TrackerId"/>. Must be awaited by
-    /// the view's Save handler *before* <see cref="TryResolveTrackerReferenceAsync"/>
-    /// and <see cref="TryBuildResult"/>, same reasoning as that method. A
-    /// no-op for <see cref="ConnectionEditorMode.AddSlot"/> (host/port aren't
-    /// editable there). Sets <see cref="ValidationError"/> and returns false
-    /// on any failure, same convention as <see cref="TryBuildResult"/>.
+    /// If <see cref="HostPortInput"/> isn't "host:port", resolves it as a room link/id and overwrites it (also filling
+    /// an empty tracker field). Await before <see cref="TryResolveTrackerReferenceAsync"/> and <see cref="TryBuildResult"/>.
     /// </summary>
     public async Task<bool> TryResolveHostPortAsync()
     {
@@ -680,18 +439,8 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Recognizes <paramref name="input"/> as a candidate room reference for
-    /// <see cref="TryResolveHostPortAsync"/>, reusing <see cref="TrackerReferenceParser"/>'s
-    /// URL parsing but with a different default for a bare id: a room URL
-    /// ("/room/&lt;id&gt;") is unambiguous, but a bare id with no slashes at
-    /// all is assumed to be a room id here (rather than
-    /// <see cref="TrackerReferenceParser"/>'s own bare-string default of
-    /// "tracker id", which only matters for the separate Tracker field) -
-    /// a room_status lookup is the only thing that can turn it into
-    /// host/port, so that's the only useful guess to make. An explicit
-    /// tracker link ("/tracker/&lt;id&gt;") is rejected outright via
-    /// <paramref name="isTrackerLink"/>, since a tracker id alone carries no
-    /// host/port information at all.
+    /// Unlike <see cref="TrackerReferenceParser"/>, treats a bare id as a room id - the only guess that can yield
+    /// host/port. An explicit tracker link is rejected: a tracker id carries no host/port.
     /// </summary>
     private static bool TryExtractRoomIdForHostPortLookup(string input, out string roomId, out bool isTrackerLink)
     {
@@ -709,10 +458,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             return true;
         }
 
-        // kind == TrackerId - either an explicit "/tracker/<id>" URL, or a
-        // bare id (no slash at all after trimming), which the parser also
-        // reports as TrackerId. Tell those two apart ourselves: only the
-        // bare case is worth trying as a room id.
+        // The parser reports both "/tracker/<id>" and a bare id as TrackerId; only the bare one is worth trying.
         var trimmed = (input ?? string.Empty).Trim();
         var suffixIndex = trimmed.IndexOfAny(new[] { '?', '#' });
         if (suffixIndex >= 0)
@@ -732,16 +478,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         return true;
     }
 
-    /// <summary>
-    /// Resolves <see cref="TrackerReferenceInput"/> (Tier 2 of Feature-Plaene/Archiv/Fortschrittsanzeigen.md)
-    /// into <see cref="_resolvedTrackerId"/>, which <see cref="TryBuildResult"/>
-    /// then reads. Must be awaited by the view's Save handler *before* calling
-    /// <see cref="TryBuildResult"/>, since resolving a room URL needs a
-    /// network round-trip that plain synchronous validation can't do. An
-    /// empty field is not an error - it just means Tier 2 stays disabled for
-    /// this group. Sets <see cref="ValidationError"/> and returns false on
-    /// any failure, same convention as <see cref="TryBuildResult"/>.
-    /// </summary>
+    /// <summary>Await before <see cref="TryBuildResult"/> - a room URL needs a network round-trip. Empty input is not an error.</summary>
     public async Task<bool> TryResolveTrackerReferenceAsync()
     {
         if (!ShowMultiworldTracker)
@@ -796,7 +533,6 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         }
     }
 
-    /// <summary>Validates the input for the current <see cref="Mode"/> and returns a result on success.</summary>
     public bool TryBuildResult(out ConnectionEditorResult result)
     {
         result = null!;
@@ -806,7 +542,6 @@ public partial class ConnectionEditorViewModel : ViewModelBase
 
         if (Mode == ConnectionEditorMode.AddSlot)
         {
-            // Host/Port aren't editable here - reuse the target group's own values verbatim.
             host = _targetGroup!.Host;
             port = _targetGroup.Port;
         }
@@ -883,11 +618,6 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         return true;
     }
 
-    /// <summary>
-    /// Splits "host:port" on the last colon (so a bare hostname/IPv4 host
-    /// works the same as before); rejects anything that isn't a valid
-    /// 1-65535 port or has an empty host part.
-    /// </summary>
     private static bool TryParseHostPort(string input, out string host, out int port)
     {
         host = string.Empty;

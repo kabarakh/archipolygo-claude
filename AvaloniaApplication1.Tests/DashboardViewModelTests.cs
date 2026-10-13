@@ -6,14 +6,6 @@ using Archipolygo.ViewModels;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie A (Test-Umsetzungsplan.md): <see cref="DashboardViewModel"/>'s
-/// aggregation properties and its shared, server-spanning Hints overview
-/// (<see cref="DashboardViewModel.VisibleHints"/>) - see
-/// Feature-Plaene/Dashboard-Tab.md. No Avalonia bindings/dispatcher involved
-/// (same reasoning as <see cref="GroupViewModelOrderingTests"/>), so a plain
-/// <see cref="FakeConnectionManager"/> stand-in is enough.
-/// </summary>
 public class DashboardViewModelTests
 {
     private static GroupViewModel MakeGroup(string name)
@@ -35,8 +27,6 @@ public class DashboardViewModelTests
             ItemKind = itemKind,
         };
 
-    // ── Aggregation properties ──
-
     [Fact]
     public void Aggregates_SumAcrossEveryConfiguredGroup()
     {
@@ -52,7 +42,7 @@ public class DashboardViewModelTests
         g2.UnreadAttentionCount = 7;
         g1.Hints.Add(MakeHint(Guid.NewGuid(), "Sword"));
         g2.Hints.Add(MakeHint(Guid.NewGuid(), "Shield"));
-        g2.Hints.Add(MakeHint(Guid.NewGuid(), "Bow", found: true)); // found - still counts toward UnfoundHintCount denominator? No: UnfoundHintCount only counts unfound.
+        g2.Hints.Add(MakeHint(Guid.NewGuid(), "Bow", found: true)); // found - not counted
 
         Assert.Equal(2, dashboard.TotalServers);
         Assert.Equal(12, dashboard.TotalUnreadEvents);
@@ -90,8 +80,6 @@ public class DashboardViewModelTests
         g1.Hints.Add(MakeHint(Guid.NewGuid(), "Sword"));
         Assert.Equal(1, dashboard.TotalUnfoundHints);
     }
-
-    // ── Shared Hints overview: VisibleHints ──
 
     [Fact]
     public void VisibleHints_NeverIncludesFoundHints_RegardlessOfOtherFilters()
@@ -178,7 +166,6 @@ public class DashboardViewModelTests
         dashboard.HintFilter.SelectedSlot = alice;
         dashboard.HintFilter.SelectedServer = g2;
 
-        // Switching servers can't leave a slot selected that belongs to the old one.
         Assert.Null(dashboard.HintFilter.SelectedSlot);
         Assert.Equal(new SlotProfile?[] { null, bob }, dashboard.HintFilter.SlotOptions);
     }
@@ -270,8 +257,6 @@ public class DashboardViewModelTests
         Assert.Equal(g1, selected);
     }
 
-    // ── Shared Events view (dev follow-up, 2026-09-11) ──
-
     [Fact]
     public void SelectedLeftPanel_DefaultsToOverview()
     {
@@ -357,12 +342,7 @@ public class DashboardViewModelTests
         Assert.Equal(new GroupViewModel?[] { null, g1 }, dashboard.EventsFilter.ServerOptions);
     }
 
-    /// <summary>
-    /// The Events filter row's Slot dropdown is a pure display filter (dev
-    /// decision 2026-09-12) - same copy-not-share/rebuild-on-server-change
-    /// pattern as <see cref="HintSlotFilterOptions"/>, completely unrelated
-    /// to <see cref="DashboardViewModel.SelectedSendServerGroup"/>.
-    /// </summary>
+    /// <summary>A pure display filter, unrelated to SelectedSendServerGroup.</summary>
     [Fact]
     public void EventsSlotFilterOptions_RepopulatedFromSelectedServer_AndResetOnServerChange()
     {
@@ -413,7 +393,6 @@ public class DashboardViewModelTests
             dashboard.VisibleEvents.Select(r => r.Event.Text));
     }
 
-    /// <summary>Picking a slot in the filter row must never switch the group's leader - unlike SelectedSendServerGroup, this is a passive filter.</summary>
     [Fact]
     public void SelectedEventsSlotFilter_NeverTouchesTheLeader()
     {
@@ -449,14 +428,7 @@ public class DashboardViewModelTests
         Assert.Equal(new GroupViewModel?[] { null }, dashboard.EventsFilter.ServerOptions);
     }
 
-    /// <summary>
-    /// The slot dropdown for this view is NOT a separate Dashboard-local
-    /// filter (unlike the Hints slot dropdown) - it's the exact same
-    /// <see cref="GroupViewModel.SelectedChatSlot"/>/<see cref="GroupViewModel.Slots"/>
-    /// the tab's own "Chat as" dropdown uses, reached via a nested binding in
-    /// DashboardView.axaml. This locks in that there's no separate
-    /// Dashboard-only slot state to keep in sync at all.
-    /// </summary>
+    /// <summary>No Dashboard-only slot state: the dropdown binds to the group's own SelectedChatSlot/Slots.</summary>
     [Fact]
     public void SelectedEventsServerFilter_SlotsAndSelectedChatSlot_AreTheGroupsOwnLiveState()
     {
@@ -515,8 +487,6 @@ public class DashboardViewModelTests
         dashboard.SelectedSendServerGroup = g2;
         Assert.False(dashboard.CanSendMessage, "g2 has no connected leader.");
     }
-
-    // ── Events relevance/category/item-kind filters (Feature-Plaene/Dashboard-Event-Filter.md) ──
 
     [Fact]
     public void VisibleEvents_RelevanceFilter_DefaultsToAll_ConcernsMeNarrowsToOwnSlotEntries()
@@ -612,12 +582,6 @@ public class DashboardViewModelTests
         Assert.Equal(EventCategoryFilter.All, dashboard.SelectedEventCategoryFilter);
     }
 
-    /// <summary>
-    /// The Dashboard's Events filters must be entirely separate instances
-    /// from any tab's own <see cref="GroupViewModel"/> filters - changing one
-    /// side must never affect the other, in either direction (see
-    /// Feature-Plaene/Dashboard-Event-Filter.md's isolation requirement).
-    /// </summary>
     [Fact]
     public void EventFilters_AreIndependentFromAnyTabsOwnGroupViewModelFilters()
     {

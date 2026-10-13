@@ -10,17 +10,7 @@ using Avalonia.VisualTree;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie C (Test-Umsetzungsplan.md): the "Chat as"/slot-filter dropdowns'
-/// own closed-state box must never resize depending on which slot happens to
-/// be selected - previously only <c>MinWidth</c> was set, so a long combined
-/// "SlotName (Alias)" (see <see cref="Archipolygo.Models.SlotProfile.DisplayName"/>)
-/// visibly grew the box and shifted whatever sits next to it (the message
-/// box/Send button for "Chat as", the search box for the slot filters).
-/// Fixed via a real <c>Width</c> (not just <c>MinWidth</c>) plus
-/// <c>TextTrimming="CharacterEllipsis"</c> - verified here against real
-/// <c>Bounds</c> after a real layout pass, not just the XAML attribute.
-/// </summary>
+/// <summary>A long "SlotName (Alias)" must not resize the dropdowns (needs a real Width, not just MinWidth).</summary>
 public class SlotDropdownWidthTests
 {
     [AvaloniaFact]
@@ -42,10 +32,7 @@ public class SlotDropdownWidthTests
         var window = new MainWindow { DataContext = mainWindowViewModel, Width = 900, Height = 550 };
         window.Show();
 
-        // Tab content only materializes once the TabControl is actually
-        // visible (see MainWindow.axaml's lazy ContentTemplate gotcha,
-        // documented in CLAUDE.md) - the Dashboard is the default view on
-        // startup, so switch away from it first.
+        // Tab content only materializes once the TabControl is visible; the app starts on the Dashboard.
         mainWindowViewModel.IsDashboardVisible = false;
         Dispatcher.UIThread.RunJobs();
 
@@ -84,10 +71,7 @@ public class SlotDropdownWidthTests
         var window = new MainWindow { DataContext = mainWindowViewModel, Width = 900, Height = 550 };
         window.Show();
 
-        // Tab content only materializes once the TabControl is actually
-        // visible (see MainWindow.axaml's lazy ContentTemplate gotcha,
-        // documented in CLAUDE.md) - the Dashboard is the default view on
-        // startup, so switch away from it first.
+        // Tab content only materializes once the TabControl is visible; the app starts on the Dashboard.
         mainWindowViewModel.IsDashboardVisible = false;
         Dispatcher.UIThread.RunJobs();
 
@@ -107,19 +91,7 @@ public class SlotDropdownWidthTests
         Assert.Equal(130, widthShowingLongCombinedName); // the fixed Width in MainWindow.axaml
     }
 
-    /// <summary>
-    /// The second half of the same bug: even with the closed box's own Width
-    /// pinned (see the two tests above), the OPEN dropdown's popup was still
-    /// visibly growing wider once a long item scrolled into view and got
-    /// measured for the first time - Avalonia only realizes/measures
-    /// virtualized popup items on demand, so an Auto-sized item's own
-    /// measured width (nothing capped it before the item template's
-    /// TextBlock got a MaxWidth) could still balloon the whole popup well
-    /// past the closed box's width. Confirmed empirically: removing the
-    /// ItemTemplate's MaxWidth made a long combined name's popup item
-    /// measure to ~868px in this exact scenario (rather than a small,
-    /// per-item difference), instead of being capped/trimmed.
-    /// </summary>
+    /// <summary>Virtualized popup items are measured on demand, so without the item template's MaxWidth a long name balloons the popup (~868px).</summary>
     [AvaloniaFact]
     public void ChatAsComboBox_OpenPopupItem_WidthIsCapped_NotAllowedToBalloon()
     {
@@ -139,10 +111,7 @@ public class SlotDropdownWidthTests
         var window = new MainWindow { DataContext = mainWindowViewModel, Width = 900, Height = 550 };
         window.Show();
 
-        // Tab content only materializes once the TabControl is actually
-        // visible (see MainWindow.axaml's lazy ContentTemplate gotcha,
-        // documented in CLAUDE.md) - the Dashboard is the default view on
-        // startup, so switch away from it first.
+        // Tab content only materializes once the TabControl is visible; the app starts on the Dashboard.
         mainWindowViewModel.IsDashboardVisible = false;
         Dispatcher.UIThread.RunJobs();
 

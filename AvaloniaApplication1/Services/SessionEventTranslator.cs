@@ -14,35 +14,16 @@ using Avalonia.Threading;
 namespace Archipolygo.Services;
 
 /// <summary>
-/// Turns raw <see cref="IArchipelagoSession"/> events (chat/log lines, item
-/// receipts, hint updates, location progress) into calls on
-/// <see cref="IMessageHistoryService"/>/<see cref="IHintService"/> - the
-/// mechanism behind Phase 6's passive sibling-slot coverage. Split out of
-/// <see cref="ConnectionManager"/>, which still owns session lifecycle
-/// (<c>_sessions</c>/<c>_leaderSlotByGroup</c>/locking) and calls into this
-/// class from inside session event subscriptions. See Umsetzungsplan.md,
-/// section "ConnectionManager: Locking, Nebenläufigkeit und Workarounds im
-/// Detail" for the underlying design rationale (BuildSlotRoster/Alias-
-/// Refresh, TrackHints-per-sibling, item-backlog-vs-live, ...).
+/// Turns raw <see cref="IArchipelagoSession"/> events into <see cref="IMessageHistoryService"/>/<see cref="IHintService"/> calls.
+/// See Umsetzungsplan.md, section "ConnectionManager: Locking, Nebenläufigkeit und Workarounds im Detail".
 /// </summary>
 internal sealed class SessionEventTranslator
 {
     private readonly IMessageHistoryService _messageHistoryService;
     private readonly IHintService _hintService;
-
-    /// <summary>
-    /// Optional - see <see cref="HintService"/>'s own doc comment on its
-    /// matching field for the "purely additive dependency" reasoning. The
-    /// item- and chat-related attention triggers (a slot's own live receipt,
-    /// a sibling's passively observed one, player chat) live in this class,
-    /// not <see cref="IMessageHistoryService"/> - see
-    /// <see cref="OnItemReceived"/>/<see cref="OnLeaderMessageReceived"/>.
-    /// </summary>
     private readonly IAttentionTracker? _attentionTracker;
 
-    // Keyed by SlotProfile.Id; that slot's most recently learned "missing
-    // locations" for the Hint picker's Location mode. See Umsetzungsplan.md,
-    // section "_missingLocationsBySlot: bewusst nur im Speicher".
+    // See Umsetzungsplan.md, section "_missingLocationsBySlot: bewusst nur im Speicher".
     private readonly ConcurrentDictionary<Guid, IReadOnlyList<HintableLocation>> _missingLocationsBySlot = new();
 
     public SessionEventTranslator(IMessageHistoryService messageHistoryService, IHintService hintService, IAttentionTracker? attentionTracker = null)
@@ -52,21 +33,13 @@ internal sealed class SessionEventTranslator
         _attentionTracker = attentionTracker;
     }
 
-    /// <summary>
-    /// Fast, lock-free read of <paramref name="slotId"/>'s cached missing
-    /// locations - see <see cref="GetHintableLocationsAsync"/> in
-    /// <see cref="ConnectionManager"/> and Umsetzungsplan.md, section
-    /// "GetHintableLocationsAsync: Fast-Path und Re-Check".
-    /// </summary>
+    /// <summary>See Umsetzungsplan.md, section "GetHintableLocationsAsync: Fast-Path und Re-Check".</summary>
     public bool TryGetMissingLocations(Guid slotId, out IReadOnlyList<HintableLocation> locations) =>
         _missingLocationsBySlot.TryGetValue(slotId, out locations!);
 
     /// <summary>
-    /// Maps every configured slot to its numeric Archipelago slot id, by
-    /// matching <see cref="SlotProfile.SlotName"/> against the room roster.
-    /// Rebuilt on every call rather than cached. Side effect: also refreshes
-    /// <see cref="SlotProfile.Alias"/> for every matched slot. See
-    /// Umsetzungsplan.md, section "BuildSlotRoster und Alias-Refresh".
+    /// Maps numeric Archipelago slot ids to configured slots; also refreshes <see cref="SlotProfile.Alias"/>.
+    /// See Umsetzungsplan.md, section "BuildSlotRoster und Alias-Refresh".
     /// </summary>
     public static Dictionary<int, SlotProfile> BuildSlotRoster(IArchipelagoSession session, ServerConnectionGroup serverGroup)
     {
@@ -91,13 +64,8 @@ internal sealed class SessionEventTranslator
     }
 
     /// <summary>
-    /// Adds one more <c>TrackHints</c> subscription to the leader's
-    /// already-open session, for a slot added after the leader connected.
-    /// See Umsetzungsplan.md, section "Warum die Leader-Session pro
-    /// Sibling-Slot ein eigenes TrackHints braucht". The caller
-    /// (<see cref="ConnectionManager"/>) already looked <paramref name="leaderSession"/>
-    /// up from its own <c>_sessions</c> map - this class has no session
-    /// registry of its own.
+    /// Adds a <c>TrackHints</c> subscription on the leader's session for a slot added after the leader connected.
+    /// See Umsetzungsplan.md, section "Warum die Leader-Session pro Sibling-Slot ein eigenes TrackHints braucht".
     /// </summary>
     public void TrackHintsForSiblingOnLeader(GroupViewModel group, IArchipelagoSession leaderSession, SlotProfile newSlot)
     {
@@ -106,9 +74,7 @@ internal sealed class SessionEventTranslator
         {
             if (matchedSlot.Id == newSlot.Id)
             {
-                // The leader is already past its grace period here, so the
-                // first callback (retrieveCurrentlyUnlockedHints' replay of
-                // this slot's existing hints) is the only backlog to skip.
+                // Leader is past its grace period, so only the first (replay) callback is backlog.
                 var replayDelivered = false;
                 leaderSession.Hints.TrackHints(
                     hints =>
@@ -126,11 +92,7 @@ internal sealed class SessionEventTranslator
     private static HashSet<int> SiblingIdsExcludingOwn(Dictionary<int, SlotProfile> roster, int ownNumericSlotId) =>
         new(roster.Keys.Where(id => id != ownNumericSlotId));
 
-    /// <summary>
-    /// Which single configured slot (if any) a log/chat message is "about",
-    /// for the merged event log's slot filter. See Umsetzungsplan.md,
-    /// section "ResolvePrimarySlotId".
-    /// </summary>
+    /// <summary>See Umsetzungsplan.md, section "ResolvePrimarySlotId".</summary>
     private static Guid? ResolvePrimarySlotId(LogMessage logMessage, Dictionary<int, SlotProfile> roster)
     {
         if (logMessage is ItemSendLogMessage send && roster.TryGetValue(send.Receiver.Slot, out var receivingSlot))
@@ -150,10 +112,8 @@ internal sealed class SessionEventTranslator
     }
 
     /// <summary>
-    /// Which <see cref="ServerReplyKind"/> (if any) a leader log line is. The
-    /// exact <see cref="LogMessage"/> base type is what an untyped PrintJSON
-    /// (MultiServer.py's broadcast_text_all, e.g. "Cheat console: sending
-    /// ...") becomes; Release/Collect notices have their own subtypes.
+    /// An untyped PrintJSON (MultiServer.py's broadcast_text_all) arrives as the exact <see cref="LogMessage"/> base type;
+    /// Release/Collect notices have their own subtypes.
     /// </summary>
     internal static ServerReplyKind? ClassifyServerReply(LogMessage logMessage) => logMessage switch
     {
@@ -173,7 +133,6 @@ internal sealed class SessionEventTranslator
         _ => false,
     };
 
-    /// <summary>Every real room player's slot name and alias with the same color classification chat player parts get.</summary>
     private static IReadOnlyList<(string Name, EventTextSegmentKind Kind)> BuildPlayerNameKinds(IArchipelagoSession session, IReadOnlySet<int> siblingIds)
     {
         var ownSlot = session.ConnectionInfo.Slot;
@@ -192,10 +151,8 @@ internal sealed class SessionEventTranslator
     }
 
     /// <summary>
-    /// Fires for every chat/log line the leader's session receives, which
-    /// covers the whole room - the core mechanism behind Phase 6. Mirrors an
-    /// item-send broadcast into a non-leader slot's own received-items
-    /// panel so that slot stays current without its own connection.
+    /// The leader sees the whole room's log, so item sends to non-leader slots are mirrored into their panels here
+    /// without them needing a connection of their own.
     /// </summary>
     public void OnLeaderMessageReceived(GroupViewModel group, IArchipelagoSession session, SlotProfile leaderSlot, LogMessage logMessage)
     {
@@ -204,10 +161,7 @@ internal sealed class SessionEventTranslator
 
         var segments = EventSegmentBuilder.BuildChatSegments(logMessage, siblingIds);
         var slotId = ResolvePrimarySlotId(logMessage, roster);
-        // HintItemSendLogMessage derives from ItemSendLogMessage (checked
-        // against Archipelago.MultiClient.Net 6.7.1's source), so it has to
-        // be matched first - otherwise every "[Hint]: ..." line counted as an
-        // item send.
+        // HintItemSendLogMessage derives from ItemSendLogMessage, so it must be matched first.
         var eventType = logMessage switch
         {
             HintItemSendLogMessage => EventType.HintReceived,
@@ -215,7 +169,6 @@ internal sealed class SessionEventTranslator
             _ => EventType.Chat
         };
 
-        // Admin lines arrive as plain text - see AdminEventFormatter.
         var isAdminLine = IsAdminLine(logMessage);
         var text = logMessage.ToString();
         if (isAdminLine)
@@ -227,11 +180,8 @@ internal sealed class SessionEventTranslator
 
         _messageHistoryService.HandleChatMessage(group, text, segments, slotId, eventType);
 
-        // Only genuine player chat - server lines (ServerChatLogMessage),
-        // join/leave/goal notices and "[Hint]: ..." lines are separate
-        // LogMessage types (checked against Archipelago.MultiClient.Net
-        // 6.7.1's source), so a hint line can never double as a mention.
-        // An "!admin ..." echo is chat too, but never worth attention.
+        // Server lines, join/leave notices and "[Hint]: ..." lines are separate LogMessage types, so only
+        // genuine player chat lands here; an "!admin ..." echo never deserves attention.
         if (logMessage is ChatLogMessage chat && !isAdminLine)
         {
             var ownNames = roster.Values.SelectMany(configured => new[] { configured.SlotName, configured.Alias });
@@ -244,15 +194,11 @@ internal sealed class SessionEventTranslator
 
         if (logMessage is HintItemSendLogMessage hintMessage)
         {
-            // A hint is not a received item - never mirror it into a sibling
-            // slot's received-items panel below; it only feeds the Hints panel.
+            // A hint is not a received item - it only feeds the Hints panel.
             AddChatHint(group, session, roster, siblingIds, hintMessage);
             return;
         }
 
-        // ItemSendLogMessage exposes the receiving side as .Receiver (a
-        // PlayerInfo), not .Receiving - confirmed against the installed
-        // Archipelago.MultiClient.Net 6.7.1 XML docs.
         if (logMessage is ItemSendLogMessage itemSend &&
             itemSend.Receiver.Slot != session.ConnectionInfo.Slot &&
             roster.TryGetValue(itemSend.Receiver.Slot, out var targetSlot))
@@ -264,22 +210,14 @@ internal sealed class SessionEventTranslator
                 itemSend.Item.ItemDisplayName, itemSend.Item.LocationDisplayName, itemSend.Item.Flags,
                 senderName, senderKind);
 
-            // A sibling slot's item is only ever observed here while the
-            // room's chat is live (no backlog concept for passive coverage),
-            // so no separate "isLive" gate is needed - see OnItemReceived's
-            // own gate for the directly-connected-slot equivalent.
+            // Passive coverage has no backlog, so this is always live.
             _attentionTracker?.Report(group, ItemAttentionCategory(itemSend.Item.Flags));
         }
     }
 
     /// <summary>
-    /// Turns a "[Hint]: ..." chat line into a <see cref="HintSnapshot"/> for
-    /// the Hints panel - same key format and slot resolution as
-    /// <see cref="OnHintsUpdated"/>, so whichever of the two sources reports a
-    /// hint first is the one entry that stays (see
-    /// <see cref="IHintService.AddHintFromChat"/>). The server replays every
-    /// hint concerning a player on connect, so most of these are duplicates
-    /// that get dropped there.
+    /// Same key format as <see cref="OnHintsUpdated"/>, so whichever source reports a hint first wins; the server
+    /// replays every hint on connect, so most of these are dropped as duplicates.
     /// </summary>
     private void AddChatHint(GroupViewModel group, IArchipelagoSession session, Dictionary<int, SlotProfile> roster,
                              HashSet<int> siblingIds, HintItemSendLogMessage hintMessage)
@@ -322,15 +260,12 @@ internal sealed class SessionEventTranslator
 
     public void OnItemReceived(GroupViewModel group, SlotProfile slot, IArchipelagoSession session, ReceivedItemsHelper helper, bool isLeaderSession, bool hasAnnouncedConnection)
     {
-        // A catch-up session always treats everything as backlog. See
-        // Umsetzungsplan.md, section "Item-Backlog vs. Live bei
-        // OnItemReceived".
+        // See Umsetzungsplan.md, section "Item-Backlog vs. Live bei OnItemReceived".
         var isLive = isLeaderSession && hasAnnouncedConnection;
 
         if (isLive)
         {
-            // Already connected - the chat-log "X sent Y to Z" line handles
-            // announcing this one; just keep the persisted index moving.
+            // The chat-log "X sent Y to Z" line already announces it; just advance the persisted index.
             _messageHistoryService.AdvanceItemSyncState(slot, helper.AllItemsReceived);
         }
         else
@@ -348,10 +283,7 @@ internal sealed class SessionEventTranslator
             var siblingIds = SiblingIdsExcludingOwn(roster, session.ConnectionInfo.Slot);
             senderKind = EventSegmentBuilder.ClassifyPlayerSlot(latest.Player, session.ConnectionInfo.Slot, siblingIds);
 
-            // Gated on isLive - a catch-up sync (isLive false) always treats
-            // its whole backlog as "the latest item" too, and reporting every
-            // item a slot missed while the app was closed would be exactly the
-            // noisy-at-startup behavior the attention triggers avoid.
+            // Catch-up backlog must never trigger attention.
             if (isLive)
             {
                 _attentionTracker?.Report(group, ItemAttentionCategory(latest.Flags));
@@ -360,8 +292,6 @@ internal sealed class SessionEventTranslator
 
         _messageHistoryService.TrackReceivedItem(group, slot, helper.AllItemsReceived, senderName, senderKind);
 
-        // Drain the queue as documented by the library; the calls above
-        // already read everything they need from AllItemsReceived.
         while (helper.Any())
         {
             helper.DequeueItem();
@@ -369,18 +299,10 @@ internal sealed class SessionEventTranslator
     }
 
     /// <summary>
-    /// Fires whenever one tracked slot's full current hint list is
-    /// available - not room-wide by itself. See Umsetzungsplan.md, section
-    /// "Warum die Leader-Session pro Sibling-Slot ein eigenes TrackHints
-    /// braucht".
+    /// Fires per tracked slot, not room-wide.
+    /// See Umsetzungsplan.md, section "Warum die Leader-Session pro Sibling-Slot ein eigenes TrackHints braucht".
     /// </summary>
-    /// <param name="isLive">
-    /// False for a catch-up session, and for the leader's own initial
-    /// replay of already-unlocked hints (before its backlog grace period
-    /// elapsed) - such hints are still added and flagged as new, but never
-    /// reported as needing attention (see the feature-plan archive's
-    /// <c>Benachrichtigungen.md</c>, "nur live").
-    /// </param>
+    /// <param name="isLive">False for catch-up and the leader's initial replay: hints are added but never reported for attention.</param>
     public void OnHintsUpdated(GroupViewModel group, IArchipelagoSession session, Hint[] hints, bool isLive)
     {
         var roster = BuildSlotRoster(session, group.Group);
@@ -411,9 +333,7 @@ internal sealed class SessionEventTranslator
                 continue;
             }
 
-            // Items belong to the receiving player's game; locations to the
-            // finding player's - the generic tracker login uses an empty
-            // game, so the correct game is looked up per hinted player.
+            // Items belong to the receiver's game, locations to the finder's; the tracker login has no game of its own.
             var receivingGame = session.Players.GetPlayerInfo(hint.ReceivingPlayer)?.Game;
             var findingGame = session.Players.GetPlayerInfo(hint.FindingPlayer)?.Game;
 
@@ -445,11 +365,6 @@ internal sealed class SessionEventTranslator
             ? AttentionCategory.ProgressionItem
             : AttentionCategory.OtherItem;
 
-    /// <summary>
-    /// Reads <paramref name="session"/>'s current "X of Y locations checked"
-    /// counts onto <paramref name="slot"/>, dispatched to the UI thread
-    /// since this can run from a session's background event thread.
-    /// </summary>
     public static void UpdateLocationProgress(SlotProfile slot, IArchipelagoSession session)
     {
         var checkedCount = session.Locations.AllLocationsChecked.Count;
@@ -461,15 +376,9 @@ internal sealed class SessionEventTranslator
         });
     }
 
-    /// <summary>
-    /// Refreshes the missing-locations cache for <paramref name="slot"/>.
-    /// Not dispatched to the UI thread like <see cref="UpdateLocationProgress"/> -
-    /// a plain dictionary entry is safe to write from any thread.
-    /// </summary>
     public void UpdateMissingLocationsCache(SlotProfile slot, IArchipelagoSession session)
     {
-        // Same roster-based game lookup as GetHintableItemsAsync -
-        // ConnectionInfo.Game is never set for this generic tracker client.
+        // ConnectionInfo.Game is never set for this generic tracker client, so look the game up via the roster.
         var ownGame = session.Players.GetPlayerInfo(session.ConnectionInfo.Slot)?.Game;
 
         IReadOnlyList<HintableLocation> missingLocations = session.Locations.AllMissingLocations

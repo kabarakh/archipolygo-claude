@@ -5,16 +5,7 @@ using Archipolygo.ViewModels;
 
 namespace AvaloniaApplication1.Tests;
 
-/// <summary>
-/// Kategorie A (Test-Umsetzungsplan.md): <see cref="HintPickerViewModel"/>'s
-/// row-building/filtering logic - see Feature-Plaene/Archiv/Hint-Eingabefeld.md.
-/// No session/Avalonia involved: Location mode is driven by
-/// <see cref="FakeConnectionManager.SetHintableLocations"/> (already-completed
-/// tasks, so <c>OnOpened</c>'s fire-and-forget refresh finishes synchronously
-/// - same reasoning as <see cref="GroupViewModelRoomProgressTests"/> needing
-/// no Avalonia dispatcher), Item mode reads straight off
-/// <see cref="GroupViewModel.ReceivedItems"/>/<see cref="GroupViewModel.Hints"/>.
-/// </summary>
+/// <summary>Location mode uses already-completed fake tasks, so OnOpened's fire-and-forget refresh finishes synchronously.</summary>
 public class HintPickerViewModelTests
 {
     private static (GroupViewModel viewModel, ServerConnectionGroup group, FakeConnectionManager manager) MakeGroup(params string[] slotNames)
@@ -42,7 +33,7 @@ public class HintPickerViewModelTests
         SenderKind = EventTextSegmentKind.OtherSlotName,
     };
 
-    /// <summary>Builds a HintEntry the way ConnectionManager's hint-snapshot code would, given who's actually receiving/finding it - SlotId mirrors the real fallback (receiver if configured, else finder), so tests can reproduce the finder-fallback bug (see ItemMode_ExcludesHintWhereSlotIsOnlyTheFinder_NotTheReceiver).</summary>
+    /// <summary>SlotId mirrors the real fallback: receiver if configured, else finder.</summary>
     private static HintEntry Hint(SlotProfile owningSlot, string itemName, string receivingPlayerName, string findingPlayerName = "SomeFinder", bool found = false, string locationName = "Some Location") => new()
     {
         Key = System.Guid.NewGuid().ToString(),
@@ -77,23 +68,14 @@ public class HintPickerViewModelTests
         Assert.Equal(new[] { "Fire Rod", "Small Key" }, names); // alphabetical, one row per name
     }
 
-    /// <summary>
-    /// Dev-reported bug: a Kirby Super Star slot's item list showed items
-    /// like "Memory of a Distant World" that only exist in a different,
-    /// linked game's own pool. Root cause: HintEntry.SlotId is set to
-    /// whichever configured slot a hint concerns, receiver *or* (only if the
-    /// real receiver isn't configured here) finder - a hint where this slot
-    /// is merely the finder is someone else's item, physically hidden in
-    /// this slot's own world, not this slot's own item.
-    /// </summary>
+    /// <summary>A hint where this slot is only the finder is someone else's item (e.g. from a linked game's pool).</summary>
     [Fact]
     public void ItemMode_ExcludesHintWhereSlotIsOnlyTheFinder_NotTheReceiver()
     {
         var (viewModel, group, _) = MakeGroup("KabaKSS");
         var kss = group.Slots[0];
 
-        // SlotId falls back to the finder (kss) because the true receiver
-        // ("KabaXIV") isn't a slot configured in this app at all.
+        // SlotId falls back to the finder because the receiver isn't a configured slot.
         viewModel.Hints.Add(Hint(kss, "Memory of a Distant World", receivingPlayerName: "KabaXIV", findingPlayerName: "KabaKSS"));
 
         viewModel.HintPicker.OnOpened();
@@ -108,8 +90,7 @@ public class HintPickerViewModelTests
         var kss = group.Slots[0];
         kss.Alias = "KabaDone";
 
-        // ReceivingPlayerName comes back as the room alias (GetPlayerAlias),
-        // not necessarily the raw slot name - must still match.
+        // ReceivingPlayerName is the room alias, not necessarily the slot name.
         viewModel.Hints.Add(Hint(kss, "Fire Rod", receivingPlayerName: "KabaDone", findingPlayerName: "SomeoneElse"));
 
         viewModel.HintPicker.OnOpened();
@@ -123,17 +104,12 @@ public class HintPickerViewModelTests
         var (viewModel, group, _) = MakeGroup("Alice");
         var alice = group.Slots[0];
 
-        // Received, no pending hint - nothing left to ask about.
         viewModel.ReceivedItems.Add(ReceivedItem(alice, "Compass"));
 
-        // Never received, but a hint is out there (unfound) - still worth asking about? No:
-        // this represents "I already know where a copy is" - stays visible either way since
-        // it's not received yet.
+        // Not received yet, so it stays visible despite the hint.
         viewModel.Hints.Add(Hint(alice, "Map", receivingPlayerName: "Alice", found: false));
 
-        // Received AND has its own still-unfound hint - a second copy may
-        // still be worth asking about (dev feedback: several copies of a
-        // named item can exist).
+        // Received but with its own unfound hint: several copies can exist.
         viewModel.ReceivedItems.Add(ReceivedItem(alice, "Bottle"));
         viewModel.Hints.Add(Hint(alice, "Bottle", receivingPlayerName: "Alice", found: false));
 
@@ -148,15 +124,6 @@ public class HintPickerViewModelTests
         Assert.DoesNotContain("Compass", namesAfterExclude);
     }
 
-    /// <summary>
-    /// Dev-reported bug fix (see Feature-Plaene/Archiv/Hint-Eingabefeld.md's
-    /// "Status" section): the candidate pool used to be *only* received/hinted
-    /// names - since that made "exclude already found/hinted" pointless (the
-    /// whole pool was already nothing but found/hinted items). Now it's the
-    /// game's full DataPackage item list (<see cref="FakeConnectionManager.SetHintableItems"/>),
-    /// which must include names the slot has never received or been hinted
-    /// at all.
-    /// </summary>
     [Fact]
     public void ItemMode_CandidatePool_IncludesGameItemsNeverReceivedOrHinted()
     {
@@ -173,13 +140,6 @@ public class HintPickerViewModelTests
             viewModel.HintPicker.FilteredRows.Select(r => r.Name));
     }
 
-    /// <summary>
-    /// The exact "checkbox makes no sense" complaint: with the old
-    /// received/hinted-only pool, every row was already found/hinted, so
-    /// checking "exclude" hid everything. With the full game item list, most
-    /// rows are neither received nor hinted at all - the checkbox must leave
-    /// those completely alone.
-    /// </summary>
     [Fact]
     public void ItemMode_ExcludeCheckbox_NeverHidesItemsNeverReceivedOrHinted()
     {
@@ -306,7 +266,7 @@ public class HintPickerViewModelTests
 
         viewModel.HintPicker.SendCommand.Execute(viewModel.HintPicker.FilteredRows.Single());
 
-        Assert.Single(viewModel.HintPicker.FilteredRows); // stays visible - see class doc comment
+        Assert.Single(viewModel.HintPicker.FilteredRows); // stays visible
         Assert.Contains((alice.Id, "Fire Rod"), manager.SentItemHints);
     }
 
@@ -322,13 +282,7 @@ public class HintPickerViewModelTests
         Assert.Equal("Loading locations...", viewModel.HintPicker.LoadingText);
     }
 
-    /// <summary>
-    /// Feature-Plaene/Archiv/Hint-Eingabefeld.md's "Status" section: a
-    /// connection held open for a non-leader slot should be released the
-    /// moment the picker moves on to a *different* slot - not before (the
-    /// very first slot selection, from <c>OnOpened</c>, has nothing to
-    /// release yet) and not for the newly-selected slot itself.
-    /// </summary>
+    /// <summary>Not on the first selection (nothing to release) and never the newly selected slot.</summary>
     [Fact]
     public void SwitchingSelectedSlot_ReleasesThePreviousSlotOnly()
     {

@@ -3,15 +3,9 @@ using System;
 namespace Archipolygo.Services;
 
 /// <summary>
-/// Builds the exact "!admin ..." chat lines the Admin view sends (see
-/// Admin-Funktionen.md in the feature-plan archive). The quoting rule differs
-/// per command, checked against MultiServer.py's ServerCommandProcessor:
-/// - "/send", "/send_multiple", "/send_location", "/option" are parsed with
-///   <c>shlex.split</c>, so every name is quoted - that keeps names with
-///   spaces together and is harmless otherwise.
-/// - "/release", "/collect" (and the other <c>@mark_raw</c> commands) get the
-///   raw rest of the line and compare it to the player name EXACTLY - quotes
-///   would become part of the name and never match, so the name is sent bare.
+/// Builds "!admin ..." lines. MultiServer.py parses /send, /send_multiple, /send_location and /option with
+/// <c>shlex.split</c> (names quoted), but /release and /collect (<c>@mark_raw</c>) compare the raw rest of the line
+/// to the name exactly, so those must send it bare.
 /// </summary>
 public static class AdminCommands
 {
@@ -41,19 +35,11 @@ public static class AdminCommands
 
     public static string SetOption(string option, string value) => $"{Prefix}/option {option} {Quote(value)}";
 
-    /// <summary>
-    /// A double-quoted shlex token. Python's shlex (POSIX mode) treats a
-    /// backslash inside double quotes as an escape only before <c>"</c> and
-    /// <c>\</c> - unlike bash, not before <c>$</c> or a backtick - so exactly
-    /// those two get escaped.
-    /// </summary>
+    /// <summary>POSIX shlex only treats a backslash in double quotes as an escape before <c>"</c> and <c>\</c>.</summary>
     internal static string Quote(string value) =>
         $"\"{value.Replace("\\", "\\\\").Replace("\"", "\\\"")}\"";
 
-    /// <summary>
-    /// Lines that carry a password - never kept in the chat box's Up-arrow
-    /// history (the server itself already stars them out for everyone else).
-    /// </summary>
+    /// <summary>Lines that carry a password are never kept in the chat box's Up-arrow history.</summary>
     public static bool ContainsPassword(string chatLine)
     {
         var trimmed = chatLine.TrimStart();

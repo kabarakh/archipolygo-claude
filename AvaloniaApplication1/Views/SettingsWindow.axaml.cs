@@ -31,14 +31,7 @@ public partial class SettingsWindow : Window
         Close(null);
     }
 
-    /// <summary>
-    /// Saves the current diagnostic log (see <see cref="SettingsViewModel.GetDiagnosticLogTextOrNull"/>)
-    /// to a user-chosen file. Owned by this window's code-behind rather than
-    /// a <c>[RelayCommand]</c> on the view model, same reasoning as the
-    /// password-prompt/confirmation dialogs in App.axaml.cs - only an actual
-    /// <c>Window</c> has a <see cref="StorageProvider"/> to show a save
-    /// dialog with.
-    /// </summary>
+    // Code-behind rather than a view-model command: only a Window has a StorageProvider for the save dialog.
     private async void OnExportDiagnosticLogClick(object? sender, RoutedEventArgs e)
     {
         var logText = ViewModel.GetDiagnosticLogTextOrNull();
@@ -74,10 +67,6 @@ public partial class SettingsWindow : Window
         }
     }
 
-    /// <summary>
-    /// Shows the settings editor as a modal dialog and returns the resulting
-    /// settings, or null if the user cancelled.
-    /// </summary>
     public static Task<AppSettings?> ShowDialogAsync(Window owner, SettingsViewModel viewModel)
     {
         var window = new SettingsWindow { DataContext = viewModel };

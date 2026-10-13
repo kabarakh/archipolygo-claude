@@ -12,20 +12,8 @@ using Archipolygo.Models;
 namespace Archipolygo.Services;
 
 /// <summary>
-/// Real <see cref="IMultiworldTrackerService"/> - talks to an Archipelago
-/// webhost's own public JSON API (verified against <c>docs/webhost api.md</c>
-/// in the ArchipelagoMW/Archipelago repository), a completely separate REST
-/// endpoint from the <c>Archipelago.MultiClient.Net</c> socket connection
-/// <see cref="ConnectionManager"/> uses everywhere else - the room server
-/// (Host:Port) this app already stores and the webhost (archipelago.gg, or a
-/// self-hosted instance of it) are two different things, and a client logged
-/// into the room socket has no way to discover the tracker id on its own
-/// (see Feature-Plaene/Archiv/Fortschrittsanzeigen.md for the full writeup).
-///
-/// Strictly honors the documented cache timers - <c>/tracker/...</c> at most
-/// once every 60 seconds, <c>/static_tracker/...</c> at most once every 300
-/// seconds - per tracker id, regardless of how often <see cref="GetProgressAsync"/>
-/// itself is called; a cached response is reused instead of refetching.
+/// Webhost JSON API client. Strictly honors the documented cache timers per tracker id
+/// (<c>/tracker</c> 60s, <c>/static_tracker</c> 300s), however often it's called.
 /// </summary>
 public class MultiworldTrackerService : IMultiworldTrackerService
 {
@@ -43,13 +31,8 @@ public class MultiworldTrackerService : IMultiworldTrackerService
     private readonly ConcurrentDictionary<string, (DateTimeOffset FetchedAt, TrackerResponse Data)> _trackerCache = new();
     private readonly ConcurrentDictionary<string, (DateTimeOffset FetchedAt, StaticTrackerResponse Data)> _staticTrackerCache = new();
 
-    /// <param name="httpClient">
-    /// Defaults to a fresh client against archipelago.gg - override for a
-    /// self-hosted webhost instance, or (in tests) to inject a fake
-    /// <see cref="HttpMessageHandler"/> so JSON-parsing tests never touch the
-    /// real network (see Test-Umsetzungsplan.md's ban on real network timing).
-    /// </param>
-    /// <param name="clock">Overridable for tests that need to assert the cache timers are actually honored, without a real wait.</param>
+    /// <param name="httpClient">Override for a self-hosted webhost, or a fake handler in tests.</param>
+    /// <param name="clock">For tests asserting the cache timers without real waits.</param>
     public MultiworldTrackerService(HttpClient? httpClient = null, Func<DateTimeOffset>? clock = null)
     {
         _httpClient = httpClient ?? new HttpClient { BaseAddress = new Uri("https://archipelago.gg/") };
@@ -66,9 +49,7 @@ public class MultiworldTrackerService : IMultiworldTrackerService
         }
         catch (Exception)
         {
-            // Room not found, no webhost at all, network error, unexpected
-            // JSON shape - all treated the same: no tracker available. See
-            // the interface doc comment for why this never throws.
+            // Not found, no webhost, network error, bad JSON: all mean "no tracker".
             return null;
         }
     }
@@ -85,9 +66,7 @@ public class MultiworldTrackerService : IMultiworldTrackerService
                 return null;
             }
 
-            // The webhost's own domain doubles as the room's host - see this
-            // method's doc comment on IMultiworldTrackerService for why
-            // room_status itself carries no hostname field to read instead.
+            // room_status has no hostname field; webhost rooms run on the webhost's own domain.
             var host = _httpClient.BaseAddress?.Host;
             if (string.IsNullOrEmpty(host))
             {
@@ -103,9 +82,6 @@ public class MultiworldTrackerService : IMultiworldTrackerService
         }
         catch (Exception)
         {
-            // Same "never throws" convention as ResolveTrackerIdAsync - room
-            // not found, no webhost at all, network error, unexpected JSON
-            // shape all just mean "can't resolve this", not an exception.
             return null;
         }
     }
@@ -118,10 +94,7 @@ public class MultiworldTrackerService : IMultiworldTrackerService
             return null;
         }
 
-        // The static tracker (location totals) is best-effort on top of the
-        // live tracker data - a room whose static data hasn't loaded yet (or
-        // failed to) still gets checked-count progress, just without a
-        // "Y" denominator (ChecksTotal stays null - see PlayerProgress).
+        // Static totals are best-effort: without them ChecksTotal just stays null.
         var staticTracker = await GetStaticTrackerAsync(trackerId, cancellationToken);
 
         var totalsByPlayer = (staticTracker?.PlayerLocationsTotal ?? new())
@@ -131,8 +104,6 @@ public class MultiworldTrackerService : IMultiworldTrackerService
         var aliasesByPlayer = tracker.Aliases
             .ToDictionary(a => (a.Team, a.Player), a => a.Alias);
 
-        // Admin view (Admin-Funktionen.md in the feature-plan archive): same
-        // /tracker response, previously just not read.
         var activityByPlayer = tracker.ActivityTimers
             .GroupBy(t => (t.Team, t.Player))
             .ToDictionary(g => g.Key, g => ParseTimestamp(g.First().Time));
@@ -204,32 +175,21 @@ public class MultiworldTrackerService : IMultiworldTrackerService
         }
         catch (Exception)
         {
-            // No cached static data at all yet - GetProgressAsync's caller
-            // just gets ChecksTotal == null for every player this round.
             return null;
         }
     }
 
-    // Response DTOs below use JsonNamingPolicy.SnakeCaseLower (see JsonOptions)
-    // to match the webhost API's snake_case JSON keys without needing a
-    // [JsonPropertyName] on every single property - "PlayerChecksDone" maps to
-    // "player_checks_done", etc. Only the fields this service actually reads
-    // are modeled; every other documented key is intentionally left out.
+    // DTOs rely on SnakeCaseLower naming; only fields this service reads are modeled.
 
     private sealed class RoomStatusResponse
     {
         public string? Tracker { get; set; }
 
-        /// <summary>"Last known hosted port" - the room's actual port, see <see cref="ResolveRoomConnectionInfoAsync"/>.</summary>
+        /// <summary>"Last known hosted port" - the room's actual port.</summary>
         public int? LastPort { get; set; }
     }
 
-    /// <summary>
-    /// The tracker API returns timers in RFC 1123 format ("Tue, 29 Sep 2026
-    /// 12:00:00 GMT", Flask's default datetime serialization - see
-    /// WebHostLib/api/tracker.py), or null for a player who never connected.
-    /// Parsed leniently: anything unreadable just counts as "unknown".
-    /// </summary>
+    /// <summary>RFC 1123 (Flask's default), or null for a player who never connected; unreadable means unknown.</summary>
     internal static DateTimeOffset? ParseTimestamp(string? value) =>
         !string.IsNullOrWhiteSpace(value) &&
         DateTimeOffset.TryParse(value, System.Globalization.CultureInfo.InvariantCulture,

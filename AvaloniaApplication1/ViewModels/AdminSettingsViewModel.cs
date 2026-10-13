@@ -6,11 +6,8 @@ using CommunityToolkit.Mvvm.ComponentModel;
 namespace Archipolygo.ViewModels;
 
 /// <summary>
-/// The Admin view's "Server settings..." dialog (Admin-Funktionen.md in the
-/// feature-plan archive). Current values come from the live room state; Save
-/// sends one "/option" per CHANGED value only. countdown_mode and item_cheat
-/// aren't part of the room state, so those start at "(unchanged)". There is
-/// deliberately no way to shut the server down from here ("/exit").
+/// "Server settings..." dialog; Save sends one "/option" per changed value only. countdown_mode and
+/// item_cheat aren't in the room state, so they start "(unchanged)". Deliberately no "/exit".
 /// </summary>
 public partial class AdminSettingsViewModel : ViewModelBase
 {
