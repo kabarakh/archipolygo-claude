@@ -1,25 +1,27 @@
 # Feature-Idee (grobe Skizze): Tastenkürzel
 
-**Status: 🗨️ Muss noch durchdiskutiert werden** - keine Umsetzungsplan im
-Sinne von `Tab-Reihenfolge.md`, sondern eine grobe erste Skizze. Ursprünglich
-aus der inzwischen archivierten Datei
-`archipolygo_feature_ideas.md` ("Keyboard shortcuts
-for common actions (next tab, focus chat input, …)") übernommen.
+**Status: 🗨️ Diskutieren** - Diese Datei ist kein Umsetzungsplan wie
+`Tab-Reihenfolge.md`. Sie ist eine grobe erste Skizze. Die Idee kommt aus
+der Datei `archipolygo_feature_ideas.md`. Diese Datei ist jetzt archiviert
+("Keyboard shortcuts for common actions (next tab, focus chat input, …)").
 
 ## Offene Fragen vor einem echten Plan
 
-- Welche Aktionen genau bekommen ein Tastenkürzel? Die Idee nennt "next tab"
-  und "focus chat input" als Beispiele, aber die tatsächliche Liste (auch
-  z. B. "!hint senden", "als anderen Slot chatten", "nächste/vorherige
-  Gruppe") ist noch nicht festgelegt.
-- Konflikte mit von Avalonia/dem OS bereits belegten Tastenkombinationen
-  (z. B. Strg+Tab für Tab-Wechsel ist in vielen Programmen Konvention,
-  müsste geprüft werden, ob Avalonia/`TabControl` das nicht schon selbst
-  abfängt).
-- Sollen Tastenkürzel konfigurierbar sein, oder reicht eine feste Belegung
-  für die erste Version?
-- Wo würden sie technisch registriert - global auf `MainWindow`
-  (`KeyBindings`/`InputBindings`), oder pro Kontrolle, je nachdem welches
-  Element gerade den Fokus hat (relevant z. B. für "Chat-Eingabe
-  fokussieren", das nur sinnvoll ist, wenn der Fokus *nicht* schon dort
-  liegt)?
+- Welche Aktionen bekommen ein Tastenkürzel? Die Idee nennt "next tab" und
+  "focus chat input" als Beispiele. Die echte Liste steht noch nicht fest.
+  Sie kann auch andere Aktionen enthalten, zum Beispiel "!hint senden", "als
+  anderen Slot chatten" oder "nächste/vorherige Gruppe".
+- Avalonia oder das Betriebssystem belegen manche Tastenkombinationen schon.
+  Zum Beispiel ist Strg+Tab für den Wechsel des Tabs in vielen Programmen
+  üblich. Prüfe, ob Avalonia oder `TabControl` diese Kombination schon
+  selbst abfängt.
+- Kann der Benutzer die Tastenkürzel selbst einstellen? Oder reicht für die
+  erste Version eine feste Belegung?
+- Wo registriert die App die Tastenkürzel technisch? Es gibt zwei
+  Möglichkeiten:
+  - global auf `MainWindow` (`KeyBindings`/`InputBindings`),
+  - pro Control, abhängig davon, welches Element den Fokus hat.
+
+  Die zweite Möglichkeit ist zum Beispiel wichtig für "Chat-Eingabe
+  fokussieren". Dieses Tastenkürzel ist nur nützlich, wenn der Fokus *nicht*
+  schon auf der Chat-Eingabe ist.

@@ -1,37 +1,42 @@
 # Feature-Idee (grobe Skizze): Erweiterungen der Benachrichtigungen
 
-**Status: 🗨️ Muss noch durchdiskutiert werden** - eine grobe erste Skizze,
-kein Umsetzungsplan. Übrig geblieben aus `Benachrichtigungen.md` (im
-Feature-Plan-Archiv, umgesetzt 2026-09-29). Die Grundlage steht bereits:
-`AttentionCategory` und `IAttentionTracker` als zentrale Stelle, an die jeder
-Auslöser meldet, dazu die Kategorie-Tabelle im Settings-Dialog. Eine neue Art
-der Benachrichtigung wäre also im Kern eine weitere Spalte in dieser Tabelle
-und ein weiterer Zweig in `AttentionTracker`.
+**Status: 🗨️ Diskutieren** - Diese Datei ist kein Umsetzungsplan. Sie ist
+eine grobe erste Skizze. Die Ideen bleiben aus `Benachrichtigungen.md` übrig
+(im Feature-Plan-Archiv, umgesetzt 2026-09-29).
 
-Erst sinnvoll zu entscheiden, wenn sich im Alltag mit echten Welten zeigt,
-was fehlt.
+Die Grundlage ist schon da:
+- `AttentionCategory` und `IAttentionTracker` sind die zentrale Stelle. An
+  diese Stelle meldet jeder Auslöser.
+- Der Settings-Dialog hat eine Tabelle mit den Kategorien.
+
+Eine neue Art von Benachrichtigung ist darum im Kern eine weitere Spalte in
+dieser Tabelle und ein weiterer Zweig in `AttentionTracker`.
+
+Entscheide erst, wenn der Alltag mit echten Gruppen zeigt, was fehlt.
 
 ## Ideen
 
 - **Toast-Benachrichtigungen** (Windows-Toast / `UNUserNotification` /
-  libnotify) mit Inhalt ("Player X sent you Hookshot"). Deutlich mehr
-  Aufwand. Unter Windows braucht es eine AUMID an einer Verknüpfung; prüfen,
-  ob Velopack die schon anlegt. Die Kategorie-Tabelle bekäme eine dritte
-  Spalte "Toast".
-- **Sound** pro Kategorie, ebenfalls als weitere Spalte.
-- **"Re-alert after N minutes"**: Heute blinkt ein Fenster nicht erneut,
-  bis es einmal aktiv war (feste Regel in `AttentionTracker`). Falls man ein
-  zweites Blinken nach längerer Zeit vermisst, käme hier eine Einstellung
-  dazu.
-- **Linux-Badge** (Unity LauncherEntry über DBus): bewusst weggelassen, weil
-  er eine installierte `.desktop`-Datei bräuchte, die das Release-Zip nicht
-  mitliefert. `Tmds.DBus.Protocol` bringt Avalonia bereits mit. Nur
-  interessant, falls es einmal ein Linux-Paket mit `.desktop`-Datei gibt.
+  libnotify) mit Inhalt ("Player X sent you Hookshot"). Diese Idee macht
+  deutlich mehr Arbeit. Unter Windows braucht ein Toast eine AUMID an einer
+  Verknüpfung. Prüfe, ob Velopack diese Verknüpfung schon anlegt. Die
+  Tabelle der Kategorien bekommt dann eine dritte Spalte "Toast".
+- **Sound** pro Kategorie, auch als weitere Spalte.
+- **"Re-alert after N minutes"**: Heute blinkt ein Fenster erst wieder,
+  wenn es einmal aktiv war (feste Regel in `AttentionTracker`). Wenn der
+  Benutzer ein zweites Blinken nach längerer Zeit vermisst, kommt hier eine
+  Einstellung dazu.
+- **Linux-Badge** (Unity LauncherEntry über DBus): Der Entwickler lässt
+  diese Idee mit Absicht weg. Der Badge braucht eine installierte
+  `.desktop`-Datei, und das Release-Zip liefert diese Datei nicht mit.
+  Avalonia bringt `Tmds.DBus.Protocol` schon mit. Die Idee ist nur
+  interessant, wenn es einmal ein Linux-Paket mit `.desktop`-Datei gibt.
 
 ## Offene Fragen
 
-- Welche dieser Lücken fällt im echten Spielbetrieb tatsächlich auf?
-- Toasts: nur für bestimmte Kategorien (z. B. DeathLink, Chat-Erwähnung) oder
-  frei wählbar wie Count/Blink?
-- Alle nativen APIs vor der Umsetzung gegen die offizielle Doku prüfen
-  (CLAUDE.md-Grundregel).
+- Welche dieser Lücken fällt im echten Spiel wirklich auf?
+- Toasts: Gibt es sie nur für bestimmte Kategorien (zum Beispiel DeathLink,
+  Erwähnung im Chat)? Oder kann der Benutzer sie frei wählen, wie Count und
+  Blink?
+- Prüfe vor der Umsetzung alle nativen APIs gegen die offizielle
+  Dokumentation (Grundregel aus `CLAUDE.md`).

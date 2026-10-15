@@ -1,655 +1,1030 @@
 # Umsetzungsplan: Archipelago Multi-Connection Client (Avalonia/C#)
 
-Konkretisierung von `Archipelago_Avalonia_Projektplan_v2.md` zu ausführbaren Implementierungsschritten. Basis: vorhandenes Projekt `AvaloniaApplication1` (.NET 10, Avalonia 12.0.4, CommunityToolkit.Mvvm 8.4.1).
+Dieser Plan macht aus `Archipelago_Avalonia_Projektplan_v2.md` konkrete
+Schritte für die Implementierung. Die Basis ist das vorhandene Projekt
+`AvaloniaApplication1` (.NET 10, Avalonia 12.0.4, CommunityToolkit.Mvvm
+8.4.1).
 
 ## Benötigte zusätzliche Pakete
 
-- `Archipelago.MultiClient.Net` (6.7.1) – offizieller .NET-Client für Archipelago-Server, übernimmt WebSocket-Verbindung, Item/Hint/Chat-Events, Session-Verwaltung.
-- `System.Text.Json` ist bereits Teil von .NET 10, kein zusätzliches Paket für die Profil-/Hint-Persistierung nötig.
+- `Archipelago.MultiClient.Net` (6.7.1): der offizielle .NET-Client für
+  Archipelago-Server. Er macht die WebSocket-Verbindung, die Events für
+  Items, Hints und Chat und die Verwaltung der Session.
+- `System.Text.Json` ist schon Teil von .NET 10. Für das Speichern von
+  Profilen und Hints ist kein zusätzliches Paket nötig.
 
 ## Phase 1 – Projektgerüst, MVVM, Tabs, Profilverwaltung
 
-1. NuGet-Referenz `Archipelago.MultiClient.Net` zum `.csproj` hinzufügen.
-2. Ordnerstruktur anlegen: `Models/`, `Services/`, `ViewModels/`, `Views/` (Models-Ordner existiert bereits leer).
-3. Models erstellen:
-   - `ServerProfile` (Id, Name, Host, Port, SlotName, Password, AutoConnect) – als einfache Klasse mit `[ObservableObject]`-Attribut oder POCO, je nachdem ob sie im Editor live gebunden wird.
-   - `ConnectionState`-Enum (Disconnected, Connecting, Connected, Reconnecting, Error).
-   - `ProfileSyncState` (pro `ServerProfile`, separat persistiert): `LastSeenItemIndex` (int, höchster verarbeiteter Item-Index), `SeenHintIds` (`HashSet<int>` aller bereits bekannten Hint-Ids). Wird in Phase 2/4 befüllt, siehe dort.
-4. `PersistenceService` implementieren: Laden/Speichern von `List<ServerProfile>` als JSON in einer Datei im AppData-Verzeichnis (`Environment.SpecialFolder.ApplicationData`). Zusätzlich Laden/Speichern von `ProfileSyncState` pro Profil-Id (eigene JSON-Datei oder eigener Bereich in der Profildatei), damit `LastSeenItemIndex` und `SeenHintIds` über Programmstarts hinweg erhalten bleiben (wird in Phase 2/4 befüllt).
-5. `MainWindowViewModel`: `ObservableCollection<TabViewModel> Tabs`, `AddProfileCommand`, `RemoveProfileCommand`, lädt Profile beim Start über `PersistenceService`.
-6. `TabViewModel`-Grundgerüst: hält `ServerProfile`, `IsConnected`, Platzhalter-Properties für spätere Phasen.
-7. `MainWindow.axaml`: `TabControl` mit `ItemsSource="{Binding Tabs}"`, Tab-Header zeigt `ServerProfile.Name`.
-8. `ConnectionEditorViewModel` + zugehörige View (Dialog/Flyout) zum Anlegen/Bearbeiten eines Profils (Host, Port, SlotName, Password, AutoConnect).
-9. Manuelles Testen: Profile anlegen, Tabs erscheinen, Persistenz über Neustart prüfen.
+1. Ergänze die NuGet-Referenz `Archipelago.MultiClient.Net` im `.csproj`.
+2. Erstelle die Ordner `Models/`, `Services/`, `ViewModels/` und `Views/`.
+   Der Ordner `Models/` existiert schon und ist leer.
+3. Erstelle die Models:
+   - `ServerProfile` (Id, Name, Host, Port, SlotName, Password,
+     AutoConnect). Mache es zu einer einfachen Klasse mit dem Attribut
+     `[ObservableObject]` oder zu einem POCO. Das hängt davon ab, ob der
+     Editor es live bindet.
+   - Das Enum `ConnectionState` (Disconnected, Connecting, Connected,
+     Reconnecting, Error).
+   - `ProfileSyncState` (pro `ServerProfile`, separat gespeichert). Es hat
+     `LastSeenItemIndex` (int, der höchste verarbeitete Item-Index) und
+     `SeenHintIds` (`HashSet<int>` mit allen schon bekannten Hint-Ids).
+     Phase 2 und Phase 4 füllen diese Felder (siehe dort).
+4. Implementiere `PersistenceService`:
+   - Er lädt und speichert `List<ServerProfile>` als JSON in einer Datei im
+     AppData-Verzeichnis (`Environment.SpecialFolder.ApplicationData`).
+   - Er lädt und speichert auch `ProfileSyncState` pro Profil-Id. Das geht
+     in einer eigenen JSON-Datei oder in einem eigenen Bereich der
+     Profildatei.
+   - So bleiben `LastSeenItemIndex` und `SeenHintIds` über Programmstarts
+     erhalten. Phase 2 und Phase 4 füllen diese Felder.
+5. Erstelle `MainWindowViewModel` mit `ObservableCollection<TabViewModel>
+   Tabs`, `AddProfileCommand` und `RemoveProfileCommand`. Beim Start lädt
+   es die Profile über `PersistenceService`.
+6. Erstelle das Grundgerüst von `TabViewModel`. Es hält `ServerProfile`,
+   `IsConnected` und Platzhalter-Properties für spätere Phasen.
+7. Erstelle in `MainWindow.axaml` ein `TabControl` mit
+   `ItemsSource="{Binding Tabs}"`. Der Tab-Header zeigt
+   `ServerProfile.Name`.
+8. Erstelle `ConnectionEditorViewModel` und die zugehörige View (Dialog oder
+   Flyout). Damit legt der Benutzer ein Profil an oder bearbeitet es (Host,
+   Port, SlotName, Password, AutoConnect).
+9. Teste manuell: Lege Profile an. Prüfe, dass die Tabs erscheinen. Prüfe,
+   dass die Profile nach einem Neustart noch da sind.
 
 ## Phase 2 – Einzelverbindung, Eventanzeige
 
-1. Model `EventEntry` (Timestamp, Text, Type) anlegen; `Type` als Enum (Connected, Disconnected, ItemReceived, HintReceived, Chat, Error). Zusätzliches Feld `IsNewSinceLastSession` (bool) für die Markierung aus Schritt 3.
-2. `ConnectionManager`-Service:
-   - Methode `ConnectAsync(ServerProfile)` → erstellt `ArchipelagoSession` via `ArchipelagoSessionFactory.CreateSession(host, port)`, ruft `session.TryConnectAndLogin(...)` auf.
-   - Abonniert relevante Events der Session (`Socket.PacketReceived`, `Items.ItemReceived`, `MessageLog.OnMessageReceived` o. ä., je nach Library-API in 6.7.1).
-   - Methode `DisconnectAsync(ConnectionTab)`.
-3. `MessageHistoryService` – Item-Index-Tracking ergänzen:
-   - Beim erfolgreichen Connect liefert `session.Items.AllItemsReceived` (bzw. äquivalente API in 6.7.1) die vollständige, indexierte Liste aller je empfangenen Items für diesen Slot, unabhängig davon, ob der Client währenddessen offline war.
-   - `ProfileSyncState.LastSeenItemIndex` für dieses Profil aus dem `PersistenceService` laden.
-   - Alle Items mit Index > `LastSeenItemIndex` werden als `EventEntry` mit `IsNewSinceLastSession = true` angezeigt (das schließt Items ein, die während der Abwesenheit empfangen wurden, nicht nur live waempfangene).
-   - Live während der Session neu eintreffende Items (`Items.ItemReceived`-Event) werden ebenfalls mit `IsNewSinceLastSession = true` erzeugt, da sie per Definition neuer als der gespeicherte Stand sind.
-   - Beim Verbindungsende (oder periodisch alle paar Sekunden, um Datenverlust bei Absturz zu vermeiden) `LastSeenItemIndex` auf den höchsten gesehenen Index setzen und über `PersistenceService` speichern.
-   - Rohe Events (`Socket.PacketReceived`, Chat, Error etc.) werden wie bisher 1:1 in `EventEntry` umgewandelt, ohne Index-Tracking.
-4. `TabViewModel` erweitern: `ObservableCollection<EventEntry> Events`, `ConnectCommand`, `DisconnectCommand`, `IsConnected`-Status aus `ConnectionManager`-Callback aktualisieren.
-5. View: Eventliste als `ListBox`/`ItemsControl` mit Timestamp + Text, farbliche Markierung nach `Type` via `IValueConverter` oder Style-Selector. Zusätzlich visuelle Hervorhebung (z. B. fetter Text, Punkt-Icon, andere Hintergrundfarbe) für Einträge mit `IsNewSinceLastSession = true`.
-6. Testen: Client verbinden, einige Items während der Verbindung empfangen lassen, trennen, weitere Items vom Server auslösen (während Client offline ist), erneut verbinden – die während der Abwesenheit empfangenen Items müssen als "neu" markiert sein, ältere bereits gesehene nicht.
+1. Erstelle das Model `EventEntry` (Timestamp, Text, Type).
+   - `Type` ist ein Enum (Connected, Disconnected, ItemReceived,
+     HintReceived, Chat, Error).
+   - Ergänze das Feld `IsNewSinceLastSession` (bool) für die Markierung aus
+     Schritt 3.
+2. Erstelle den Service `ConnectionManager`:
+   - Die Methode `ConnectAsync(ServerProfile)` erstellt eine
+     `ArchipelagoSession` mit `ArchipelagoSessionFactory.CreateSession(host,
+     port)`. Danach ruft sie `session.TryConnectAndLogin(...)` auf.
+   - Er abonniert die wichtigen Events der Session, zum Beispiel
+     `Socket.PacketReceived`, `Items.ItemReceived` und
+     `MessageLog.OnMessageReceived`. Die genauen Events hängen von der API
+     der Library in 6.7.1 ab.
+   - Die Methode `DisconnectAsync(ConnectionTab)`.
+3. Ergänze in `MessageHistoryService` das Tracking des Item-Index:
+   - Nach einem erfolgreichen Connect liefert `session.Items.AllItemsReceived`
+     (oder die gleichwertige API in 6.7.1) eine vollständige Liste mit
+     Index. Die Liste enthält alle Items, die dieser Slot je empfangen hat.
+     Das gilt auch, wenn der Client in dieser Zeit offline war.
+   - Lade `ProfileSyncState.LastSeenItemIndex` für dieses Profil aus dem
+     `PersistenceService`.
+   - Zeige alle Items mit Index > `LastSeenItemIndex` als `EventEntry` mit
+     `IsNewSinceLastSession = true`. Das gilt auch für Items, die der Slot
+     während der Abwesenheit empfangen hat, nicht nur für Live-Items.
+   - Erzeuge auch neue Live-Items (Event `Items.ItemReceived`) mit
+     `IsNewSinceLastSession = true`. Diese Items sind per Definition neuer
+     als der gespeicherte Stand.
+   - Setze `LastSeenItemIndex` am Ende der Verbindung auf den höchsten
+     gesehenen Index. Speichere den Wert über `PersistenceService`.
+   - Du kannst den Wert auch alle paar Sekunden speichern. So gehen bei
+     einem Absturz keine Daten verloren.
+   - Wandle rohe Events (`Socket.PacketReceived`, Chat, Error und andere)
+     wie bisher 1:1 in `EventEntry` um. Diese Events haben kein
+     Index-Tracking.
+4. Erweitere `TabViewModel` um `ObservableCollection<EventEntry> Events`,
+   `ConnectCommand` und `DisconnectCommand`. Aktualisiere den Status
+   `IsConnected` aus dem Callback von `ConnectionManager`.
+5. Erstelle die View:
+   - Zeige das Event-Log als `ListBox` oder `ItemsControl` mit Timestamp und
+     Text.
+   - Färbe jeden Eintrag nach `Type`. Nimm dafür einen `IValueConverter`
+     oder einen Style-Selector.
+   - Hebe Einträge mit `IsNewSinceLastSession = true` sichtbar hervor. Zum
+     Beispiel: fetter Text, Punkt-Icon oder andere Hintergrundfarbe.
+6. Teste so:
+   1. Verbinde den Client.
+   2. Lass ihn während der Verbindung einige Items empfangen.
+   3. Trenne die Verbindung.
+   4. Löse auf dem Server weitere Items aus, während der Client offline ist.
+   5. Verbinde den Client erneut.
+   6. Prüfe: Die App markiert die Items aus der Abwesenheit als "neu". Ältere,
+      schon gesehene Items markiert sie nicht.
 
 ## Phase 3 – Mehrere parallele Verbindungen, Ungelesen-Markierung
 
-1. `ConnectionManager` so erweitern, dass er eine `Dictionary<Guid, ArchipelagoSession>` für mehrere gleichzeitige Sessions verwaltet (Thread-sicher, z. B. `ConcurrentDictionary`).
-2. `ConnectionTab`-Model ergänzen: `HasUnreadEvents`, `IsConnected`, Referenz auf `ArchipelagoSession`.
-3. `TabViewModel`: beim Empfang neuer Events in nicht-aktivem Tab `HasUnreadEvents = true` setzen; `MainWindowViewModel` setzt es beim Tab-Wechsel (`SelectedTabChanged`) auf `false`.
-4. UI: Tab-Header-Template mit Badge/Punkt-Indikator, gebunden an `HasUnreadEvents` (z. B. `IsVisible`-Binding auf einen kleinen Kreis neben dem Titel).
-5. Testen: zwei Profile gleichzeitig verbinden, Events in inaktivem Tab erzeugen, Markierung prüfen, beim Tab-Wechsel verschwinden lassen.
+1. Erweitere `ConnectionManager`: Er verwaltet mehrere gleichzeitige
+   Sessions in einem `Dictionary<Guid, ArchipelagoSession>`. Das Dictionary
+   muss thread-sicher sein, zum Beispiel `ConcurrentDictionary`.
+2. Ergänze das Model `ConnectionTab` um `HasUnreadEvents`, `IsConnected` und
+   eine Referenz auf `ArchipelagoSession`.
+3. Setze `HasUnreadEvents = true` in `TabViewModel`, wenn ein nicht aktiver
+   Tab neue Events empfängt. `MainWindowViewModel` setzt den Wert beim
+   Tab-Wechsel (`SelectedTabChanged`) auf `false`.
+4. Ergänze in der UI ein Template für den Tab-Header mit einem Badge oder
+   Punkt. Binde ihn an `HasUnreadEvents`. Zum Beispiel: ein
+   `IsVisible`-Binding auf einen kleinen Kreis neben dem Titel.
+5. Teste so:
+   1. Verbinde zwei Profile gleichzeitig.
+   2. Erzeuge Events in einem inaktiven Tab.
+   3. Prüfe die Markierung.
+   4. Wechsle zu dem Tab und prüfe, dass die Markierung verschwindet.
 
 ## Phase 4 – Hint-System, Filterung, Badge
 
-1. Model `HintEntry` (Key, ReceivingPlayer, FindingPlayer, ItemName, LocationName, Found, ReceivedAt) anlegen. Zusätzliches Feld `IsNewSinceLastSession` (bool). Hinweis: Archipelago-Hints haben laut Library (`Hint`-Modell) keine native Id; `Key` ist ein synthetischer Schlüssel aus `ReceivingPlayer`/`FindingPlayer`/`ItemId`/`LocationId`, der einen Hint eindeutig identifiziert.
-2. `HintService`:
-   - Synchronisiert Hint-Daten über `session.Hints.TrackHints(...)` (liefert bei jeder Änderung die vollständige aktuelle Hint-Liste, analog zu `AllItemsReceived`) in `ObservableCollection<HintEntry>` pro Tab.
-   - Aktualisiert `Found`-Status bei entsprechenden Events (HintEntry ist dafür `ObservableObject` mit `[ObservableProperty] Found`, damit die UI ohne Collection-Reset aktualisiert).
-   - Persistiert Hints über `PersistenceService` (JSON pro Profil-Id, getrennt von der Profilliste).
-   - Hint-Index-Tracking (analog zu Items, siehe Phase 2): Beim Connect liefert der Server die vollständige aktuelle Hint-Liste für den Slot. `ProfileSyncState.SeenHintIds` für dieses Profil laden. Jeder Hint, dessen `Id` noch nicht in `SeenHintIds` enthalten ist, wird mit `IsNewSinceLastSession = true` markiert – das deckt sowohl Hints ab, die während der Abwesenheit erzeugt wurden, als auch neue Hints, die live während der Session eintreffen.
-   - Da Archipelago-Hints keinen garantiert lückenlosen fortlaufenden Index haben (anders als Items), wird nicht mit einem einzelnen `LastSeenHintIndex`, sondern mit der Menge `SeenHintIds` aller bereits angezeigten Hint-Ids verglichen.
-   - Beim Verbindungsende (oder periodisch) alle aktuell bekannten Hint-Ids in `SeenHintIds` übernehmen und über `PersistenceService` speichern; Set kann dabei wachsen – optional bei sehr langer Nutzung auf gefundene/erledigte Hints begrenzen, um die Datei klein zu halten.
-3. `TabViewModel` erweitern: `Hints`, `VisibleHints` (gefiltert), `SelectedHintFilter` (Enum: All, Unfound), `UnfoundHintCount`; `VisibleHints` als abgeleitete Collection (z. B. via `ObservableCollection`-Refresh oder `DynamicData`, falls eingebunden – sonst manuelles Neufiltern bei Änderungen).
-4. View: Hint-Liste unterhalb/neben Eventliste (`Grid` mit zwei Bereichen wie im Plan skizziert), Filter-ToggleButtons oder ComboBox für All/Unfound. Hints mit `IsNewSinceLastSession = true` analog zu neuen Items visuell hervorheben (gleicher Stil wie in Phase 2, zur Konsistenz idealerweise gemeinsamer Converter/Style).
-5. Tab-Header-Template um Badge erweitern: `"{ServerProfile.Name} ({UnfoundHintCount})"`.
-6. Testen: Hints empfangen, Found-Status durch Item-Funde aktualisieren, Filter umschalten, Persistenz über Reconnect/Neustart prüfen.
+1. Erstelle das Model `HintEntry` (Key, ReceivingPlayer, FindingPlayer,
+   ItemName, LocationName, Found, ReceivedAt).
+   - Ergänze das Feld `IsNewSinceLastSession` (bool).
+   - Hinweis: Laut Library (Modell `Hint`) haben Archipelago-Hints keine
+     eigene Id. `Key` ist ein synthetischer Schlüssel aus `ReceivingPlayer`,
+     `FindingPlayer`, `ItemId` und `LocationId`. Er identifiziert einen Hint
+     eindeutig.
+2. Erstelle den `HintService`:
+   - Er synchronisiert die Hints über `session.Hints.TrackHints(...)` in eine
+     `ObservableCollection<HintEntry>` pro Tab. `TrackHints` liefert bei
+     jeder Änderung die vollständige aktuelle Hint-Liste, wie
+     `AllItemsReceived`.
+   - Er aktualisiert den Status `Found` bei den passenden Events. Dafür ist
+     `HintEntry` ein `ObservableObject` mit `[ObservableProperty] Found`. So
+     aktualisiert sich die UI ohne Reset der Collection.
+   - Er speichert die Hints über `PersistenceService`. Das Format ist JSON
+     pro Profil-Id, getrennt von der Profilliste.
+   - Er macht ein Tracking der Hints, ähnlich wie bei Items (siehe Phase 2):
+     - Beim Connect liefert der Server die vollständige aktuelle Hint-Liste
+       für den Slot.
+     - Lade `ProfileSyncState.SeenHintIds` für dieses Profil.
+     - Markiere jeden Hint mit `IsNewSinceLastSession = true`, wenn seine
+       `Id` nicht in `SeenHintIds` steht.
+     - Das gilt für Hints aus der Abwesenheit und für neue Live-Hints.
+   - Der Service vergleicht mit der Menge `SeenHintIds` aller schon
+     gezeigten Hint-Ids. Er vergleicht nicht mit einem einzelnen
+     `LastSeenHintIndex`. Der Grund: Anders als Items haben
+     Archipelago-Hints keinen sicher lückenlosen Index.
+   - Am Ende der Verbindung (oder periodisch) übernimmt er alle aktuell
+     bekannten Hint-Ids in `SeenHintIds`. Danach speichert er die Menge über
+     `PersistenceService`.
+   - Die Menge kann dabei wachsen. Bei sehr langer Nutzung kannst du sie auf
+     gefundene oder erledigte Hints begrenzen. So bleibt die Datei klein.
+3. Erweitere `TabViewModel` um `Hints`, `VisibleHints` (gefiltert),
+   `SelectedHintFilter` (Enum: All, Unfound) und `UnfoundHintCount`.
+   - `VisibleHints` ist eine abgeleitete Collection.
+   - Aktualisiere sie zum Beispiel über einen Refresh der
+     `ObservableCollection` oder über `DynamicData`, wenn das Projekt es
+     einbindet.
+   - Sonst filtere die Liste bei jeder Änderung manuell neu.
+4. Erstelle die View:
+   - Zeige die Hint-Liste unter oder neben dem Event-Log. Nimm dafür ein
+     `Grid` mit zwei Bereichen, wie im Plan skizziert.
+   - Ergänze ToggleButtons oder eine ComboBox als Filter für All und
+     Unfound.
+   - Hebe Hints mit `IsNewSinceLastSession = true` sichtbar hervor, wie neue
+     Items. Nimm den gleichen Stil wie in Phase 2.
+   - Für einen einheitlichen Stil ist ein gemeinsamer Converter oder Style
+     am besten.
+5. Erweitere das Template des Tab-Headers um einen Badge:
+   `"{ServerProfile.Name} ({UnfoundHintCount})"`.
+6. Teste so:
+   1. Empfange Hints.
+   2. Finde Items und prüfe, dass sich der Status `Found` aktualisiert.
+   3. Schalte den Filter um.
+   4. Prüfe, dass die Hints nach einem Reconnect und nach einem Neustart
+      noch da sind.
 
 ## Phase 5 – Nachrichten senden, Auto-Reconnect, Einstellungen
 
-1. `TabViewModel`: `SendMessageCommand` ruft `ConnectionManager.SendMessageAsync(tab, text)` → `session.Say(text)` (oder äquivalente API).
-2. Eingabefeld + Senden-Button in der View, nur aktiv wenn `IsConnected`.
-3. Auto-Reconnect: `ConnectionManager` reagiert auf `Socket`-Disconnect-Event, prüft `ServerProfile.AutoConnect`, versucht mit Backoff (z. B. 5s, 10s, 30s) erneut zu verbinden; Status im `ConnectionState`-Enum sichtbar machen.
-4. `SettingsViewModel` + View: globale Einstellungen (z. B. Standard-AutoConnect, Historie-Limit aus den Erweiterungen vorbereiten).
-5. Testen: Server kurz stoppen/starten, Reconnect-Verhalten beobachten; Nachricht senden und im Serverlog/Chat verifizieren.
+1. Erstelle in `TabViewModel` den `SendMessageCommand`. Er ruft
+   `ConnectionManager.SendMessageAsync(tab, text)` auf. Dieser ruft
+   `session.Say(text)` (oder die gleichwertige API) auf.
+2. Ergänze in der View ein Eingabefeld und einen Senden-Button. Beide sind
+   nur aktiv, wenn `IsConnected` gilt.
+3. Implementiere Auto-Reconnect:
+   - `ConnectionManager` reagiert auf das Disconnect-Event von `Socket`.
+   - Er prüft `ServerProfile.AutoConnect`.
+   - Er verbindet erneut mit Backoff, zum Beispiel nach 5s, 10s, 30s.
+   - Zeige den Status über das Enum `ConnectionState`.
+4. Erstelle `SettingsViewModel` und die View für globale Einstellungen. Zum
+   Beispiel: Standard-AutoConnect. Bereite auch das Historie-Limit aus den
+   Erweiterungen vor.
+5. Teste so:
+   1. Stoppe den Server kurz und starte ihn wieder.
+   2. Beobachte das Reconnect-Verhalten.
+   3. Sende eine Nachricht.
+   4. Prüfe die Nachricht im Serverlog oder im Chat.
 
 ## UI: Tab-Gruppierung nach Host/Port
 
-Tabs werden nicht alphabetisch oder nach Erstellungsreihenfolge angezeigt, sondern so, dass alle Verbindungen mit identischer Host/Port-Kombination immer direkt nebeneinander stehen (z. B. mehrere Slots auf demselben lokalen Server). `MainWindowViewModel` hält dazu `Tabs` weiter als flache `ObservableCollection<TabViewModel>`, ordnet sie aber nach jedem Hinzufügen/Bearbeiten eines Profils per `ObservableCollection.Move` (nicht Clear+Add, um `SelectedTab` zu erhalten) so um, dass nach (Host, Port) gruppiert wird; innerhalb einer Gruppe und zwischen Gruppen bleibt die bisherige Reihenfolge so stabil wie möglich erhalten (`GroupBy` ist stabil).
+Die App sortiert Tabs nicht alphabetisch und nicht nach der Reihenfolge, in
+der der Benutzer sie erstellt hat. Alle Verbindungen mit gleicher
+Kombination aus Host und Port stehen immer direkt nebeneinander. Ein
+Beispiel sind mehrere Slots auf demselben lokalen Server.
+
+So funktioniert das:
+
+- `MainWindowViewModel` hält `Tabs` weiter als flache
+  `ObservableCollection<TabViewModel>`.
+- Nach jedem Hinzufügen oder Bearbeiten eines Profils sortiert es die Tabs
+  um. Es gruppiert sie nach (Host, Port).
+- Es nimmt dafür `ObservableCollection.Move`, nicht Clear und Add. So bleibt
+  `SelectedTab` erhalten.
+- Innerhalb einer Gruppe und zwischen den Gruppen bleibt die bisherige
+  Reihenfolge so stabil wie möglich. Der Grund: `GroupBy` ist stabil.
 
 ## Querschnittliche Aufgaben (während aller Phasen)
 
-- Dependency Injection: `Microsoft.Extensions.DependencyInjection` für Services (ConnectionManager, PersistenceService, MessageHistoryService, HintService) registrieren und in ViewModels injizieren statt sie statisch zu instanziieren.
-- Fehlerbehandlung: Verbindungsfehler als `EventEntry` vom Typ `Error` im jeweiligen Tab anzeigen, nicht nur loggen.
-- UI-Thread-Sicherheit: Alle Updates aus Archipelago-Callbacks über `Dispatcher.UIThread.Post`/`InvokeAsync` an ObservableCollections weiterleiten.
-- Unit-Tests für `PersistenceService`, `HintService`-Filterlogik und `MessageHistoryService` (xUnit-Projekt ergänzen).
+- Dependency Injection: Registriere die Services (ConnectionManager,
+  PersistenceService, MessageHistoryService, HintService) mit
+  `Microsoft.Extensions.DependencyInjection`. Injiziere sie in die
+  ViewModels. Instanziiere sie nicht statisch.
+- Fehlerbehandlung: Zeige Verbindungsfehler als `EventEntry` vom Typ
+  `Error` im passenden Tab. Schreibe sie nicht nur in ein Log.
+- UI-Thread-Sicherheit: Leite alle Updates aus Archipelago-Callbacks über
+  `Dispatcher.UIThread.Post` oder `InvokeAsync` an die ObservableCollections
+  weiter.
+- Unit-Tests: Schreibe Tests für `PersistenceService`, die Filterlogik von
+  `HintService` und `MessageHistoryService`. Ergänze dafür ein
+  xUnit-Projekt.
 
 ## Reihenfolge / Abhängigkeiten
 
-Phase 1 → 2 → 3 sind strikt sequenziell (Mehrfachverbindung baut auf Einzelverbindung auf). Phase 4 (Hints) kann teilweise parallel zu Phase 3 begonnen werden, sobald `ConnectionManager` aus Phase 2 steht. Phase 5 ist unabhängig und kann nach Phase 3 erfolgen.
+- Phase 1 → 2 → 3 sind streng sequenziell. Der Grund: Die
+  Mehrfachverbindung baut auf der Einzelverbindung auf.
+- Du kannst Phase 4 (Hints) zum Teil parallel zu Phase 3 beginnen. Dafür
+  muss `ConnectionManager` aus Phase 2 fertig sein.
+- Phase 5 ist unabhängig. Du kannst sie nach Phase 3 machen.
 
-Status: Phasen 1–5 sind implementiert. Die ursprünglich für Phase 6 geplanten Punkte (Log-Export, Desktop-Benachrichtigungen, Tray-Icon) wurden gestrichen und nicht umgesetzt – **die Bezeichnung „Phase 6" wurde stattdessen für einen späteren, deutlich größeren Umbau des Verbindungsmodells wiederverwendet**, der unten dokumentiert ist. Alle Code-Kommentare, die auf „Phase 6" verweisen, meinen diesen Umbau, nicht die ursprünglich hier geplanten (und verworfenen) Punkte.
+Status: Die Phasen 1–5 sind implementiert. Für Phase 6 waren zuerst andere
+Punkte geplant: Log-Export, Desktop-Benachrichtigungen und Tray-Icon. Der
+Entwickler hat diese Punkte gestrichen, und niemand hat sie umgesetzt.
+
+**Der Name „Phase 6" bezeichnet stattdessen einen späteren, viel größeren
+Umbau des Verbindungsmodells.** Der Abschnitt unten dokumentiert diesen
+Umbau. Jeder Code-Kommentar mit „Phase 6" meint diesen Umbau. Er meint nicht
+die ursprünglich hier geplanten und verworfenen Punkte.
 
 ## Phase 6 – Server/Slot/Leader-Umbau (tatsächlich umgesetzt)
 
-Grundlegende Änderung am Verbindungsmodell: vorher war ein `ServerProfile` (Host+Port+SlotName+Password) eine eigenständige, unabhängige Verbindung – bei mehreren Slots im selben Raum lief also eine Session pro Slot gleichzeitig. Das wurde ersetzt durch:
+Dieser Umbau ändert das Verbindungsmodell grundlegend. Vorher war ein
+`ServerProfile` (Host, Port, SlotName, Password) eine eigene, unabhängige
+Verbindung. Bei mehreren Slots im selben Raum lief also eine Session pro
+Slot gleichzeitig. Das neue Modell ersetzt das so:
 
-1. **`ServerConnectionGroup`** (ein Tab = ein Archipelago-Raum: Host, Port, gemeinsames Passwort, `AutoConnect`, `PreferredLeaderSlotId`) und **`SlotProfile`** (nur noch `SlotName` + optionales Passwort-Override) als eigene Modelle. Ein `ServerProfile` alter Prägung entspricht jetzt einer Gruppe mit genau einem Slot.
-2. `PersistenceService` migriert eine vorhandene alte `profiles.json` einmalig automatisch in das neue `groups.json`-Format (`MigrateLegacyProfilesIfNeeded`), wobei Profile mit gleichem Host+Port zu einer Gruppe zusammengefasst werden und ihre alte `Id` als neue `SlotProfile.Id` übernehmen, damit bereits gespeicherter Sync-Status (letzter gesehener Item-Index, gesehene Hint-Ids) weiter gültig bleibt.
-3. **Nur noch eine Live-Verbindung pro Gruppe** (`ConnectionManager`, `_leaderSlotByGroup`): der aktuell verbundene Slot heißt „Leader". Ein Leader-Wechsel (`SwitchLeaderAsync`) verbindet den neuen Leader zuerst und trennt den alten erst danach – bewusste kurze Überlappung, damit es keine sichtbare Lücke gibt.
-4. **Passive Aktualisierung der Nicht-Leader-Slots**: Da die Leader-Session den gesamten Raum-Chat/Log sieht, werden Item-Sends und Hints, die einen anderen konfigurierten Slot betreffen, direkt in dessen Historie gespiegelt (`OnLeaderMessageReceived`/`OnHintsUpdated`), ohne dass dafür eine eigene Verbindung nötig ist.
-5. **Catch-up-Sync** (`CatchUpSyncAsync`): ein Slot, der während der App-Abwesenheit (oder seit dem Hinzufügen) nichts mitbekommen hat, verbindet sich kurz, holt den Rückstand nach und trennt sich sofort wieder. `InitializeGroupAsync` macht das beim Start für jeden Nicht-Leader-Slot, mit Verzögerung zwischen Gruppen (`StartupGroupSpacing`), damit ein Neustart mit mehreren Servern nicht alle gleichzeitig mit Login-Versuchen bombardiert.
-6. **Automatisches Persistieren der Leader-Wahl**: jeder erfolgreiche Leader-Connect (egal ob über das Account-Dropdown, beim Anlegen des ersten Slots oder nach einem Auto-Reconnect) setzt `AutoConnect=true`/`PreferredLeaderSlotId` auf der Gruppe und meldet das über `IConnectionManager.GroupPersistNeeded` – das Auto-Connect-Verhalten ist also nicht mehr nur eine Checkbox beim Server-Anlegen, sondern folgt automatisch jeder tatsächlichen Verbindung. Ein manuelles Disconnect setzt `AutoConnect` genauso automatisch wieder zurück.
+1. **Eigene Modelle `ServerConnectionGroup` und `SlotProfile`.**
+   - `ServerConnectionGroup` ist ein Tab und ein Archipelago-Raum. Es hat
+     Host, Port, gemeinsames Passwort, `AutoConnect` und
+     `PreferredLeaderSlotId`.
+   - `SlotProfile` hat nur noch `SlotName` und ein optionales
+     Passwort-Override.
+   - Ein altes `ServerProfile` entspricht jetzt einer Gruppe mit genau einem
+     Slot.
+2. **Migration.** `PersistenceService` migriert eine vorhandene alte
+   `profiles.json` einmal automatisch in das neue Format `groups.json`
+   (`MigrateLegacyProfilesIfNeeded`).
+   - Profile mit gleichem Host und Port kommen in eine Gruppe.
+   - Jedes Profil behält seine alte `Id` als neue `SlotProfile.Id`.
+   - So bleibt der gespeicherte Sync-Status gültig, also der letzte gesehene
+     Item-Index und die gesehenen Hint-Ids.
+3. **Nur noch eine Live-Verbindung pro Gruppe** (`ConnectionManager`,
+   `_leaderSlotByGroup`). Der aktuell verbundene Slot heißt „Leader".
+   - Ein Leader-Wechsel (`SwitchLeaderAsync`) verbindet zuerst den neuen
+     Leader. Erst danach trennt er den alten Leader.
+   - Diese kurze Überlappung ist Absicht. So gibt es keine sichtbare Lücke.
+4. **Passive Aktualisierung der Slots, die nicht Leader sind.** Die Session
+   des Leaders sieht den ganzen Chat und das ganze Log des Raums.
+   - Darum spiegelt die App Item-Sends und Hints für einen anderen eigenen
+     Slot direkt in dessen Historie (`OnLeaderMessageReceived`,
+     `OnHintsUpdated`).
+   - Dafür ist keine eigene Verbindung nötig.
+5. **Catch-up** (`CatchUpSyncAsync`). Manchmal hat ein Slot Daten verpasst,
+   weil die App geschlossen war oder weil der Benutzer ihn neu hinzugefügt
+   hat. Dann verbindet sich der Slot kurz, holt die verpassten Daten und
+   trennt sich sofort wieder.
+   - `InitializeGroupAsync` macht das beim Start für jeden Slot, der nicht
+     Leader ist.
+   - Zwischen den Gruppen wartet es eine Verzögerung ab
+     (`StartupGroupSpacing`).
+   - So bekommen bei einem Neustart mit mehreren Servern nicht alle Server
+     gleichzeitig viele Login-Versuche.
+6. **Die App speichert die Leader-Wahl automatisch.** Jeder erfolgreiche
+   Leader-Connect setzt `AutoConnect=true` und `PreferredLeaderSlotId` auf
+   der Gruppe.
+   - Das gilt für das Account-Dropdown, für das Anlegen des ersten Slots und
+     für einen Auto-Reconnect.
+   - Der Connect meldet das über `IConnectionManager.GroupPersistNeeded`.
+   - Auto-Connect ist also nicht mehr nur eine Checkbox beim Anlegen eines
+     Servers. Es folgt automatisch jeder echten Verbindung.
+   - Ein manuelles Disconnect setzt `AutoConnect` genauso automatisch
+     zurück.
 
 ## Nach Phase 6 – weitere Erweiterungen des Verbindungsmodells
 
-Direkt auf dem Phase-6-Umbau aufbauend, in loser Reihenfolge umgesetzt:
+Diese Erweiterungen bauen direkt auf dem Umbau aus Phase 6 auf. Sie kamen
+in keiner festen Reihenfolge dazu:
 
-- **Mehrere Slots mit weniger Klicks hinzufügen**: der „Add slot"-Dialog erlaubt jetzt, mehrere Slots aus dem Raum-Roster in eine Warteliste (`StagedSlots`) zu stellen (optional mit eigenem Passwort-Override pro Slot) und beim Bestätigen alle auf einmal hinzuzufügen, statt einen Dialog-Durchlauf pro Slot zu brauchen.
-- **Sequenzielles Catch-up beim Mehrfach-Hinzufügen**: werden mehrere Slots auf einmal hinzugefügt, läuft ihr Catch-up-Sync nacheinander statt gleichzeitig (`MainWindowViewModel.CatchUpNewSlotsSequentiallyAsync`) – gleichzeitig hätte den Server mit zu vielen parallelen Verbindungsversuchen überlastet.
-- **Slot-Verwaltung im „Edit server"-Dialog**: Übersicht aller konfigurierten Slots eines Servers mit Auswahl des Standard-Leaders (`Make default`) und Entfernen einzelner Slots (`RemoveSlotFromGroup`), ohne dass dafür der ganze Server gelöscht werden muss. Entfernen trennt bei Bedarf zuerst die laufende Verbindung.
-- **Sortierung der Slot-Listen**: das Account-Dropdown, die drei Slot-Filter und die Slot-Verwaltung zeigen Slots alphabetisch an, mit dem (aktuellen bzw. Standard-)Leader jeweils an erster Stelle (`GroupViewModel.RefreshSlotOrder`, `ConnectionEditorViewModel.SortSlotsForDisplay`).
-- **Filterung des Raum-Rosters**: Slot 0 (vom Protokoll für den Server selbst reserviert, taucht oft wörtlich als Spieler „Server" auf) und Item-Link-Gruppen-Einträge werden aus jeder Spielerliste herausgefiltert (`ConnectionManager.FilterToRealPlayers`), damit sie nicht versehentlich als echter Slot konfigurierbar sind.
-- **Mehrfachauswahl + Sammel-Kopieren**: Events- und Hints-Liste unterstützen unabhängig voneinander Mehrfachauswahl und Kopieren aller markierten Zeilen auf einmal (Strg/Cmd+C).
-- **Transiente Verbindungsfehler werden wiederholt**: schlägt ein Connect/Login mit `TaskCanceledException`/`OperationCanceledException`/`TimeoutException` fehl, versucht `ConnectSlotSessionAsync` es mit einer frischen Session bis zu zweimal erneut, bevor der Fehler tatsächlich gemeldet wird (deckt u. a. einen beobachteten Fehlerfall ab: Leader-Wechsel kurz nach dem Reconnect eines anderen Slots). Ein echter Login-Fehler (falsches Passwort) wird nie wiederholt.
-- **Fortschrittsanzeige beim Start**: ein neues Event (`IConnectionManager.SlotInitialSyncCompleted`) meldet nach jedem beim Start synchronisierten Slot Fortschritt; `MainWindowViewModel` zählt mit und `MainWindow.axaml` zeigt währenddessen eine Leiste „Catching up slots: N/M" inklusive Fortschrittsbalken an.
-- **GitHub-Actions-Release-Workflow** (`.github/workflows/release.yml`): bei jedem veröffentlichten GitHub Release werden automatisch selbstständige Single-File-Builds für Windows, Linux und macOS (x64 und arm64) erzeugt und dem Release als Downloads angehängt.
+- **Mehrere Slots mit weniger Klicks hinzufügen.** Im Dialog „Add slot"
+  stellt der Benutzer mehrere Slots aus dem Roster in eine Warteliste
+  (`StagedSlots`). Jeder Slot kann ein eigenes Passwort-Override haben. Beim
+  Bestätigen fügt die App alle auf einmal hinzu. Vorher war ein
+  Dialog-Durchlauf pro Slot nötig.
+- **Sequenzielles Catch-up beim Hinzufügen mehrerer Slots.** Wenn der
+  Benutzer mehrere Slots auf einmal hinzufügt, laufen ihre Catch-ups
+  nacheinander (`MainWindowViewModel.CatchUpNewSlotsSequentiallyAsync`).
+  Gleichzeitige Catch-ups überlasten den Server mit zu vielen parallelen
+  Verbindungsversuchen.
+- **Slot-Verwaltung im Dialog „Edit server".** Der Dialog zeigt alle eigenen
+  Slots eines Servers.
+  - Der Benutzer wählt dort den Standard-Leader (`Make default`).
+  - Er entfernt dort einzelne Slots (`RemoveSlotFromGroup`), ohne den ganzen
+    Server zu löschen.
+  - Wenn nötig, trennt das Entfernen zuerst die laufende Verbindung.
+- **Sortierung der Slot-Listen.** Das Account-Dropdown, die drei
+  Slot-Filter und die Slot-Verwaltung zeigen Slots alphabetisch. Der
+  aktuelle Leader oder der Standard-Leader steht jeweils an erster Stelle
+  (`GroupViewModel.RefreshSlotOrder`,
+  `ConnectionEditorViewModel.SortSlotsForDisplay`).
+- **Filter für den Roster.** Die App filtert zwei Arten von Einträgen aus
+  jeder Spielerliste (`ConnectionManager.FilterToRealPlayers`):
+  - Slot 0. Das Protokoll reserviert ihn für den Server selbst. Er heißt
+    oft wörtlich „Server".
+  - Einträge für Item-Link-Gruppen.
 
-Kein eigenes Testprojekt vorhanden (die unter „Querschnittliche Aufgaben" oben erwähnten Unit-Tests wurden nicht umgesetzt).
+  So kann der Benutzer sie nicht aus Versehen als echten Slot
+  konfigurieren.
+- **Mehrfachauswahl und Kopieren mehrerer Zeilen.** Event-Log und
+  Hint-Liste haben unabhängig voneinander eine Mehrfachauswahl. Strg/Cmd+C
+  kopiert alle markierten Zeilen auf einmal.
+- **Die App wiederholt transiente Verbindungsfehler.** Manchmal schlägt ein
+  Connect oder Login mit `TaskCanceledException`,
+  `OperationCanceledException` oder `TimeoutException` fehl.
+  - Dann versucht `ConnectSlotSessionAsync` es bis zu zweimal erneut, mit
+    einer frischen Session. Erst danach meldet es den Fehler.
+  - Das deckt unter anderem einen beobachteten Fehlerfall ab: einen
+    Leader-Wechsel kurz nach dem Reconnect eines anderen Slots.
+  - Einen echten Login-Fehler (falsches Passwort) wiederholt die App nie.
+- **Fortschrittsanzeige beim Start.** Das neue Event
+  `IConnectionManager.SlotInitialSyncCompleted` meldet nach jedem Slot, den
+  die App beim Start synchronisiert, den Fortschritt.
+  `MainWindowViewModel` zählt mit. Währenddessen zeigt `MainWindow.axaml`
+  eine Leiste „Catching up slots: N/M" mit Fortschrittsbalken.
+- **Release-Workflow mit GitHub Actions**
+  (`.github/workflows/release.yml`). Bei jedem veröffentlichten GitHub
+  Release erzeugt der Workflow automatisch eigenständige Single-File-Builds
+  für Windows, Linux und macOS (x64 und arm64). Er hängt sie als Downloads
+  an das Release.
+
+Zu dieser Zeit gab es kein eigenes Testprojekt. Niemand hatte die
+Unit-Tests aus „Querschnittliche Aufgaben" oben umgesetzt. Heute gibt es
+`AvaloniaApplication1.Tests` (siehe `Test-Umsetzungsplan.md`).
 
 ## „Add slot"-Dialog: Mehrfachauswahl mit Suche statt ComboBox + „Add to list"
 
-Ausgearbeitet in einer Chat-Session, als Vergleich mit der Slot-Auswahl in
-`J:\dev\Archipelago`s `multi_slot_tracker_webui` (`SlotPicker.vue`) und der
-zugehörigen apworld (`worlds\multi_slot_tracker`) – dieser Tracker beobachtet
-Slots nur passiv und braucht daher kein Passwort, weshalb dessen Muster hier
-nicht 1:1 übernommen werden kann. Zuerst als Prototyp im `TestHarness`
-durchgeklickt (siehe unten), nach Freigabe durch den Entwickler direkt in
-`ConnectionEditorViewModel`/`ConnectionEditorWindow.axaml` umgesetzt – ist
-also jetzt der reale „Add slot"-Dialog der App.
+Dieses Design entstand in einer Chat-Session. Es ist ein Vergleich mit der
+Slot-Auswahl in `J:\dev\Archipelago`s `multi_slot_tracker_webui`
+(`SlotPicker.vue`) und der zugehörigen apworld (`worlds\multi_slot_tracker`).
 
-**Ziel:** Beim Hinzufügen mehrerer Slots auf einmal (großer Room-Roster)
-nicht mehr einen ComboBox-Eintrag nach dem anderen einzeln auswählen und per
-„Add to list" einzeln in die Warteliste stellen müssen.
+- Dieser Tracker beobachtet Slots nur passiv. Darum braucht er kein
+  Passwort.
+- Darum kann die App sein Muster nicht 1:1 übernehmen.
+- Der Entwickler hat das Design zuerst als Prototyp im `TestHarness`
+  durchgeklickt (siehe unten).
+- Nach seiner Freigabe kam es direkt in
+  `ConnectionEditorViewModel`/`ConnectionEditorWindow.axaml`. Es ist jetzt
+  der reale Dialog „Add slot" der App.
+
+**Ziel:** Ein Raum kann einen großen Roster haben. Der Benutzer fügt dann
+oft mehrere Slots auf einmal hinzu. Er muss dafür nicht mehr jeden Eintrag
+einzeln in der ComboBox auswählen. Er muss auch nicht mehr jeden Eintrag
+einzeln mit „Add to list" in die Warteliste stellen.
 
 **UI (ersetzt ComboBox + „Add to list" in `ConnectionEditorMode.AddSlot`):**
 
-1. Freitext-Suchfeld filtert die Liste der verfügbaren Slots live nach
-   Slot-Name/Anzeigename (analog `SlotPicker.vue`s `filtered`-Computed).
-2. Darunter eine Checkbox-Liste der (gefilterten) verfügbaren Slots statt
-   der ComboBox – Mehrfachauswahl ohne Zwischenschritt.
-3. Zwei Buttons „Select visible" / „Deselect visible", die nur auf die
-   *aktuell gefilterte* Teilmenge wirken (1:1 aus `SlotPicker.vue`
-   übernommen) – deckt sowohl „ein paar gezielt suchen und anhaken" als auch
-   „alle passenden auf einen Schlag" ab, ohne zwei getrennte Bedienwege zu
-   brauchen.
-4. Bestätigen-Button bleibt deaktiviert, solange nichts ausgewählt ist, mit
-   Hinweistext (analog `SlotPicker.vue`s `canApply`/Hinweis „Select at least
-   one slot to continue").
+1. Ein Suchfeld für freien Text filtert die Liste der verfügbaren Slots
+   live. Es filtert nach Slot-Name und Anzeigename (wie das
+   `filtered`-Computed in `SlotPicker.vue`).
+2. Darunter steht eine Checkbox-Liste der verfügbaren (gefilterten) Slots
+   statt der ComboBox. So wählt der Benutzer mehrere Slots ohne
+   Zwischenschritt.
+3. Die zwei Buttons „Select visible" und „Deselect visible" wirken nur auf
+   die *aktuell gefilterte* Teilmenge (1:1 aus `SlotPicker.vue`). So deckt
+   ein Bedienweg zwei Fälle ab:
+   - Der Benutzer sucht einige Slots gezielt und hakt sie an.
+   - Der Benutzer wählt alle passenden Slots auf einmal.
+4. Der Button zum Bestätigen bleibt deaktiviert, solange der Benutzer
+   nichts ausgewählt hat. Dazu zeigt der Dialog einen Hinweistext (wie
+   `canApply` und der Hinweis „Select at least one slot to continue" in
+   `SlotPicker.vue`).
 
 **Passwort – der Punkt, der beim Vue-Picker fehlt, weil der nur beobachtet
 statt sich einzuloggen:**
 
-- **Kein** globales Batch-Passwort-Feld in diesem Dialog: Das gemeinsame
-  Server-Passwort der Gruppe ist zu diesem Zeitpunkt schon bekannt – es wird
-  beim allerersten Verbinden eines Leaders für diese Gruppe abgefragt, also
-  *vor* jeder Slot-Auswahl (`ConnectionEditorMode.NewGroup`/erster Slot).
-  Ein zusätzliches Passwort-Feld in diesem Dialog wäre daher nur ein
-  zweites, redundantes Eingabefeld für denselben Wert.
-- Stattdessen bleibt genau das, was schon vor diesem Redesign existierte:
-  pro Zeile ein optionales, standardmäßig eingeklapptes Override-Feld
-  (kleines 🔒-Icon zum Aufklappen) für die seltenen Ausnahme-Slots, die auf
-  einem custom-gehosteten Multiworld ein eigenes, abweichendes Passwort
-  brauchen.
-- Vorrangregel beim tatsächlichen Hinzufügen: Pro-Slot-Override (falls
-  getippt) > kein Override (Slot fällt beim Verbinden auf das gemeinsame
-  Passwort der Gruppe zurück – das ist bereits das bestehende Verhalten,
-  keine neue Logik).
+- **Dieser Dialog hat kein globales Passwort-Feld für alle Slots.** Zu
+  diesem Zeitpunkt kennt die App das gemeinsame Server-Passwort der Gruppe
+  schon.
+  - Die App fragt es beim ersten Verbinden eines Leaders für diese Gruppe
+    ab. Das passiert *vor* jeder Auswahl von Slots
+    (`ConnectionEditorMode.NewGroup`/erster Slot).
+  - Ein zusätzliches Passwort-Feld in diesem Dialog ist darum nur ein
+    zweites, redundantes Eingabefeld für denselben Wert.
+- Stattdessen bleibt das, was es schon vor diesem Redesign gab: Jede Zeile
+  hat ein optionales Override-Feld.
+  - Das Feld ist standardmäßig eingeklappt. Ein kleines 🔒-Icon klappt es
+    auf.
+  - Es ist für die seltenen Ausnahme-Slots. Diese Slots brauchen auf einem
+    selbst gehosteten Multiworld ein eigenes, anderes Passwort.
+- Vorrangregel beim Hinzufügen:
+  1. Wenn der Benutzer ein Override für den Slot eingegeben hat, gilt das
+     Override.
+  2. Sonst nimmt der Slot beim Verbinden das gemeinsame Passwort der
+     Gruppe. Das ist schon das vorhandene Verhalten. Es ist keine neue
+     Logik.
 
-**Status:** Zuerst als anklickbarer Prototyp in `TestHarness/AddSlotPickerPrototype/`
-erprobt (mit synthetischen Spielernamen statt echtem Room-Roster; siehe
-`ControlPanelWindow`, ehemaliger Abschnitt „Add-Slot Redesign (Prototyp)").
-Nach Durchklicken/Freigabe durch den Entwickler direkt umgesetzt in
-`Models/SelectableSlotRow.cs`, `ViewModels/ConnectionEditorViewModel.cs`
-(`FilteredSlotRows`/`SelectVisible`/`DeselectVisible`/`BuildSlotsToAdd`) und
-`Views/ConnectionEditorWindow.axaml` – das ist jetzt der reale Dialog, den
-`ConnectionEditorMode.AddSlot` anzeigt.
+**Status:** Der Entwickler hat das Design zuerst als anklickbaren Prototyp
+in `TestHarness/AddSlotPickerPrototype/` geprüft.
+
+- Der Prototyp hatte synthetische Spielernamen statt eines echten Rosters
+  (siehe `ControlPanelWindow`, früherer Abschnitt „Add-Slot Redesign
+  (Prototyp)").
+- Nach dem Durchklicken und der Freigabe durch den Entwickler kam das Design
+  direkt in diese Dateien:
+  - `Models/SelectableSlotRow.cs`
+  - `ViewModels/ConnectionEditorViewModel.cs`
+    (`FilteredSlotRows`/`SelectVisible`/`DeselectVisible`/`BuildSlotsToAdd`)
+  - `Views/ConnectionEditorWindow.axaml`
+- Das ist jetzt der reale Dialog, den `ConnectionEditorMode.AddSlot` zeigt.
 
 ## ConnectionManager: Locking, Nebenläufigkeit und Workarounds im Detail
 
-Diese Sektion sammelt die längeren Warum-Begründungen, die früher direkt als
-Kommentare in `Services/ConnectionManager.cs` standen. Die Datei war auf über
-2100 Zeilen angewachsen, wovon fast die Hälfte Kommentar war; die
-ausführliche Begründung für jede nicht-offensichtliche Stelle steht jetzt
-hier, im Code bleibt nur noch ein Ein-Satz-Verweis auf den passenden
-Unterabschnitt. Reine "was tut diese Methode"-Doku bleibt weiterhin direkt
+Dieser Abschnitt sammelt die längeren Begründungen ("Warum"). Früher standen
+sie als Kommentare direkt in `Services/ConnectionManager.cs`. Die Datei war
+auf über 2100 Zeilen gewachsen. Fast die Hälfte davon war Kommentar. Jetzt
+steht die ausführliche Begründung für jede nicht offensichtliche Stelle hier.
+Im Code steht nur noch ein Verweis mit einem Satz auf den passenden
+Unterabschnitt. Reine Dokumentation zu "was tut diese Methode" bleibt direkt
 im Code.
 
 ### Item-Backlog-Grace-Period und Retry-Delay (Testbarkeit)
 
-`_itemBacklogGracePeriod` und `_transientConnectRetryDelay` sind über den
-Konstruktor überschreibbar und defaulten auf die schon immer verwendeten
-Werte (2s Backlog-Grace, 2s Retry-Delay). Grund: Die Fakes aus
-`AvaloniaApplication1.TestSupport` (`FakeArchipelagoSession`/`FakeSessionFactory`)
-machen zwar jeden Connect/Login über eine `TaskCompletionSource`
-deterministisch steuerbar, aber diese zwei Delays sind reine `Task.Delay`-
-Aufrufe ohne Bezug zu einer Session – ohne die Override-Möglichkeit würde
-jeder Test, der einen Catch-up-Sync oder einen transienten Retry berührt,
-mehrere Sekunden lang wirklich warten. Die Test-DI übergibt nahezu
-Null-Werte, `App.axaml.cs` (echte App) übergibt die Parameter nie und bekommt
+Der Konstruktor kann `_itemBacklogGracePeriod` und
+`_transientConnectRetryDelay` überschreiben. Ohne Parameter gelten die Werte,
+die die App schon immer verwendet: 2s Backlog-Grace und 2s Retry-Delay.
+
+Grund: Die Fakes aus `AvaloniaApplication1.TestSupport`
+(`FakeArchipelagoSession`/`FakeSessionFactory`) machen jeden Connect und Login
+über eine `TaskCompletionSource` deterministisch steuerbar. Aber diese zwei
+Delays sind reine `Task.Delay`-Aufrufe ohne Bezug zu einer Session. Ohne die
+Möglichkeit zum Überschreiben wartet jeder Test mit einem Catch-up oder einem
+transienten Retry wirklich mehrere Sekunden. Die Test-DI übergibt Werte nahe
+null. `App.axaml.cs` (die echte App) übergibt die Parameter nie und bekommt
 so die echten Defaults.
 
 ### Warum der Item-Backlog eine Grace-Period braucht
 
-Der Server schickt den initialen `ReceivedItems`-Rückstand als separate
-WebSocket-Nachricht *nach* dem `Connected`-Paket. Das bedeutet, `LoginAsync()`
-kann zurückkehren (und die await-Fortsetzung weiterlaufen), bevor alle
-Backlog-Items ihr `ItemReceived`-Event gefeuert haben. Würde
-`BacklogState.HasAnnouncedConnection` sofort auf `true` gesetzt, könnte die Fortsetzung
-mitten in einem Burst von `ItemReceived`-Aufrufen laufen und den Rest des
-Bursts fälschlich als "live" statt "Backlog" einstufen. Die zwei Sekunden
-Grace-Period stellen sicher, dass der synchrone Burst vollständig durch ist,
-bevor umgeschaltet wird; in der Praxis dauert der Burst nur Millisekunden.
+Der Server schickt den initialen Rückstand von `ReceivedItems` als separate
+WebSocket-Nachricht. Diese Nachricht kommt *nach* dem `Connected`-Paket.
+Darum kann `LoginAsync()` zurückkehren, bevor alle Backlog-Items ihr
+`ItemReceived`-Event gefeuert haben. Dann läuft auch die await-Fortsetzung
+schon weiter.
+
+Wenn die App `BacklogState.HasAnnouncedConnection` sofort auf `true` setzt,
+kann die Fortsetzung mitten in einem Burst von `ItemReceived`-Aufrufen
+laufen. Dann stuft die App den Rest des Bursts fälschlich als "live" statt
+als "Backlog" ein. Die Grace-Period von zwei Sekunden stellt sicher, dass der
+synchrone Burst vollständig vorbei ist, bevor die App umschaltet. In der
+Praxis dauert der Burst nur Millisekunden.
 
 ### `_sessions`: Lifecycle und maximale gleichzeitige Einträge
 
-Schlüssel ist `SlotProfile.Id`. Ein Eintrag existiert, solange für diesen
-Slot irgendeine aktive Verbindung besteht: als Gruppen-Leader, als
-kurzlebige Catch-up-/Switch-Ziel-Session, oder als bewusst offengehaltene
-Hint-Picker-Probe-Session (siehe `RunAsSlotAsync`s `keepAlive`-Parameter und
-`ReleaseHeldSessionAsync`), solange der Slot im Picker ausgewählt bleibt.
+Der Schlüssel ist `SlotProfile.Id`. Ein Eintrag existiert, solange der Slot
+irgendeine aktive Verbindung hat. Diese Verbindungen sind möglich:
+
+- als Leader der Gruppe,
+- als kurzlebige Session für einen Catch-up oder als Ziel eines
+  Leader-Wechsels,
+- als Probe-Session des Hint-Pickers, die die App bewusst offen hält. Das
+  gilt, solange der Slot im Picker ausgewählt bleibt (siehe den Parameter
+  `keepAlive` von `RunAsSlotAsync` und `ReleaseHeldSessionAsync`).
+
 Für dieselbe Gruppe können höchstens zwei oder drei Einträge gleichzeitig
-existieren (alter + neuer Leader während eines Wechsels, Leader + eine
-Catch-up-Session, oder Leader + eine gehaltene Hint-Picker-Probe für einen
-anderen Slot).
+existieren:
+
+- alter und neuer Leader während eines Wechsels,
+- Leader und eine Catch-up-Session,
+- Leader und eine gehaltene Probe-Session des Hint-Pickers für einen anderen
+  Slot.
 
 ### `_missingLocationsBySlot`: bewusst nur im Speicher
 
-Wird bei jedem erfolgreichen Connect (Leader wie Catch-up) aktualisiert und
-für den Leader per `CheckedLocationsUpdated` live gehalten. Absichtlich
-nicht in `groups.json` persistiert (anders als die reinen Zähler
-`LocationsChecked`/`LocationsTotal` auf `SlotProfile`) – eine vollständige
-Location-Liste würde die Datei bei einem großen Spiel erheblich aufblähen,
-und sie lässt sich beim nächsten Connect ohnehin billig neu aufbauen. Das
-ist, was `GetHintableLocationsAsync` erlaubt, für jeden seit App-Start
-mindestens einmal verbundenen Slot sofort zu antworten, ohne eigens dafür
-einen Probe-Connect zu brauchen.
+Die App aktualisiert dieses Feld bei jedem erfolgreichen Connect (Leader und
+Catch-up). Für den Leader hält `CheckedLocationsUpdated` das Feld live
+aktuell. Die App speichert das Feld absichtlich nicht in `groups.json`. Die
+reinen Zähler `LocationsChecked`/`LocationsTotal` auf `SlotProfile` speichert
+sie dagegen. Grund: Eine vollständige Liste der Locations macht die Datei bei
+einem großen Spiel erheblich größer. Außerdem kann die App die Liste beim
+nächsten Connect billig neu aufbauen.
+
+Mit diesem Feld kann `GetHintableLocationsAsync` sofort antworten. Das gilt
+für jeden Slot, der seit dem Start der App mindestens einmal verbunden war.
+Dafür braucht die App keinen eigenen Probe-Connect.
 
 ### `_roomInfoBySlot`
 
-Der `RoomInfoPacket` aus dem letzten `ConnectAsync()`-Aufruf pro Slot, nur
-damit `GetHintableItemsAsync` `DataPackageChecksums` lesen kann, ohne einen
-eigenen Netzwerk-Roundtrip zu brauchen. Wird bei jedem (Re-)Connect
-überschrieben; ein veralteter Eintrag zwischen zwei Connects ist harmlos,
-weil `GetHintableItemsAsync` immer nur im Moment eines frischen
-`RunAsSlotAsync`-Aufrufs für genau diesen (gerade verbundenen) Slot liest.
+Das Feld enthält pro Slot den `RoomInfoPacket` aus dem letzten Aufruf von
+`ConnectAsync()`. Das Feld existiert nur, damit `GetHintableItemsAsync` die
+`DataPackageChecksums` ohne eigenen Netzwerk-Roundtrip lesen kann. Jeder
+Connect und jeder Reconnect überschreibt den Eintrag. Ein veralteter Eintrag
+zwischen zwei Connects ist harmlos. Grund: `GetHintableItemsAsync` liest nur
+im Moment eines frischen Aufrufs von `RunAsSlotAsync`. Es liest dann nur für
+genau diesen Slot, der gerade verbunden ist.
 
 ### `_connectCancellationSources`
 
-GroupId → das `CancellationTokenSource` des gerade einzigen laufenden
-Connect-Versuchs dieser Gruppe (Leader-Connect aus `SwitchLeaderAsync` oder
-Catch-up-Dip aus `CatchUpSyncAsync` – laut Invariante "Slots verbinden sich
-nie gleichzeitig" nie beides zugleich). `DisconnectGroupAsync` cancelt dieses
-Token, *bevor* es auf `_groupLocks` wartet, damit ein manuelles Disconnect
-einen feststeckenden/wiederholenden Connect tatsächlich unterbricht, statt
-sich stillschweigend dahinter einzureihen, bis die Retries von selbst
+Das Feld bildet die GroupId auf die `CancellationTokenSource` ab. Diese
+gehört zu dem einen Connect-Versuch, der gerade in dieser Gruppe läuft. Der
+Versuch ist entweder ein Leader-Connect aus `SwitchLeaderAsync` oder ein
+kurzer Catch-up aus `CatchUpSyncAsync`. Nach der Invariante "Slots verbinden
+sich nie gleichzeitig" laufen nie beide zugleich.
+
+`DisconnectGroupAsync` cancelt dieses Token, *bevor* es auf `_groupLocks`
+wartet. So unterbricht ein manuelles Disconnect einen Connect, der
+feststeckt oder wiederholt. Ohne diese Reihenfolge reiht sich das Disconnect
+still hinter dem Connect ein. Es wartet dann, bis die Retries von selbst
 aufgeben.
 
 ### `_autoReconnectSuppressed`
 
-Wird unmittelbar vor einem bewussten `DisconnectGroupAsync` gesetzt und erst
-durch ein späteres explizites `SwitchLeaderAsync` (Account-Dropdown, Start)
-wieder gelöscht. Bewusst *nicht* von `OnSocketClosed` konsumiert/entfernt,
-weil manche Socket-Implementierungen `SocketClosed` bei einem einzelnen
-bewussten Close mehrfach feuern – ein Flag, das sich selbst zurücksetzt,
-würde nur das erste dieser Events unterdrücken.
+Die App setzt dieses Flag unmittelbar vor einem bewussten
+`DisconnectGroupAsync`. Erst ein späteres explizites `SwitchLeaderAsync`
+(Account-Dropdown, Start) löscht das Flag wieder. `OnSocketClosed`
+verbraucht oder entfernt das Flag bewusst *nicht*. Grund: Manche
+Socket-Implementierungen feuern `SocketClosed` bei einem einzigen bewussten
+Close mehrmals. Ein Flag, das sich selbst zurücksetzt, unterdrückt nur das
+erste dieser Events.
 
 ### Disconnect: Reihenfolge Cancel vor Lock
 
-`DisconnectGroupAsync` setzt das Suppression-Flag und cancelt ein laufendes
-Connect-Token synchron, *bevor* es `_groupLocks` überhaupt anfasst – und in
-genau dieser Reihenfolge. `SwitchLeaderAsync`/`CatchUpSyncAsync` halten
-diesen Lock für die gesamte Dauer ihres Connects (inklusive aller
-Retry-Versuche); würde Disconnect zuerst auf den Lock warten, würde es sich
-lautlos hinter einem feststeckenden Connect einreihen, bis der von selbst
-aufgibt. Das Flag *vor* dem Cancel zu setzen (statt erst im gated Body)
-schließt außerdem eine Race mit `InitializeGroupAsync`s eigener "hat der
-Nutzer gerade getrennt?"-Prüfung: Die läuft erst, nachdem ein laufendes
-`SwitchLeaderAsync` die Cancellation bemerkt und zurückgekehrt ist – das kann
-frühestens nach dieser Zeile passieren, das Flag ist also garantiert
-sichtbar, unabhängig davon, wie schnell diese Methode den Lock tatsächlich
-bekommt.
+`DisconnectGroupAsync` setzt zuerst das Suppression-Flag. Danach cancelt die
+Methode ein laufendes Connect-Token. Beides passiert synchron, *bevor* die
+Methode `_groupLocks` überhaupt anfasst. Diese Reihenfolge ist Absicht.
+
+Grund für "Cancel vor Lock": `SwitchLeaderAsync`/`CatchUpSyncAsync` halten
+diesen Lock während ihres ganzen Connects, mit allen Retry-Versuchen. Wenn
+Disconnect zuerst auf den Lock wartet, reiht es sich lautlos hinter einem
+feststeckenden Connect ein. Es wartet dann, bis dieser Connect von selbst
+aufgibt.
+
+Grund für "Flag vor Cancel": Die Methode setzt das Flag vor dem Cancel und
+nicht erst im Body hinter dem Lock. Das schließt eine Race mit der eigenen
+Prüfung von `InitializeGroupAsync` ("hat der Benutzer gerade getrennt?").
+Diese Prüfung läuft erst, nachdem ein laufendes `SwitchLeaderAsync` die
+Cancellation bemerkt hat und zurückgekehrt ist. Das passiert frühestens nach
+der Zeile mit dem Cancel. Darum ist das Flag zu diesem Zeitpunkt garantiert
+sichtbar. Das gilt unabhängig davon, wie schnell die Methode den Lock
+wirklich bekommt.
 
 ### Sibling-Catch-up-Sweep: wann er läuft und wann er abbricht
 
-Läuft nur, wenn ein Leader-Connect die *Gruppe* tatsächlich online bringt
-(`groupJustCameOnline`, d. h. `previousLeaderId is null`) – also beim Start (`InitializeGroupAsync`) oder
-nach einem manuellen Reconnect/unerwarteten Drop. Eine offline Gruppe hat
-null Netzwerkaktivität (siehe `InitializeGroupAsync`); der Moment des
-tatsächlichen Connects ist also genau der Moment, in dem "jeden
-konfigurierten Slot aktuell machen" von Grund auf neu passieren muss –
-einfacher und vorhersagbarer, als zu versuchen, nur das nachzuholen, was ein
-vorheriger, möglicherweise unterbrochener Durchlauf übersprungen hat.
+Der Sweep läuft nur, wenn ein Leader-Connect die *Gruppe* wirklich online
+bringt (`groupJustCameOnline`, das heißt `previousLeaderId is null`). Das
+passiert beim Start (`InitializeGroupAsync`) oder nach einem manuellen
+Reconnect oder einem unerwarteten Drop. Eine Gruppe im Offline-Zustand hat
+keine Netzwerkaktivität (siehe `InitializeGroupAsync`). Darum ist der Moment
+des Connects genau der Moment, in dem die App jeden eigenen Slot von Grund
+auf neu aktuell machen muss. Das ist einfacher und vorhersagbarer als der
+Versuch, nur das nachzuholen, was ein früherer, vielleicht unterbrochener
+Durchlauf übersprungen hat.
 
-War die Gruppe schon online (`previousLeaderId is not null` – ein reiner
-Account-Wechsel über das "Chat as"-Dropdown), ist jeder andere konfigurierte
-Slot die ganze Zeit über schon durch das passive Broadcast-Coverage des
-ausgehenden Leaders aktuell gehalten worden (siehe
-`OnLeaderMessageReceived`/`OnHintsUpdated`) – ein erneuter Sync bei jedem
-einzelnen Account-Wechsel wäre nur eine redundante Runde Logins ohne neuen
-Nutzen.
+Wenn die Gruppe schon online war (`previousLeaderId is not null`), ist es nur
+ein Account-Wechsel über das Dropdown "Chat as". Dann hat der ausgehende
+Leader jeden anderen eigenen Slot die ganze Zeit passiv über seine
+Broadcast-Abdeckung aktuell gehalten (siehe
+`OnLeaderMessageReceived`/`OnHintsUpdated`). Ein neuer Catch-up bei jedem
+Account-Wechsel ist darum nur eine redundante Runde Logins ohne neuen Nutzen.
 
-Der Sweep bricht sofort ab, sobald die Gruppenverbindung mittendrin
-unterbrochen wurde – entweder durch ein manuelles Disconnect
-(`_autoReconnectSuppressed`, synchron von `DisconnectGroupAsync` gesetzt,
-noch bevor es überhaupt versucht, denselben Lock zu bekommen) oder weil der
-Leader selbst unerwartet abbricht (`OnSocketClosed` entfernt ihn synchron
-aus `_leaderSlotByGroup`, ebenfalls vom eigenen Event-Thread des Sockets,
-ohne auf diesen Lock zu warten). So oder so bleibt keine Gruppenverbindung
-mehr übrig, an die sich die restlichen Sibling-Slots anhängen könnten –
-weitermachen würde nur sinnlos neue Verbindungen nacheinander öffnen. Der
-nächste erfolgreiche Leader-Connect wiederholt den ganzen Sweep von vorne
-für jeden konfigurierten Slot, statt zu versuchen, nur das Übersprungene
-nachzuholen.
+Der Sweep bricht sofort ab, wenn die Verbindung der Gruppe mittendrin
+abbricht. Dafür gibt es zwei Ursachen:
+
+- Ein manuelles Disconnect. `DisconnectGroupAsync` setzt
+  `_autoReconnectSuppressed` synchron, noch bevor es versucht, denselben Lock
+  zu bekommen.
+- Der Leader selbst bricht unerwartet ab. `OnSocketClosed` entfernt ihn
+  synchron aus `_leaderSlotByGroup`. Das passiert ebenfalls auf dem eigenen
+  Event-Thread des Sockets, ohne auf diesen Lock zu warten.
+
+In beiden Fällen bleibt keine Verbindung der Gruppe übrig, die die restlichen
+eigenen Slots (Sibling-Slots) nutzen können. Wenn der Sweep weitermacht,
+öffnet er nur sinnlos neue Verbindungen nacheinander. Der nächste
+erfolgreiche Leader-Connect wiederholt den ganzen Sweep von vorne für jeden
+eigenen Slot. Er versucht nicht, nur das Übersprungene nachzuholen.
 
 ### CatchUpSyncAsync vs. CatchUpSyncCoreAsync (Locking)
 
-`CatchUpSyncAsync` (öffentlich) holt sich denselben Pro-Gruppe-Lock wie
-`SwitchLeaderAsync`/`DisconnectGroupAsync`, damit ein von außen ausgelöster
-Catch-up (z. B. "Add slot" bei bereits verbundener Gruppe) niemals eine
-zweite Verbindung öffnet, während ein Sweep aus `SwitchLeaderAsync` bereits
-die Ein-Verbindung-gleichzeitig-Invariante dieser Gruppe nutzt – es reiht
-sich stattdessen einfach dahinter ein. Der Sweep selbst ruft direkt
-`CatchUpSyncCoreAsync` auf (er hält den Lock ja schon), da `SemaphoreSlim`
-nicht reentrant ist.
+`CatchUpSyncAsync` (öffentlich) holt sich denselben Lock pro Gruppe wie
+`SwitchLeaderAsync`/`DisconnectGroupAsync`. Grund: Ein Catch-up von außen
+(zum Beispiel "Add slot" bei einer schon verbundenen Gruppe) darf nie eine
+zweite Verbindung öffnen, während ein Sweep aus `SwitchLeaderAsync` läuft.
+Dieser Sweep nutzt schon die Invariante "eine Verbindung gleichzeitig" der
+Gruppe. Der Catch-up von außen reiht sich stattdessen einfach dahinter ein.
+Der Sweep selbst hält den Lock schon. Darum ruft er direkt
+`CatchUpSyncCoreAsync` auf, denn `SemaphoreSlim` ist nicht reentrant.
 
 `CatchUpSyncCoreAsync` bricht außerdem sofort ab, wenn der Slot inzwischen
-aus der Gruppen-Konfiguration entfernt wurde, egal ob er noch in der
-Sweep-eigenen Liste wartete oder in einem separat eingereihten
-`CatchUpSyncAsync`-Aufruf – ein entfernter Slot wird nie verbunden, Sweep
-hin oder her.
+nicht mehr in der Konfiguration der Gruppe ist. Das gilt in beiden Fällen:
+
+- Der Slot wartet noch in der eigenen Liste des Sweeps.
+- Der Slot wartet in einem separat eingereihten Aufruf von
+  `CatchUpSyncAsync`.
+
+Die App verbindet einen entfernten Slot nie, mit oder ohne Sweep.
 
 ### Leader-Wechsel: bewusste kurze Überlappung
 
-`SwitchLeaderAsync` verbindet den neuen Leader zuerst und trennt den alten
-erst danach – eine bewusste kurze Überlappung (beide Sessions kurz
-gleichzeitig live), damit der Wechsel keine sichtbare Lücke hat, auf Kosten
-einer Chat-Nachricht, die genau in diesem Fenster ankommt und dadurch
-möglicherweise nicht im Log auftaucht.
+`SwitchLeaderAsync` verbindet zuerst den neuen Leader und trennt den alten
+erst danach. Diese kurze Überlappung ist Absicht: Beide Sessions sind kurz
+gleichzeitig live. So hat der Wechsel keine sichtbare Lücke. Der Preis: Eine
+Chat-Nachricht, die genau in diesem Zeitfenster ankommt, fehlt dann
+vielleicht im Event-Log.
 
 ### SlotSyncBatchStarting: warum erst 1, dann die Sibling-Anzahl
 
-Beim Leader-Connect wird zunächst nur der eine Leader-Versuch angekündigt
-(`RaiseSlotSyncBatchStarting(1)`) – ob er gelingt und der anschließende
-Sibling-Sweep überhaupt läuft, steht zu diesem Zeitpunkt noch nicht fest,
-der Fortschrittsbalken soll also nicht mehr Arbeit versprechen, als sicher
-versucht wird. Erst nachdem der Leader tatsächlich verbunden hat, wird die
-tatsächliche Sibling-Anzahl nachgemeldet. Ein fehlgeschlagener
-Leader-Versuch zählt trotzdem als "verarbeitet" (`RaiseSlotInitialSyncCompleted`),
-damit die Anzeige nicht für immer zu kurz hängen bleibt; bricht der Sweep
-später vorzeitig ab, werden die übersprungenen Slots ebenfalls noch als
-"verarbeitet" nachgemeldet.
+Beim Leader-Connect kündigt die App zuerst nur den einen Leader-Versuch an
+(`RaiseSlotSyncBatchStarting(1)`). Zu diesem Zeitpunkt steht noch nicht fest,
+ob er gelingt und ob der Sibling-Sweep danach überhaupt läuft. Der
+Fortschrittsbalken darf nicht mehr Arbeit versprechen, als die App sicher
+versucht. Erst wenn der Leader wirklich verbunden ist, meldet die App die
+tatsächliche Anzahl der Sibling-Slots nach.
+
+Ein fehlgeschlagener Leader-Versuch zählt trotzdem als "verarbeitet"
+(`RaiseSlotInitialSyncCompleted`). Sonst bleibt die Anzeige für immer zu kurz
+stehen. Wenn der Sweep später vorzeitig abbricht, meldet die App die
+übersprungenen Slots ebenfalls als "verarbeitet" nach.
 
 ### Passwort-Prompt und Retry-Flow
 
 `NeedsPasswordPrompt` prüft `SlotProfile.Password` und
-`ServerConnectionGroup.Password` bewusst getrennt (nicht den einen
-`effectivePassword`-Fallback-Wert), damit ein Slot mit eigenem, aktuell
-leerem Override trotzdem als "braucht eins" zählt, selbst wenn das
-gemeinsame Gruppenpasswort für einen anderen, override-losen Sibling-Slot
+`ServerConnectionGroup.Password` bewusst getrennt. Es prüft nicht den einen
+Fallback-Wert `effectivePassword`. So zählt ein Slot mit eigenem, aktuell
+leerem Override trotzdem als "braucht eins". Das gilt auch, wenn das
+gemeinsame Passwort der Gruppe für einen anderen Sibling-Slot ohne Override
 zufällig schon gesetzt ist.
 
 Der proaktive Passwort-Prompt läuft *vor* dem Öffnen des Sockets, nicht
-danach – es wird noch nichts über den Server gebraucht (RequiresPassword +
-die aktuell leeren Passwortfelder reichen), und eine beliebig lange
-menschliche Pause zwischen offenem Socket und tatsächlichem Login wäre sonst
-ein unnötiges Zeitfenster für einen Idle-Timeout.
+danach. Für den Prompt braucht die App noch keine Information vom Server.
+`RequiresPassword` und die aktuell leeren Passwortfelder reichen. Ein Prompt
+nach dem Öffnen erzeugt außerdem eine beliebig lange Pause des Benutzers
+zwischen offenem Socket und Login. Diese Pause ist ein unnötiges Zeitfenster
+für einen Idle-Timeout.
 
-Bei einer `InvalidPassword`-`LoginFailure` (laut Archipelago.MultiClient.Net
-6.7.1-Doku: "indicates the wrong, or no password when it was required, was
-sent") wird `RequiresPassword` gelernt, auch wenn dieser Versuch fehlschlug
-– unabhängig davon, ob überhaupt jemand auf `PasswordRequested` hört. Ist
-jemand registriert, wird stattdessen ein Retry mit frisch angefordertem
-Passwort angeboten, statt sofort aufzugeben; dieser Retry verbraucht keinen
-der `MaxTransientConnectRetries`-Versuche. Jeder andere Fehlergrund (falscher
-Slot-Name, Versions-Mismatch, ...) ist eine echte, unabhängige Ablehnung und
-fällt unverändert in den normalen Fehlerpfad.
+Bei einer `LoginFailure` mit `InvalidPassword` lernt die App
+`RequiresPassword`, auch wenn dieser Versuch fehlschlägt. Laut Doku von
+Archipelago.MultiClient.Net 6.7.1 bedeutet dieser Grund: "indicates the
+wrong, or no password when it was required, was sent". Die App lernt den Wert
+unabhängig davon, ob überhaupt jemand auf `PasswordRequested` hört.
 
-Nach erfolgreichem Login wird `RequiresPassword` aus dem tatsächlich
-benutzten Passwort selbst gelernt (self-healing in beide Richtungen): ein
-leeres `effectivePassword`, das erfolgreich war, beweist, dass keins nötig
-war; ein nicht-leeres, das erfolgreich war, beweist, dass eins nötig war
-(sonst wäre eine `InvalidPassword`-Failure zurückgekommen).
+Wenn jemand auf `PasswordRequested` registriert ist, gibt die App nicht
+sofort auf. Sie bietet stattdessen einen Retry mit einem neu angeforderten
+Passwort an. Dieser Retry verbraucht keinen der Versuche aus
+`MaxTransientConnectRetries`. Jeder andere Fehlergrund (falscher Slot-Name,
+Versions-Mismatch, ...) ist eine echte, unabhängige Ablehnung. Dieser Fehler
+geht unverändert in den normalen Fehlerpfad.
+
+Nach einem erfolgreichen Login lernt die App `RequiresPassword` aus dem
+Passwort, das sie wirklich benutzt hat. Das korrigiert sich in beide
+Richtungen selbst (self-healing):
+
+- Ein leeres `effectivePassword` war erfolgreich. Das beweist, dass kein
+  Passwort nötig war.
+- Ein nicht leeres `effectivePassword` war erfolgreich. Das beweist, dass ein
+  Passwort nötig war. Sonst kommt eine `InvalidPassword`-Failure zurück.
 
 ### Transiente Verbindungsfehler und Retry
 
-`ConnectSlotSessionAsync` wiederholt einen Connect/Login, der mit
-`TaskCanceledException`, `OperationCanceledException` oder `TimeoutException`
-fehlschlägt, bis zu `MaxTransientConnectRetries` (2) Mal mit einer komplett
-neuen Session, statt es als echten Fehler zu melden. Deckt einen real
-beobachteten Fehlerfall ab ("Connection failed for X: A task was canceled"
-beim Leader-Wechsel kurz nachdem ein anderer Slot auf demselben Server
-gerade neu verbunden hatte) – die genaue Ursache wurde nie vollständig
-geklärt, aber ein gecancelter/getimeouteter Handshake lässt sich gefahrlos
-wiederholen, statt für einen üblicherweise einmaligen Ausrutscher einen
-beängstigenden Fehler zu zeigen. Eine echte Login-Ablehnung (falsches
-Passwort etc.) wirft nie eine Exception – sie kommt als `LoginFailure`-
-Ergebnis zurück und wird nie wiederholt.
+`ConnectSlotSessionAsync` wiederholt einen Connect oder Login, der mit
+`TaskCanceledException`, `OperationCanceledException` oder
+`TimeoutException` fehlschlägt. Die Methode wiederholt ihn bis zu
+`MaxTransientConnectRetries` (2) Mal, jedes Mal mit einer komplett neuen
+Session. Sie meldet ihn nicht als echten Fehler.
 
-Das übergebene `cancellationToken` (aus `DisconnectGroupAsync`, über den
-Pro-Gruppe-Eintrag in `_connectCancellationSources`) lässt ein manuelles
-Disconnect diesen Vorgang abkürzen. Die zugrunde liegende Library nimmt für
-`ConnectAsync()`/`LoginAsync()` kein eigenes Token entgegen, ein bereits
-laufender Aufruf kann also nicht mittendrin abgebrochen werden – die
-Cancellation wird stattdessen an jedem natürlichen Prüfpunkt kontrolliert
-(Beginn jedes Versuchs, direkt nach jedem der beiden Aufrufe, während der
-Pause zwischen Retries), was reicht, um das Weiter-Retrien zu stoppen und
-zügig abzuwickeln, sobald der aktuelle Versuch auf die eine oder andere Art
-endet.
+Das deckt einen real beobachteten Fehlerfall ab: "Connection failed for X: A
+task was canceled". Der Fehler trat beim Leader-Wechsel auf, kurz nachdem
+ein anderer Slot auf demselben Server neu verbunden hatte. Niemand hat die
+genaue Ursache vollständig geklärt. Aber die App kann einen gecancelten oder
+abgelaufenen Handshake gefahrlos wiederholen. So zeigt sie für einen meist
+einmaligen Ausrutscher keinen beängstigenden Fehler.
+
+Eine echte Login-Ablehnung (falsches Passwort und Ähnliches) wirft nie eine
+Exception. Sie kommt als `LoginFailure`-Ergebnis zurück. Die App wiederholt
+sie nie.
+
+Das übergebene `cancellationToken` kommt aus `DisconnectGroupAsync`, über den
+Eintrag der Gruppe in `_connectCancellationSources`. Mit diesem Token kann
+ein manuelles Disconnect diesen Vorgang abkürzen. Die Library darunter nimmt
+für `ConnectAsync()`/`LoginAsync()` kein eigenes Token an. Darum kann die App
+einen laufenden Aufruf nicht mittendrin abbrechen. Stattdessen prüft sie die
+Cancellation an jedem natürlichen Prüfpunkt:
+
+- am Beginn jedes Versuchs,
+- direkt nach jedem der beiden Aufrufe,
+- während der Pause zwischen Retries.
+
+Das reicht, um weitere Retries zu stoppen. Sobald der aktuelle Versuch auf
+irgendeine Art endet, wickelt die App den Vorgang zügig ab.
 
 ### Warum GetHintableItemsAsync/GetRoomPlayersAsync eine offene Session bevorzugen
 
-Der Spielname-Lookup, der RoomInfo-Checksum und die DataPackage-Anfrage
-selbst sind laut offiziellem Netzwerkprotokoll alle raumweite Informationen,
-nicht an den anfragenden Slot gebunden – RoomInfo wird jedem verbindenden
-Socket schon vor dem Login geschickt, und `GetDataPackage` "does not require
-client authentication" überhaupt. Hat die Gruppe also schon irgendeine
-offene Session (in der Praxis immer die des Leaders), wird sie dafür
-wiederverwendet, ohne den angefragten Slot selbst auch nur kurz zu
-verbinden. Nur wenn die Gruppe gar keine offene Session hat, fällt das auf
-einen kurzen, offengehaltenen Probe-Connect als dieser Slot zurück.
+Laut offiziellem Netzwerkprotokoll sind diese Informationen raumweit:
+
+- der Lookup des Spielnamens,
+- die RoomInfo-Checksum,
+- die DataPackage-Anfrage selbst.
+
+Sie gehören nicht zum anfragenden Slot. Der Server schickt RoomInfo jedem
+verbindenden Socket schon vor dem Login. Für `GetDataPackage` sagt das
+Protokoll: "does not require client authentication".
+
+Wenn die Gruppe schon eine offene Session hat, verwendet die App diese
+Session dafür wieder. In der Praxis ist das immer die Session des Leaders.
+Die App verbindet dann den angefragten Slot nicht, auch nicht kurz. Nur wenn
+die Gruppe keine offene Session hat, macht die App einen kurzen Probe-Connect
+als dieser Slot. Die App hält diese Probe-Session danach offen.
 
 ### GetHintableLocationsAsync: Fast-Path und Re-Check
 
-Ein Slot, der seit App-Start mindestens einmal verbunden war, wird sofort
-aus `_missingLocationsBySlot` beantwortet, ohne Lock. Erst wenn nichts
-gecacht ist, wird der Pro-Gruppe-Lock geholt und der Cache erneut geprüft –
-ein gleichzeitiger Aufruf für denselben Slot (oder ein parallel zu Ende
-gehender Sibling-Sweep) könnte ihn währenddessen gefüllt haben. Ist er
-wirklich noch nie verbunden, wird einmal per `RunAsSlotAsync(...,
-keepAlive: true)` verbunden, was den Cache als Seiteneffekt füllt; die
-Session bleibt danach offen, damit das nächste Browse/Send für denselben
-Slot im selben Hint-Picker-Durchlauf nicht erneut verbindet.
+Wenn ein Slot seit dem Start der App mindestens einmal verbunden war,
+antwortet die Methode sofort aus `_missingLocationsBySlot`. Sie holt dafür
+keinen Lock. Nur wenn der Cache leer ist, holt die Methode den Lock pro
+Gruppe und prüft den Cache erneut. Der Grund: Ein gleichzeitiger Aufruf für
+denselben Slot kann den Cache inzwischen füllen. Dasselbe gilt für einen
+parallelen Sibling-Sweep, der gerade endet.
+
+Wenn der Slot wirklich noch nie verbunden war, verbindet die Methode ihn
+einmal mit `RunAsSlotAsync(..., keepAlive: true)`. Das füllt den Cache als
+Nebeneffekt. Die Session bleibt danach offen. So verbindet das nächste
+Browse oder Send für denselben Slot im selben Durchlauf des Hint-Pickers
+nicht erneut.
 
 ### DataPackage-Abruf per Rohpaket
 
-Nichts in der API dieser Library-Version enumeriert das komplette
-`item_name_to_id`-Mapping eines Spiels (anders als einzelne Id/Name-Lookups
-wie `GetLocationNameFromId`), deshalb schickt `FetchGameDataFromDataPackageAsync`
-das rohe `GetDataPackagePacket` und wartet direkt am Socket auf das passende
-`DataPackagePacket` (verifiziert gegen das offizielle Archipelago-Netzwerk-
-protokoll und den gepinnten Archipelago.MultiClient.Net-Quellcode am exakten
-Tag). `GetDataPackagePacket.Games` wird bewusst auf genau ein Spiel
-eingeschränkt, um nicht das DataPackage jedes anderen Spiels im Raum
-mitzuladen. Ergebnis ist `null` (kein Hänger), wenn der Server
-innerhalb des Timeouts nicht antwortet oder den Socket vorher schließt.
+Die API dieser Library-Version hat keine Methode, die das ganze
+`item_name_to_id`-Mapping eines Spiels aufzählt. Sie hat nur Lookups für
+einzelne Ids oder Namen, zum Beispiel `GetLocationNameFromId`. Darum schickt
+`FetchGameDataFromDataPackageAsync` das rohe `GetDataPackagePacket`. Danach
+wartet die Methode direkt am Socket auf das passende `DataPackagePacket`.
+Grundlage dafür sind das offizielle Archipelago-Netzwerkprotokoll und der
+Quellcode von Archipelago.MultiClient.Net am exakten gepinnten Tag.
 
-Seit der Admin-Ansicht liefert derselbe Abruf Item- **und** Location-Namen
-(`GameDataNames`, Location-Name → Id). `GetHintableItemsAsync` nutzt davon
-nur die Items. `GetGameDataAsync` braucht beides, und zwar für das Spiel
-*jedes* Spielers im Raum. Es antwortet nur über die Leader-Session, denn die
-Admin-Ansicht ist ohnehin nur verbunden benutzbar. Beide teilen sich den
-Plattencache. Ein Cache-Eintrag von vor dieser Änderung hat
-`LocationIds == null` und zählt für `GetGameDataAsync` als Cache-Miss: Er
-wird neu geholt und mit beiden Hälften überschrieben.
+`FetchGameDataFromDataPackageAsync` beschränkt `GetDataPackagePacket.Games`
+mit Absicht auf genau ein Spiel. So lädt die App nicht das DataPackage jedes
+anderen Spiels im Raum mit. Wenn der Server innerhalb des Timeouts nicht
+antwortet oder den Socket vorher schließt, ist das Ergebnis `null`. Die
+Methode hängt dann nicht.
+
+Seit es die Admin-Ansicht gibt, liefert derselbe Abruf Item-Namen **und**
+Location-Namen (`GameDataNames`, Location-Name → Id).
+`GetHintableItemsAsync` nutzt davon nur die Items. `GetGameDataAsync`
+braucht beides, und zwar für das Spiel *jedes* Slots im Raum.
+`GetGameDataAsync` antwortet nur über die Session des Leaders. Der Grund:
+Der Benutzer kann die Admin-Ansicht sowieso nur mit Verbindung benutzen.
+
+Beide Methoden teilen sich den Cache auf der Platte. Ein Cache-Eintrag von
+vor dieser Änderung hat `LocationIds == null`. Für `GetGameDataAsync` zählt
+er als Cache-Miss. Die Methode holt die Daten dann neu und überschreibt den
+Eintrag mit beiden Hälften.
 
 ### Admin-Ansicht: ServerReplyReceived und LeaderConnected
 
 Die Admin-Ansicht (`AdminPanelViewModel`, siehe `Admin-Funktionen.md` im
 Feature-Plan-Archiv) schickt `!admin …`-Zeilen über das normale
-`SendMessageAsync` und braucht dafür zwei Signale aus `ConnectionManager`.
+`SendMessageAsync`. Dafür braucht sie zwei Signale aus `ConnectionManager`.
 
-**`ServerReplyReceived`** meldet Serverzeilen, die eine Antwort sein
-können. Grundlage ist eine zweite `MessageLog`-Subscription nur auf der
-Leader-Session; die Klassifizierung macht
-`SessionEventTranslator.ClassifyServerReply`. Geprüft gegen MultiServer.py
-und den MultiClient.Net-6.7.1-Quellcode:
-- `!`-Kommandos antworten als `CommandResultLogMessage`. Dazu gehört jedes
-  `!admin login`-Ergebnis und "You must first login".
-- Fehlschlagende `/`-Kommandos antworten als `AdminCommandResultLogMessage`,
-  ebenso `/option` bei Erfolg.
+**`ServerReplyReceived`** meldet Zeilen des Servers, die eine Antwort sein
+können. Die Grundlage ist eine zweite Subscription auf `MessageLog`, nur auf
+der Session des Leaders. `SessionEventTranslator.ClassifyServerReply` ordnet
+die Zeilen ein. Grundlage für die Liste unten sind MultiServer.py und der
+Quellcode von MultiClient.Net 6.7.1:
+
+- `!`-Kommandos antworten als `CommandResultLogMessage`. Dazu gehören jedes
+  Ergebnis von `!admin login` und "You must first login".
+- `/`-Kommandos, die fehlschlagen, antworten als
+  `AdminCommandResultLogMessage`. `/option` antwortet auch bei Erfolg so.
 - Die meisten *erfolgreichen* Admin-Aktionen (`/send`, `/release`,
-  `/collect`) antworten gar nicht direkt. Sie erscheinen nur als raumweiter
-  Broadcast: ein untypisiertes PrintJSON, das die Library als exakten
-  Basistyp `LogMessage` liefert, bzw. `Release`/`CollectLogMessage`.
+  `/collect`) antworten nicht direkt. Sie erscheinen nur als Broadcast an
+  den ganzen Raum. Das ist entweder ein PrintJSON ohne Typ oder eine
+  `Release`/`CollectLogMessage`. Das PrintJSON ohne Typ liefert die Library
+  als exakten Basistyp `LogMessage`.
 
-Der Server korreliert keine Antwort mit ihrem Kommando. `AdminPanelViewModel`
-sendet deshalb strikt eins nach dem anderen und sammelt, was in einem kurzen
-Fenster danach ankommt. Mehrzeilige Antworten kommen dabei als einzelne
-Nachrichten an, weil die Library sie pro Zeile splittet. Die Zeilen landen
-unverändert auch im normalen Event-Log.
+Der Server ordnet keine Antwort ihrem Kommando zu. Darum sendet
+`AdminPanelViewModel` die Kommandos strikt nacheinander. Es sammelt alles,
+was in einem kurzen Zeitfenster danach ankommt. Mehrzeilige Antworten kommen
+dabei als einzelne Nachrichten an, denn die Library teilt sie pro Zeile auf.
+Die Zeilen erscheinen außerdem unverändert im normalen Event-Log.
 
-**`LeaderConnected`** wird nach jedem erfolgreichen `SwitchLeaderAsync`
-gefeuert, bei Account-Wechsel, Reconnect und Erstverbindung. Es ist hinter
-das `SetLeaderStateWithoutTriggeringSwitch`-Post gequeued. Der Grund: Das
-`!admin login` gehört serverseitig zum Socket. Jede neue Leader-Verbindung
-ist also abgemeldet, und das ViewModel meldet sich mit dem nur im Speicher
-gehaltenen Passwort still neu an. Den zweiten Weg, abgemeldet zu werden
-(ein anderer Client meldet sich als Admin an), meldet der Server nicht. Er
-wird erst am "You must first login" des nächsten Kommandos erkannt; dann
-folgt ein Re-Login und derselbe Befehl wird erneut gesendet.
+**`LeaderConnected`**: `ConnectionManager` feuert dieses Event nach jedem
+erfolgreichen `SwitchLeaderAsync`. Das gilt für den Wechsel über "Chat as",
+für Reconnect und für die erste Verbindung. Das Event steht in der Queue
+hinter dem Post von `SetLeaderStateWithoutTriggeringSwitch`. Der Grund für
+das Event: Das `!admin login` gehört auf dem Server zum Socket. Darum ist
+jede neue Verbindung des Leaders abgemeldet. Das ViewModel meldet sich dann
+still neu an, mit dem Passwort, das es nur im Speicher hält.
+
+Es gibt einen zweiten Weg zur Abmeldung: Ein anderer Client meldet sich als
+Admin an. Diesen Fall meldet der Server nicht. Das ViewModel erkennt ihn
+erst an der Antwort "You must first login" auf das nächste Kommando. Dann
+meldet es sich neu an und sendet denselben Befehl erneut.
 
 ### RunAsSlotAsync / ReleaseHeldSessionAsync (Hint-Picker)
 
-`RunAsSlotAsync` läuft eine Aktion gegen eine Session für genau einen Slot –
-nutzt eine schon offene wieder (Leader, laufender Catch-up-Dip, oder eine
-gehaltene Hint-Picker-Probe aus einem früheren Aufruf), sonst wird kurz neu
-verbunden. Rührt nie den Gruppen-Leader an, wenn der angefragte Slot nicht
-der Leader ist. Aufrufer müssen den Pro-Gruppe-Lock schon halten – die
-Methode holt ihn sich nicht selbst.
+**Der Aufrufer von `RunAsSlotAsync` muss den Lock pro Gruppe schon halten.**
+Die Methode holt den Lock nicht selbst.
 
-`keepAlive=true`: Falls dieser Aufruf eine brandneue Nicht-Leader-Session
-erzeugt, bleibt sie danach offen (in `_sessions` registriert), statt sofort
-wieder getrennt zu werden – vorher hat jedes Hint-Picker-Browse/Send für
-einen Nicht-Leader-Slot von vorne neu verbunden, sogar mehrmals hintereinander
-für denselben Slot. `ReleaseHeldSessionAsync` trennt eine so gehaltene
-Session später wieder, sobald der Picker den Slot wechselt oder schließt –
-ein No-Op, wenn der Slot gerade der Leader ist (der hat seinen eigenen,
-unabhängigen Lifecycle) oder gar nichts gehalten wird.
+`RunAsSlotAsync` führt eine Aktion mit einer Session für genau einen Slot
+aus. Wenn für den Slot schon eine Session offen ist, nutzt die Methode diese
+Session wieder. Das kann eine dieser Sessions sein:
+
+- die Session des Leaders,
+- ein laufender Catch-up-Dip,
+- eine gehaltene Probe des Hint-Pickers aus einem früheren Aufruf.
+
+Sonst verbindet die Methode kurz neu. Wenn der angefragte Slot nicht der
+Leader ist, ändert die Methode nie etwas am Leader der Gruppe.
+
+`keepAlive=true`: Wenn dieser Aufruf eine ganz neue Session für einen Slot
+erzeugt, der nicht Leader ist, bleibt diese Session danach offen. Die
+Methode registriert sie in `_sessions` und trennt sie nicht sofort. Früher
+hat jedes Browse oder Send des Hint-Pickers für einen solchen Slot ganz neu
+verbunden. Das passierte sogar mehrmals hintereinander für denselben Slot.
+
+`ReleaseHeldSessionAsync` trennt eine so gehaltene Session später wieder.
+Das passiert, sobald der Picker den Slot wechselt oder schließt. Wenn der
+Slot gerade der Leader ist, tut die Methode nichts. Der Leader hat seinen
+eigenen, unabhängigen Lebenszyklus. Wenn die App für den Slot keine Session
+hält, tut die Methode ebenfalls nichts.
 
 ### Socket-Cleanup: der Speicherleck-Workaround
 
-`TryCloseSocketAsync` wartet tatsächlich auf das Schließen des Sockets,
-statt `DisconnectAsync()` nur anzustoßen und sofort zurückzukehren (frühere
-Version) – bei einem ~40-Slot-Raum blieb sonst jede jemals erstellte
-`ArchipelagoSession` während der Start-Catch-up-Sync noch vollständig im
-Speicher (jede mit eigenem mehrere-zehn-MB-Item/Location-Namens-Cache),
-macht insgesamt mehrere hundert MB bis mehrere GB Working Set aus.
+`TryCloseSocketAsync` wartet wirklich, bis der Socket geschlossen ist. Eine
+frühere Version hat `DisconnectAsync()` nur angestoßen und ist sofort
+zurückgekehrt. Bei einem Raum mit etwa 40 Slots blieb dann jede
+`ArchipelagoSession` vollständig im Speicher, die die App während des
+Catch-up beim Start je erzeugt hatte. Jede dieser Sessions hatte einen
+eigenen Cache für Item- und Location-Namen von mehreren zehn MB. Zusammen
+waren das mehrere hundert MB bis mehrere GB Working Set.
 
-Zwei unabhängige, gegen den Quellcode von Archipelago.MultiClient.Net
-(aktuell 6.7.1) verifizierte Bugs, beide mit einem Live-GC-Root-Trace
-bestätigt:
+Der Quellcode von Archipelago.MultiClient.Net (aktuell 6.7.1) belegt zwei
+unabhängige Bugs. Ein Live-GC-Root-Trace bestätigt beide:
 
 1. `PollingLoop` ruft endlos `ReceiveAsync()` auf dem zugrunde liegenden
-   `ClientWebSocket` ohne eigenes Cancellation-Token auf. `CloseAsync`
-   aufzurufen, während anderswo noch ein `ReceiveAsync` aussteht, ist ein
-   bekanntes .NET-WebSocket-Fettnäpfchen – der ausstehende Receive bleibt
-   hängen, statt entsperrt zu werden. Workaround: über Reflection direkt an
-   das interne `ClientWebSocket`-Feld (`FindClientWebSocket`) und `Abort()`
-   darauf aufrufen, was jeden ausstehenden `ReceiveAsync`/`SendAsync` sofort
-   fehlschlagen lässt und den Socket-Zustand von "Open" wegkippt.
-2. `SendLoop` ruft `sendQueue.Take()` (blockierend, nicht async) auf, um auf
-   das nächste ausgehende Paket zu warten. Niemand ruft beim Disconnect
-   `sendQueue.CompleteAdding()` auf – sitzt `SendLoop` also in diesem
-   `Take()` fest, ohne dass etwas in der Queue steht (der Normalfall für
-   eine Catch-up-Session, die nach dem Login nie etwas sendet), bleibt sie
-   für immer blockiert; die `while (Socket.State == WebSocketState.Open)`-
-   Schleife drumherum wird erst *nach* der Rückkehr von `Take()` neu
-   geprüft, Fix 1 alleine reicht also nicht. Workaround: `CompleteSendQueue`
-   reflektiert auf das interne `sendQueue`-Feld und ruft dessen
-   `CompleteAdding()` auf, was ein blockiertes `Take()` auf einer leeren,
-   jetzt abgeschlossenen Queue eine Exception werfen statt ewig warten
-   lässt.
+   `ClientWebSocket` auf. Die Schleife hat kein eigenes
+   Cancellation-Token. Ein bekannter Fehler bei .NET-WebSockets: Wenn ein
+   `ReceiveAsync` noch aussteht und anderer Code `CloseAsync` aufruft,
+   bleibt der ausstehende Receive hängen. Er kehrt nicht zurück.
+   Workaround: `FindClientWebSocket` holt per Reflection direkt das interne
+   Feld vom Typ `ClientWebSocket`. Der Workaround ruft darauf `Abort()` auf.
+   Danach schlägt jedes ausstehende `ReceiveAsync` oder `SendAsync` sofort
+   fehl, und der Socket verlässt den Zustand "Open".
+2. `SendLoop` ruft `sendQueue.Take()` auf und wartet so auf das nächste
+   ausgehende Paket. `Take()` blockiert und ist nicht async. Beim Disconnect
+   ruft niemand `sendQueue.CompleteAdding()` auf. Wenn die Queue leer ist,
+   bleibt `SendLoop` darum für immer in `Take()` blockiert. Das ist der
+   Normalfall für eine Catch-up-Session, denn sie sendet nach dem Login nie
+   etwas. Die umgebende Schleife
+   `while (Socket.State == WebSocketState.Open)` prüft ihre Bedingung erst
+   *nach* der Rückkehr von `Take()`. Darum reicht Fix 1 allein nicht.
+   Workaround: `CompleteSendQueue` holt per Reflection das interne Feld
+   `sendQueue` und ruft dessen `CompleteAdding()` auf. Danach wirft ein
+   blockiertes `Take()` auf der leeren, jetzt abgeschlossenen Queue eine
+   Exception. Es wartet dann nicht mehr ewig.
 
-Beide Workarounds greifen über den öffentlichen Vertrag von
-`IArchipelagoSocketHelper` hinaus auf interne Implementierungsdetails zu und
-sind damit von Natur aus fragil – ein künftiges Archipelago.MultiClient.Net-
-Release könnte eines der Felder umbenennen oder umstrukturieren und diesen
-Code stillschweigend wirkungslos machen. Deshalb ist jeder ein Best-Effort-
-Versuch, der nie über diese Methode hinaus wirft, aber sichtbar geloggt wird
-(Error-Event), falls er fehlschlägt – sonst würde das Speicherleck lautlos
-wieder aufgehen.
+Beide Workarounds greifen auf interne Details der Implementierung zu. Diese
+Details liegen außerhalb des öffentlichen Vertrags von
+`IArchipelagoSocketHelper`. Darum sind beide Workarounds von Natur aus
+fragil. Ein künftiges Release von Archipelago.MultiClient.Net kann eines der
+Felder umbenennen oder umbauen. Dann wirkt dieser Code still nicht mehr.
 
-`FindClientWebSocket` läuft die Typhierarchie hoch, weil das Feld
-(`internal T Socket;`) auf der offenen generischen Basisklasse
-`BaseArchipelagoSocketHelper<T>` deklariert ist, nicht auf dem konkreten
-`ArchipelagoSocketHelper`-Typ, von dem aus Reflection startet –
-`Type.GetField` allein findet nur direkt auf dem übergebenen Typ deklarierte
-Member, keine geerbten, nicht-öffentlichen.
+Darum ist jeder Workaround ein Best-Effort-Versuch. Er wirft nie eine
+Exception über diese Methode hinaus. Wenn er fehlschlägt, erzeugt die App
+ein sichtbares Error-Event. Sonst kommt das Speicherleck lautlos zurück.
+
+`FindClientWebSocket` durchsucht die Typhierarchie nach oben. Der Grund:
+Das Feld (`internal T Socket;`) steht in der offenen generischen
+Basisklasse `BaseArchipelagoSocketHelper<T>`. Es steht nicht im konkreten
+Typ `ArchipelagoSocketHelper`, bei dem die Reflection startet.
+`Type.GetField` allein findet nur Member, die der übergebene Typ selbst
+deklariert. Geerbte, nicht öffentliche Member findet es nicht.
 
 ### Erwartete Exceptions durch die eigenen Workarounds
 
 `IsExpectedSendQueueCompletionError` erkennt genau die
-`InvalidOperationException`, die `CompleteSendQueue` bewusst auslöst
-(BlockingCollection-Wortlaut "marked as complete with regards to additions")
-– das gewollte Ergebnis des eigenen Workarounds, kein echter Fehler, wird
-also nicht als "[SlotName] ..."-Fehler angezeigt.
+`InvalidOperationException`, die `CompleteSendQueue` mit Absicht auslöst.
+Ihr Text kommt von BlockingCollection: "marked as complete with regards to
+additions". Diese Exception ist das gewollte Ergebnis des eigenen
+Workarounds und kein echter Fehler. Darum zeigt die App sie nicht als
+Fehler "[SlotName] ..." an.
 
-`IsMalformedBounceDataError` erkennt eine `JsonSerializationException`, wenn
-ein `Bounced`-Paket sein `data`-Feld (laut `BouncePacket` als
-`Dictionary<string, JToken>` deklariert) als JSON-Array statt als Objekt
-schickt – ein Protokollverstoß eines anderen Clients/Spiels im Raum, kein
-hiesiger Bug. Nur erreichbar, weil die Leader-Session immer den
-DeathLink-Tag anfordert (`EnableDeathLink()`) und der Server ihr deshalb
-überhaupt `Bounced`-Pakete zustellt; ein Client ohne DeathLink bekommt sowas
-nie, einer mit lockerem statt strikt typisiertem Parsing stolpert nicht
-darüber. Harmlos – Verbindung und alle anderen Pakete bleiben unberührt.
+`IsMalformedBounceDataError` erkennt eine `JsonSerializationException` für
+diesen Fall: Ein `Bounced`-Paket schickt sein Feld `data` als JSON-Array
+statt als Objekt. `BouncePacket` deklariert das Feld als
+`Dictionary<string, JToken>`. Das ist ein Verstoß gegen das Protokoll durch
+einen anderen Client oder ein anderes Spiel im Raum. Es ist kein Bug in
+dieser App.
+
+Der Fehler tritt nur auf, weil die Session des Leaders immer den
+DeathLink-Tag anfordert (`EnableDeathLink()`). Nur darum stellt der Server
+ihr überhaupt `Bounced`-Pakete zu. Ein Client ohne DeathLink bekommt solche
+Pakete nie. Ein Client mit lockerem statt streng typisiertem Parsing
+stolpert nicht darüber. Der Fehler ist harmlos: Die Verbindung und alle
+anderen Pakete bleiben unberührt.
 
 ### DeathLink
 
-Nur die Leader-Session bekommt `EnableDeathLink()`, aus demselben Grund wie
-das MessageLog-Abo (nur sie ist live). Keine Pro-Gruppe-Opt-in-Checkbox:
-Anders als ein echter Spiel-Client *reagiert* diese App nie auf einen
-DeathLink (kein Pausieren, kein "du bist gestorben"), sie loggt ihn nur zur
-Anzeige – es gäbe also nichts, wovor ein Opt-out einen Nutzer tatsächlich
-schützen würde. `EnableDeathLink()` fügt lediglich den "DeathLink"-Tag
-hinzu, damit der Server dieser Session überhaupt Bounce-Pakete dafür
-zustellt (das macht es zu einem Opt-in-*Protokoll*-Feature, keiner Aktion im
-Namen des Nutzers). Kein Pro-Slot-Bookkeeping nötig – anders als `_sessions`
-muss hier nie etwas nachgeschlagen werden, der `DeathLinkService` hält sich
+Nur die Session des Leaders bekommt `EnableDeathLink()`. Der Grund ist
+derselbe wie beim Abo auf `MessageLog`: Nur diese Session ist live. Es gibt
+keine Checkbox für ein Opt-in pro Gruppe. Der Grund: Anders als ein echter
+Spiel-Client *reagiert* diese App nie auf einen DeathLink. Sie pausiert
+nicht und meldet nicht "du bist gestorben". Sie zeigt den DeathLink nur an.
+Ein Opt-out schützt den Benutzer also vor nichts.
+
+`EnableDeathLink()` ergänzt nur den Tag "DeathLink". Damit stellt der Server
+dieser Session überhaupt Bounce-Pakete für DeathLink zu. Darum ist es ein
+Opt-in-Feature des *Protokolls* und keine Aktion im Namen des Benutzers.
+Die App braucht dafür kein Bookkeeping pro Slot. Anders als bei `_sessions`
+muss die App hier nie etwas nachschlagen. Der `DeathLinkService` hält sich
 über sein eigenes Socket-Abo selbst am Leben, solange die Session offen
 bleibt.
 
 ### Warum die Leader-Session pro Sibling-Slot ein eigenes TrackHints braucht
 
-Anders als Chat-/Item-Send-Zeilen wird eine Hint-Server-Benachrichtigung
-NICHT an den ganzen Raum gebroadcastet – der AP-Server pusht den "Hint:
-..."-Text (und das zugrunde liegende `hints_{team}_{slot}`-DataStorage-
-Update) nur an die Clients des Finders und des Empfängers (siehe
-MultiServer.pys `notify_hints`/`concerns`). Ein einzelnes `TrackHints`-Abo
-meldet also nur Hints, bei denen genau dieser eine Slot Finder oder
-Empfänger ist. Für eine kurze Catch-up-Session reicht das (die interessiert
-sich nur für sich selbst), aber für den Leader – die einzige dauerhaft
-offene Session – würde das sonst jeden Hint verpassen, der einen anderen
-konfigurierten Sibling-Slot betrifft, solange der nicht selbst Leader ist.
-Deshalb bekommt der Leader beim Connect zusätzlich ein `TrackHints`-Abo pro
-anderem konfigurierten Slot über dieselbe schon offene Verbindung (kein
-weiteres Login nötig) – das macht Hint-Coverage endlich "der ganze Raum",
-genau wie Chat/Item-Send es über den raumweiten MessageLog-Broadcast schon
-kostenlos sind.
+Chat-Zeilen und Zeilen zu Item-Sends gehen als Broadcast an den ganzen
+Raum. Eine Hint-Benachrichtigung des Servers geht NICHT an den ganzen Raum.
+Der AP-Server pusht den Text "Hint: ..." nur an die Clients des Finders und
+des Empfängers. Dasselbe gilt für das zugrunde liegende
+DataStorage-Update `hints_{team}_{slot}` (siehe `notify_hints`/`concerns`
+in MultiServer.py). Ein einzelnes Abo mit `TrackHints` meldet also nur
+Hints, bei denen genau dieser eine Slot Finder oder Empfänger ist. Für eine
+kurze Catch-up-Session reicht das, denn sie braucht nur ihre eigenen Hints.
 
-`TrackHintsForSiblingOnLeader` deckt den Fall ab, dass ein Slot erst
-*nachdem* der Leader schon verbunden ist, zur Gruppe hinzugefügt wird ("Add
-slot" bei bereits verbundener Gruppe) – der Sibling-Loop in
-`TrackSiblingHintsOnLeader` (aus `ActivateConnectedSession`) läuft nur einmal, im Moment des Leader-Connects
-selbst, ein später hinzugefügter Slot würde also sonst unsichtbar bleiben,
-solange er nicht selbst Leader wird.
+Der Leader hat aber die einzige dauerhaft offene Session. Mit nur einem Abo
+verpasst er jeden Hint, der einen anderen eigenen Slot der Gruppe betrifft
+(Sibling-Slot), solange dieser Slot nicht selbst Leader ist. Darum bekommt
+der Leader beim Connect zusätzlich ein Abo mit `TrackHints` für jeden
+anderen eigenen Slot. Diese Abos laufen über dieselbe offene Verbindung und
+brauchen keinen weiteren Login. So deckt die App Hints für "den ganzen
+Raum" ab. Chat und Item-Sends deckt sie über den Broadcast von `MessageLog`
+an den ganzen Raum schon ohne Zusatzkosten ab.
+
+`TrackHintsForSiblingOnLeader` deckt diesen Fall ab: Der Benutzer ergänzt
+einen Slot in der Gruppe, *nachdem* der Leader schon verbunden ist ("Add
+slot" bei verbundener Gruppe). Die Schleife über die Sibling-Slots in
+`TrackSiblingHintsOnLeader` (aufgerufen aus `ActivateConnectedSession`)
+läuft nur einmal, im Moment des Leader-Connects. Ohne
+`TrackHintsForSiblingOnLeader` bleiben Hints für einen später ergänzten
+Slot unsichtbar, solange er nicht selbst Leader wird.
 
 ### BuildSlotRoster und Alias-Refresh
 
-Ordnet jedem konfigurierten Slot seine numerische Archipelago-Slot-Id im
-Raum zu, per Namensabgleich (`SlotProfile.SlotName` gegen den Raum-Roster).
-Wird bei jedem Aufruf neu gebaut (ein billiger linearer Scan über eine
-kleine Liste) statt gecacht, damit er immer die aktuelle `Slots`-Collection
-widerspiegelt, selbst wenn ein Slot nach dem Leader-Login hinzugefügt/entfernt
-wurde. Nebeneffekt: hält `SlotProfile.Alias` für jeden gematchten Slot
-aktuell – läuft ständig, solange der Leader verbunden ist (bei jedem
-Chat/Item/Hint-Event), also ein bequemer, kostenloser Ort, um Aliase für
-jeden konfigurierten Slot zu lernen/aufzufrischen, nicht nur den des
-Leaders.
+`BuildSlotRoster` ordnet jedem eigenen Slot seine numerische
+Archipelago-Slot-Id im Raum zu. Dazu vergleicht die Methode
+`SlotProfile.SlotName` mit den Namen im Roster. Die Methode baut die
+Zuordnung bei jedem Aufruf neu und cacht sie nicht. Das kostet wenig, denn
+es ist ein linearer Scan über eine kleine Liste. So entspricht die Zuordnung
+immer der aktuellen `Slots`-Collection. Das gilt auch, wenn der Benutzer
+nach dem Login des Leaders einen Slot ergänzt oder entfernt hat.
+
+Nebeneffekt: Die Methode hält `SlotProfile.Alias` für jeden gefundenen Slot
+aktuell. Sie läuft ständig, solange der Leader verbunden ist (bei jedem
+Chat-, Item- und Hint-Event). Darum ist sie ein bequemer Ort ohne
+Zusatzkosten, um Aliase zu lernen und aufzufrischen. Das gilt für jeden
+eigenen Slot, nicht nur für den Leader.
 
 ### ResolvePrimarySlotId
 
-Welchem einzelnen konfigurierten Slot eine Log-/Chat-Nachricht "zugeordnet"
-wird, für den Slot-Filter im Event-Log. Eine Item-Send-Nachricht löst zum
-empfangenden Slot auf; alles andere zum ersten in der Nachricht erwähnten
-konfigurierten Slot, falls vorhanden. `null` (immer angezeigt, unabhängig
-vom Slot-Filter) für Nachrichten, die keinen konfigurierten Slot erwähnen –
-raumweites Geplänkel zwischen unbeteiligten Spielern.
+`ResolvePrimarySlotId` bestimmt, zu welchem einzelnen eigenen Slot eine
+Nachricht aus dem `MessageLog` gehört. Der Slot-Filter im Event-Log nutzt
+diese Zuordnung. Eine Nachricht zu einem Item-Send gehört zum empfangenden
+Slot. Jede andere Nachricht gehört zum ersten eigenen Slot, den die
+Nachricht nennt, wenn es einen gibt.
+
+Wenn eine Nachricht keinen eigenen Slot nennt, ist das Ergebnis `null`. Das
+Event-Log zeigt solche Nachrichten immer an, unabhängig vom Slot-Filter.
+Solche Nachrichten sind Geplänkel im Raum zwischen fremden Slots.
 
 ### Item-Backlog vs. Live bei OnItemReceived
 
-Eine Catch-up-Session behandelt grundsätzlich alles als Backlog – ihr ganzer
-Zweck ist ein einmaliger "gib mir deinen vollständigen aktuellen Stand"-
-Resync, keine fortlaufende Live-Verbindung. Für die Leader-Session gilt
-"live" erst, sobald `BacklogState.HasAnnouncedConnection` (nach der Backlog-Grace-Period)
-wahr ist; davor übernimmt die Chat-Log-Zeile "X sent Y to Z" schon die
-Anzeige, hier wird nur der persistierte Index weitergezählt.
+Eine Catch-up-Session behandelt immer alles als Backlog. Ihr einziger Zweck
+ist ein einmaliger Resync nach dem Muster "gib mir deinen vollständigen
+aktuellen Stand". Sie ist keine fortlaufende Live-Verbindung.
+
+Für die Session des Leaders gilt ein Item erst als "live", wenn
+`BacklogState.HasAnnouncedConnection` wahr ist. Das ist nach der
+Backlog-Grace-Period der Fall. Vorher zeigt schon die Chat-Zeile "X sent Y
+to Z" das Item an. `OnItemReceived` zählt dann nur den gespeicherten Index
+weiter.
 
 ### Reconnect-Scheduling nach unerwartetem Drop
 
-`ScheduleReconnectAsync` versucht, denselben Slot wieder als Leader zu
-verbinden, der gerade unerwartet abgebrochen ist – nicht zwingend
-`PreferredLeaderSlotId` (das entscheidet nur, wer beim Start verbindet).
-Backoff-Schema 5s/10s/30s (`ReconnectDelaysSeconds`), der letzte Wert
-wiederholt sich für weitere Versuche. Bricht ab, sobald `AutoConnect` false
-wird, der Slot schon wieder verbunden ist, oder das Token gecancelt wurde
-(manueller Switch/Disconnect via `CancelPendingReconnect`).
+`ScheduleReconnectAsync` versucht, genau den Slot wieder als Leader zu
+verbinden, dessen Verbindung gerade unerwartet abgebrochen ist. Das ist
+nicht unbedingt `PreferredLeaderSlotId`. Dieser Wert entscheidet nur,
+welcher Slot beim Start verbindet. Das Backoff-Schema ist 5s/10s/30s
+(`ReconnectDelaysSeconds`). Für weitere Versuche wiederholt sich der letzte
+Wert.
+
+Die Methode bricht ab, sobald einer dieser Fälle eintritt:
+
+- `AutoConnect` ist false.
+- Der Slot ist schon wieder verbunden.
+- `CancelPendingReconnect` hat das Token gecancelt (manueller Switch oder
+  Disconnect).

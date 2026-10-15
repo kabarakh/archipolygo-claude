@@ -380,6 +380,20 @@ way first - each was a real bug with a specific root cause.
 
 ## Conventions to follow when editing this codebase
 
+- **Project documents are written in "Deutsch-STE"**, a German variant of
+  ASD-STE100. This covers feature plans (including the feature-plan
+  archive), `Umsetzungsplan.md`, `Test-Umsetzungsplan.md`, this file,
+  skills under `.claude/skills/` and new documents of the same kind. It does
+  not cover `README.md`, UI text, code or code comments - those stay
+  English. Load the `deutsch-ste` skill (`.claude/skills/deutsch-ste/SKILL.md`)
+  before writing such a document; it holds the rules and the glossary. An
+  existing document that is not in Deutsch-STE yet (this file included) is
+  extended in its current language and style, never mixed - convert it as a
+  whole only when the developer asks for it. When a task reads or changes
+  such a not-yet-converted document, tell the developer right away (by file
+  name) and ask directly whether to convert it - before the change if the
+  task edits it, see the skill's "Hinweis bei nicht umgestellten
+  Dokumenten".
 - Let the code carry the meaning: prefer an expressive method/variable
   name or a small extracted helper over a comment explaining what a block
   does (as of 2026-10-13 `ConnectionManager`, `GroupViewModel` and
