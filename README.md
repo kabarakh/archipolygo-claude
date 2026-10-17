@@ -1,94 +1,139 @@
 # Archipolygo
 
-A desktop client for managing several simultaneous [Archipelago](https://archipelago.gg/) multiworld game connections at once. Each connection lives in its own tab with its own event log, hint list, chat, and connection controls, so you can keep an eye on (and play) multiple slots in parallel without juggling separate clients or windows.
+Archipolygo is a desktop client for [Archipelago](https://archipelago.gg/) multiworld games. It connects to many Archipelago rooms at the same time. Each connection has its own tab with an event log, a hint list, a chat and connection controls. Thus, you can monitor and play many slots in parallel. You do not need a separate client or window for each slot.
 
-## What is this for?
+## Purpose of the app
 
-Archipelago multiworld games are often played with several active connections per person (e.g. multiple slots, or alts), and the official client is built around a single connection at a time. Archipolygo wraps [Archipelago.MultiClient.Net](https://github.com/ArchipelagoMW/Archipelago.MultiClient.Net) in a tabbed Avalonia UI so each connection gets its own persistent profile, color-coded event log (your own slot, other connected slots, other players, traps, progression/useful/other items), hint tracking, chat, and an unread-events badge per tab.
+In Archipelago multiworld games, one person often has many active connections (for example, many slots or alternative accounts). The official client uses only one connection at a time. Archipolygo puts [Archipelago.MultiClient.Net](https://github.com/ArchipelagoMW/Archipelago.MultiClient.Net) into an Avalonia UI with tabs. Each connection has:
+
+- A profile that the app keeps after a restart.
+- An event log with a color for each type of entry: your slot, your other connected slots, other players, traps, and progression, useful and other items.
+- Hint tracking.
+- A chat.
+- A badge on its tab that shows the number of unread events.
 
 ## How connections work
 
-Each tab is a **server**: one Archipelago room, which can have several of your own **slots** configured on it at once (e.g. several characters/accounts you play in the same multiworld). A server only ever keeps *one* live connection open at a time, to whichever slot is currently the **leader** - not one connection per slot. Archipelago rooms don't take kindly to the same person opening many simultaneous connections, so this keeps the footprint minimal while still tracking every configured slot.
+Each tab is a **server**. A server is one Archipelago room. You can configure many of your own **slots** on one server (for example, many characters or accounts in the same multiworld).
 
-The other configured slots on that server aren't just sitting idle, though:
+A server keeps only *one* connection open at a time. This connection belongs to the slot that is the **leader** at that time. The app does not open one connection for each slot. Many connections from the same person at the same time can cause problems in an Archipelago room. With one connection for each server, the load stays small, and the app still tracks all configured slots.
 
-- **Passive updates.** The leader's connection sees the whole room's chat and item-send log, not just its own slot. Archipolygo mirrors any item send or hint that concerns one of your *other* configured slots straight into that slot's own item/hint history, live, without ever opening a second connection for it.
-- **Catch-up sync.** A slot that missed activity while the app itself was closed (or that was just added) gets a brief, one-shot connection: it logs in just long enough to pull whatever it missed (received items, hints), then disconnects again. This is what the "Catching up slots: N/M" progress banner at startup is doing - working through every configured slot across every server, one at a time, so a whole app restart doesn't hit any single Archipelago server with a burst of simultaneous logins.
-- **Switching leader.** Picking a different slot from the account dropdown ("Chat as") makes *that* slot the leader instead: it connects first, and only once that succeeds does the previous leader disconnect, so there's no visible gap. Whichever slot you leave as leader is remembered as that server's default, and reconnects automatically the next time you start the app - until you hit Disconnect, which turns auto-reconnect back off for that server until you connect it again by hand.
-- **Passwords aren't stored.** A room/slot password you type in is used for that connection only and never written to disk - only the fact that a server needs one is remembered. If a server that's needed a password before is about to auto-connect and doesn't have one yet, Archipolygo asks first, in one dialog covering every server that currently needs one rather than interrupting you server by server; leaving a field blank there just keeps that one server disconnected until you fill it in (from that same dialog on a later reconnect, or from Edit server...).
+The other configured slots on the server also stay current:
 
-## Using the app
+- **Passive updates.** The leader connection receives the chat and the item log of the full room, not only of its own slot. When an item send or a hint concerns one of your *other* configured slots, Archipolygo copies it into the item or hint history of that slot. This occurs live. The app does not open a second connection for that slot.
+- **Catch-up.** A slot can miss activity while the app is closed. A slot that you just added also has no history. For these slots, the app opens one short connection (a catch-up). The slot logs in, gets the data that it missed (received items and hints), and then disconnects. At startup, the banner "Catching up slots: N/M" shows the progress. The app does a catch-up for each configured slot on each server, one slot at a time. Thus, a restart of the app does not send many logins to one Archipelago server at the same time.
+- **Leader switch.** To make a different slot the leader, select it in the account dropdown ("Chat as"). The new slot connects first. The previous leader disconnects only after the new connection is successful. Thus, you see no gap.
+- **Automatic connection.** The app remembers the last leader as the default slot of that server. At the next start of the app, this slot connects automatically. When you click "Disconnect", the app stops the automatic connection for that server. The automatic connection starts again after you connect the server manually.
+- **Passwords.** The app does not save passwords. It uses a room or slot password only for the current connection and does not write it to the disk. The app only remembers that a server needs a password. If a server needed a password before and the app connects it automatically, the app asks for the password first. One dialog shows all servers that need a password at that time, so the app does not interrupt you for each server. If you leave a field empty, that server stays disconnected. You can enter the password later in the same dialog, or in "Edit server...".
 
-- **Add server...** creates a new tab for a new Archipelago room, with its first slot, and connects it right away.
-- **Add slot...** adds one or more further slots to the currently selected server in one go: pick players from the room's actual roster (each can optionally get its own password override, for rooms that use per-slot passwords), queue up as many as you like, then confirm once to add them all together.
-- **Edit server...** changes a server's name/host/port/password/auto-connect, and manages its already-configured slots in one place - pick which slot should be the default leader, or remove a slot entirely (both listed alphabetically, with the default leader always shown first). This is also where you set an optional **multiworld tracker** (a room id or tracker URL) for the combined progress bar below.
-- **Chat as** (the account dropdown on each server's message bar) switches which configured slot is currently live - see "How connections work" above.
-- **Reordering tabs** - drag a server's tab and drop it before or after another one (a thin blue line shows exactly where it'll land); the new order is remembered across restarts.
-- **Popping a tab into its own window** - right-click a server's tab (or its row in the Dashboard's Overview) and choose "Open in new window", e.g. for a second monitor; that window's own "Dock to main window" button brings it back, or just close the window. Detached windows aren't remembered across restarts - every server starts back in the main window each time. Detaching your only remaining tab switches the main window to the Dashboard automatically, since there'd otherwise be nothing left to show as a tab.
-- **Taskbar/title-bar flash** - a server's window (main or detached) flashes a few times when it's not focused and a hint arrives, a DeathLink comes in, you receive a progression item, or someone mentions one of your slot names in chat. It won't flash again for more events until you've looked at that window. Only live activity triggers it, never stuff caught up from while the app was closed.
-- **Unread count** - the same kinds of events are counted per server while you're not looking at it: on the tab's red badge, on the Dashboard, in the window title (e.g. "(3) Archipolygo"), and as a badge on the taskbar button (Windows) or Dock icon (macOS). A server's count resets once its tab is showing in the focused window (or its own detached window is focused); looking at the Dashboard doesn't reset it, so the Dashboard keeps showing where something happened. A noisy server can be muted entirely - right-click its tab or Dashboard row ("Mute notifications"), or use the checkbox in **Edit server**; a muted server shows a small crossed-out bell next to its name.
-- **Admin view** - for a server you host, tick **I'm the admin** in Add server/Edit server. An **Admin** button then appears next to Hints/Items in that server's tab.
-  - **Logging in:** the button asks for the server's admin password (`server_password`) and logs in with `!admin login`. The password is never saved. On archipelago.gg, the room owner first sets one in the room page's command field (`/option server_password ...`).
-  - **Player list:** every player in the room, with status, checks and how long ago they last checked a new location. Players are highlighted yellow from 3 days without a new check, red from 5, and "Exclude goaled slots" hides players who've finished. This needs the server's multiworld tracker set.
-  - **Admin lines in the event log** (command echoes, server answers, "Cheat console" sends) get their own **Admin** type and filter button, with the usual player/item colors.
-  - **Actions...** on a player: send them any item (with an amount) or send one of their locations as if they'd checked it. **Release...**/**Collect...** force a release or collect, after a confirmation.
-  - **Server settings...** changes release/collect/remaining modes, hint cost, points per check, and the room and admin passwords.
-  - **Staying logged in:** switching accounts via "Chat as" or reconnecting logs you out server-side. So does another client logging in as admin. While the app is running, Archipolygo logs you back in automatically.
-  - **Visibility:** everyone in the room sees admin commands in chat. The server hides passwords.
-- **Hint...** opens a dedicated picker window for that server's leader: browse the full item list for the game (not just items already seen) and send a `!hint`/`!hint_location` request without typing it by hand, with a checkbox to exclude items you've already received/hinted.
-- **Progress bar** in each tab's status row splits into up to four colored segments - your own done/remaining checks, and (once a multiworld tracker is configured) everyone else's done/remaining checks in the room. Hover it for the exact numbers; no tracker configured just shows your own two segments and a hint on how to add one.
-- **DeathLink** events from other players in the room (for games that support it) show up in the event log as "DeathLink: ...". Archipolygo only ever displays these - it never sends one on your behalf and never reacts to one (no pausing, no simulated death), so there's nothing to turn on or off.
-- The **Events**, **Hints**, and **Items** panels each have their own filters (by relevance/category, and by which configured slot something concerns) and their own slot-scoped view. Each filter row can be collapsed with the ▸ chevron on its left to a one-line summary of what's currently filtered, freeing up room for the list; that choice is remembered across restarts. Events and Hints both support selecting several lines at once and copying them all with Ctrl+C/Cmd+C, or "Copy from here" (floating button/right-click) for everything from the selected line onward.
-- **Disconnect** drops a server's current leader connection (and stops it auto-reconnecting until you reconnect manually); **Disconnect all** does that for every server at once.
-- **Settings...** has app-wide preferences (including "Compact layout", on by default, for denser lists and controls; and a "Notifications" section choosing, per kind of event, whether it counts toward the unread count and/or blinks the taskbar button, plus how blinking behaves) and, on Windows/Linux, a "Check for updates" button (the app also checks quietly on startup and shows a small dot on this button when one's available). macOS is manual-download-only for now.
+## How to use the app
+
+- **Add server...** creates a new tab for a new Archipelago room, with its first slot. The app connects the server immediately.
+- **Add slot...** adds one or more slots to the selected server in one step:
+  1. Select players from the roster of the room. If the room uses a password for each slot, you can give a player its own password.
+  2. Add as many players to the list as necessary.
+  3. Confirm one time to add all players on the list.
+- **Edit server...** changes the name, host, port, password and automatic connection of a server. It also manages the configured slots of the server:
+  - Select the slot that is the default leader.
+  - Remove a slot.
+
+  Both lists are in alphabetical order, with the default leader always first. In this dialog, you can also set a **multiworld tracker** (a room ID or a tracker URL). The combined progress bar uses the tracker (see "Progress bar" below).
+- **Chat as** is the account dropdown in the message bar of each server. It selects the configured slot that has the live connection. See "How connections work" above.
+- **Tab order.** Drag the tab of a server and drop it before or after a different tab. A thin blue line shows the new position. The app keeps the new order after a restart.
+- **Tab in its own window.** Right-click the tab of a server (or its row in the Dashboard "Overview"). Then select "Open in new window", for example for a second monitor. To move the tab back, click "Dock to main window" in that window, or close the window. The app does not remember these windows: at each start, all servers are in the main window. If you move your last tab into its own window, the main window has no tab left. Then the main window shows the Dashboard automatically.
+- **Taskbar and title bar flash.** A server window (the main window or a separate window) flashes a few times for these events when it does not have the focus:
+  - A hint arrives.
+  - A DeathLink arrives.
+  - You receive a progression item.
+  - A player writes one of your slot names in the chat.
+
+  After a flash, the window does not flash again until you look at it. Only live activity causes a flash. Data from a catch-up never causes a flash.
+- **Unread count.** The app counts the same events for each server while you do not look at it. The count shows in these places:
+  - On the red badge of the tab.
+  - On the Dashboard.
+  - In the window title (for example "(3) Archipolygo").
+  - As a badge on the taskbar button (Windows) or on the Dock icon (macOS).
+
+  The count of a server goes back to zero when its tab shows in the focused window, or when its own window has the focus. The Dashboard does not reset the count. Thus, the Dashboard continues to show where events occurred.
+
+  You can mute a server that has too many events. Right-click its tab or its Dashboard row and select "Mute notifications". Or use the checkbox in **Edit server**. A muted server shows a small crossed-out bell next to its name.
+- **Admin view.** For a server that you host, select **I'm the admin** in "Add server" or "Edit server". Then an **Admin** button shows next to "Hints" and "Items" in the tab of that server.
+  - **Login:** The button asks for the admin password of the server (`server_password`). Then it logs in with `!admin login`. The app does not save the password. On archipelago.gg, the room owner must first set a password in the command field of the room page (`/option server_password ...`).
+  - **Player list:** The list shows all players in the room with their status, their checks and the time since their last new check. A player becomes yellow after 3 days without a new check, and red after 5 days. "Exclude goaled slots" hides players that are finished. The player list needs a multiworld tracker for the server.
+  - **Admin lines in the event log:** Command echoes, server answers and "Cheat console" sends have their own **Admin** type and filter button. They use the usual colors for players and items.
+  - **Actions...** on a player: Send any item (with an amount) to the player. Or send one of the player's locations, as if the player checked it. **Release...** and **Collect...** force a release or a collect after you confirm.
+  - **Server settings...** changes the release, collect and remaining modes, the hint cost, the points for each check, and the room and admin passwords.
+  - **Automatic login:** The server logs you out when you switch accounts with "Chat as" or when you reconnect. The server also logs you out when a different client logs in as admin. While the app runs, Archipolygo logs you in again automatically.
+  - **Visibility:** All players in the room see admin commands in the chat. The server hides passwords.
+- **Hint...** opens a picker window for the leader of that server. You can browse the full item list of the game, not only the items that you saw before. Then you can send a `!hint` or `!hint_location` request without typing it. A checkbox hides items that you already received or hinted.
+- **Progress bar.** The progress bar is in the status row of each tab. It has up to four colored segments:
+  - Your checks that are done.
+  - Your checks that remain.
+  - The checks of all other players in the room that are done (only with a multiworld tracker).
+  - The checks of all other players in the room that remain (only with a multiworld tracker).
+
+  Move the mouse over the bar to see the exact numbers. Without a tracker, the bar shows only your two segments and a note about how to add a tracker.
+- **DeathLink.** If a game supports DeathLink, DeathLink events from other players show in the event log as "DeathLink: ...". Archipolygo only shows these events. It never sends a DeathLink for you and never reacts to one (no pause, no simulated death). Thus, there is no setting for DeathLink.
+- **Panel filters.** The **Events**, **Hints** and **Items** panels each have their own filters and their own view for each slot. You can filter by relevance or category, and by the configured slot that an entry concerns. To collapse a filter row, click the ▸ chevron on its left. The row then shows the active filters in one line, and the list gets more space. The app keeps this choice after a restart.
+- **Copy lines.** In Events and Hints, you can select many lines and copy them with Ctrl+C or Cmd+C. "Copy from here" (floating button or right-click menu) copies all lines from the selected line to the end.
+- **Disconnect** closes the leader connection of a server. The server then does not connect automatically until you connect it manually. **Disconnect all** does this for all servers.
+- **Settings...** contains the preferences for the full app:
+  - "Compact layout" makes lists and controls smaller. It is on by default.
+  - The "Notifications" section sets, for each type of event, if it increases the unread count and if it flashes the taskbar button. It also sets how the flash behaves.
+  - On Windows and Linux, the "Check for updates" button looks for a new version. The app also does this check at startup, without a message. When an update is available, a small dot shows on this button. On macOS, you must download updates manually.
 
 ## Dashboard
 
-The **Dashboard** button in the toolbar (the app opens on it by default) switches the whole window from the per-server tabs to an all-servers-at-a-glance view; the same button then reads "Tab View" to switch back. It's a view swap, not another tab - your existing tabs and their live connections are untouched underneath it.
+Click **Dashboard** in the toolbar to change the full window from the server tabs to a view of all servers. The app opens on the Dashboard by default. On the Dashboard, the same button shows "Tab View" and changes the window back. The Dashboard is a different view, not a tab. Your tabs and their live connections continue to operate below it.
 
-- **Overview** (left, default) lists every configured server with its connection status, unread-events/open-hints badges, and the same combined progress bar as its tab - each row also has small Connect/Disconnect, Add slot, Edit server, and Remove server icons, so common per-server actions don't need a trip to that server's own tab. Clicking a row (outside those icons) jumps straight to that server's tab. The small grip icon on the left of each row reorders servers the same way dragging a tab does - the rest of the row stays click-to-navigate.
-- **Events** (left, toggle next to Overview) is a shared, server-spanning event log - every server's activity mixed together by default, with a Server/Slot filter pair to narrow it down. Below the log, a separate "Send as" Server/Slot picker (deliberately independent from the filter above) lets you pick a server and slot to send a chat message through, without leaving the Dashboard.
-- **Hints** (right, always visible regardless of which left panel is active) is the same idea for hints across every server: only ever shows open (unfound) hints, with its own Server/Slot/item-category filters, independent of each tab's own Hints panel filters.
+- **Overview** (left, default) shows all configured servers. Each row shows the connection status, the badges for unread events and open hints, and the same combined progress bar as the tab. Each row also has small icons for common actions (Connect/Disconnect, Add slot, Edit server, Remove server), so you do not have to go to the tab of the server. Click a row (not an icon) to go to the tab of that server. To change the order of the servers, drag the small grip icon on the left of a row. This works the same as dragging a tab.
+- **Events** (left, toggle next to "Overview") shows one event log for all servers. By default, it shows the activity of all servers together. Use the Server and Slot filters to show less. Below the log, a separate "Send as" Server/Slot picker selects the server and the slot for a chat message. Thus, you can send chat messages from the Dashboard. This picker is intentionally independent from the filters above it.
+- **Hints** (right, always visible) shows the open hints (hints that are not found yet) of all servers. It has its own Server, Slot and item category filters. These filters are independent from the Hints filters in each tab.
 
-## A note on how this was built
+## How this project was built
 
-This entire codebase is fully AI-generated — no line of code was manually written or edited by hand. The project was built as an exercise to learn how to work with Claude effectively, and to end up with a real, inspectable C# codebase to compare against while independently rebuilding the same app from scratch, by hand, without any AI assistance.
+An AI wrote all of the code in this project. No person wrote or changed a line of code manually. The project is an exercise with two goals:
 
-### How it came together
+- To learn how to work effectively with Claude.
+- To have a real C# codebase for comparison. The author rebuilds the same app manually, from the beginning, without AI help.
 
-1. The app idea was given to ChatGPT, and the intended technologies and concept were fleshed out together with it.
-2. ChatGPT was then used to turn that idea into a concrete implementation plan.
-3. The implementation plan was refined with Claude and broken down into phases.
-4. Claude implemented the phases step by step, with each phase tested and any resulting bugs fixed before moving on.
+### Steps
 
-## What's next
+1. The author gave the app idea to ChatGPT. Together with ChatGPT, the author defined the concept and the technologies.
+2. ChatGPT changed this idea into a concrete implementation plan.
+3. Claude improved the implementation plan and divided it into phases.
+4. Claude implemented the phases one at a time. Each phase had tests and bug fixes before the next phase started.
 
-`Feature-Plaene/` holds one file per not-yet-built feature idea (each
-tagged 🗨️ **Discuss** for a rough outline still needing a design
-discussion, or 📝 for an actual ready-to-implement plan); once a plan is
-implemented, its file moves to `Feature-Plaene/Archiv/` with a "Status"
-section on how the build differed from the plan. Highlights of what's
-still just an idea, not built:
+## Next steps
 
-- **Better item/trap icons** - game-specific icons instead of just color and text (see `Item-Trap-Icons.md` in that directory).
-- **Tray icon / log export** - visibility options for running the app in the background, deliberately dropped early on and worth revisiting (see `Tray-Icon.md`, `Log-Export.md`).
-- **Config management** - no backup/restore flow for `groups.json` yet, and no portable mode for the zip download that keeps its data next to the executable (see `Config-Verwaltung.md`).
+The feature-plan directory of this repository contains one file for each feature idea that is not built yet. Each file has a status tag:
+
+- 🗨️ **Discuss**: A rough outline. It needs a design discussion before implementation.
+- 📝: A plan that is ready for implementation.
+
+After the implementation of a plan, its file moves to the feature-plan archive. The file then gets a "Status" section that tells how the result is different from the plan.
+
+Some ideas that are not built yet:
+
+- **Better item and trap icons.** Icons for each game. At this time, the app uses only color and text (see `Item-Trap-Icons.md`).
+- **Tray icon and log export.** Options for when the app runs in the background. The project removed these ideas early, but they can be useful (see `Tray-Icon.md`, `Log-Export.md`).
+- **Configuration management.** There is no backup and restore for `groups.json` yet. There is also no portable mode for the zip download that keeps its data next to the executable (see `Config-Verwaltung.md`).
 - **Keyboard shortcuts** (see `Tastenkuerzel.md`).
 
-## Tech stack
+## Technology
 
-- [.NET 10](https://dotnet.microsoft.com/) / C#
-- [Avalonia UI](https://avaloniaui.net/) 12.0.4 (cross-platform desktop UI), with the Fluent theme
-- [CommunityToolkit.Mvvm](https://learn.microsoft.com/dotnet/communitytoolkit/mvvm/) 8.4.1 for MVVM (observable properties, relay commands)
-- [Archipelago.MultiClient.Net](https://github.com/ArchipelagoMW/Archipelago.MultiClient.Net) 6.7.1 for the actual Archipelago protocol/connection handling
-- [Microsoft.Extensions.DependencyInjection](https://learn.microsoft.com/dotnet/core/extensions/dependency-injection) 10.0.0 for explicit, container-managed service singletons (wired up in `App.axaml.cs`)
+- [.NET 10](https://dotnet.microsoft.com/) and C#.
+- [Avalonia UI](https://avaloniaui.net/) 12.0.4 (desktop UI for many platforms) with the Fluent theme.
+- [CommunityToolkit.Mvvm](https://learn.microsoft.com/dotnet/communitytoolkit/mvvm/) 8.4.1 for MVVM (observable properties, relay commands).
+- [Archipelago.MultiClient.Net](https://github.com/ArchipelagoMW/Archipelago.MultiClient.Net) 6.7.1 for the Archipelago protocol and the connections.
+- [Microsoft.Extensions.DependencyInjection](https://learn.microsoft.com/dotnet/core/extensions/dependency-injection) 10.0.0 for service singletons in a container (configured in `App.axaml.cs`).
 
-## Building the app
+## How to build the app
 
 ### Prerequisites
 
-- [.NET 10 SDK](https://dotnet.microsoft.com/download) installed
-- Windows, macOS, or Linux (Avalonia is cross-platform)
+- The [.NET 10 SDK](https://dotnet.microsoft.com/download).
+- Windows, macOS or Linux (Avalonia supports all three).
 
 ### Build and run
 
@@ -99,7 +144,7 @@ dotnet build
 dotnet run --project AvaloniaApplication1/AvaloniaApplication1.csproj
 ```
 
-Alternatively, open `AvaloniaApplication1.sln` in an IDE with .NET support (e.g. JetBrains Rider or Visual Studio) and run/debug the `AvaloniaApplication1` project from there.
+You can also open `AvaloniaApplication1.sln` in an IDE with .NET support (for example JetBrains Rider or Visual Studio). Then run or debug the `AvaloniaApplication1` project there.
 
 ### Publish a standalone build
 
@@ -107,4 +152,4 @@ Alternatively, open `AvaloniaApplication1.sln` in an IDE with .NET support (e.g.
 dotnet publish AvaloniaApplication1/AvaloniaApplication1.csproj -c Release -r <RID> --self-contained
 ```
 
-Replace `<RID>` with your target runtime identifier (e.g. `win-x64`, `osx-arm64`, `linux-x64`).
+Replace `<RID>` with the runtime identifier of your target (for example `win-x64`, `osx-arm64` or `linux-x64`).
