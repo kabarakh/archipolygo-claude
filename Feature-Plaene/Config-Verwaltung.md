@@ -1,105 +1,301 @@
-# Feature-Idee (grobe Skizze): Config-Verwaltung (Export/Import + Portable-Modus)
+# Umsetzungsplan: Config-Verwaltung (Export/Import + Portable-Modus)
 
-**Status: 🗨️ Diskutieren** - Diese Datei ist kein Umsetzungsplan wie
-`Tab-Reihenfolge.md`. Sie ist eine grobe erste Skizze. Die Idee kommt aus der
-Datei `archipolygo_feature_ideas.md`, die jetzt im Archiv liegt ("Config
-export/import - back up and restore the server/slot list (`groups.json`) when
-moving to another machine"). Damals hieß diese Datei `Config-Export-Import.md`.
-Am 2026-10-02 kam ein Portable-Modus für die Zip-Version dazu, und die Datei
-bekam ihren neuen Namen. Der Grund: Beide Teile lösen dasselbe Problem. Der
-Benutzer sagt: "Meine Konfiguration liegt an einem Ort, den ich nicht sehe,
-und sie kommt nicht mit auf einen anderen Rechner." Darum plane beide Teile
-zusammen, nicht als zwei getrennte Features.
+**Status: 📝 Bereit zur Umsetzung** - Der Entwickler hat am 2026-10-20 alle
+offenen Fragen der früheren Skizze entschieden. Die Entscheidungen stehen
+unten. Die Idee kommt aus der Datei `archipolygo_feature_ideas.md`, die jetzt
+im Archiv liegt ("Config export/import - back up and restore the server/slot
+list (`groups.json`) when moving to another machine"). Früher hieß diese
+Datei `Config-Export-Import.md`. Am 2026-10-02 kam der Portable-Modus dazu.
+Beide Teile lösen dasselbe Problem. Der Benutzer sagt: "Meine Konfiguration
+liegt an einem Ort, den ich nicht sehe, und sie kommt nicht mit auf einen
+anderen Rechner." Darum plane beide Teile zusammen.
 
 ## Ausgangslage
 
-`PersistenceService` schreibt die Liste der Gruppen und Slots schon als
-`groups.json` unter `%AppData%/Archipolygo`. Der Benutzer kann diese Datei
-also heute schon von Hand auf einen anderen Rechner kopieren. Aber die App
-führt ihn dabei nicht. Er muss die Datei selbst finden, und die App hat
-keinen Dialog für Export oder Import. Neben `groups.json` liegen
-`sync-state/<slotId>.json`, `settings.json` und das Diagnose-Log.
+`PersistenceService` schreibt diese Daten unter `%AppData%/Archipolygo`:
 
-Das Datenverzeichnis ist schon austauschbar: `PersistenceService` hat einen internen Konstruktor mit dem Verzeichnis als Parameter. Bisher
-nutzen nur Tests diesen Konstruktor. So fasst ein Round-Trip-Test nie die
-echten Daten des Benutzers an. Ein anderer Speicherort ist also nur eine
-Entscheidung beim Start, kein Umbau.
+- `groups.json` (Gruppen und eigene Slots)
+- `sync-state/<slotId>.json`
+- `settings.json`
+- `datapackage-cache/<groupId>/`
+
+`DiagnosticLogger` berechnet denselben AppData-Pfad noch einmal selbst. Die
+App führt den Benutzer heute nicht beim Umzug. Er muss die Dateien selbst
+finden und von Hand kopieren.
+
+Das Datenverzeichnis ist schon austauschbar. `PersistenceService` hat einen
+internen Konstruktor mit dem Verzeichnis als Parameter. Bisher nutzen nur
+Tests diesen Konstruktor.
 
 Seit [Passwort-Speicherung](Archiv/Passwort-Speicherung.md) (umgesetzt
 2026-09-15) enthält `groups.json` keine Passwörter mehr. Die Datei hat nur
-noch ein `RequiresPassword`-Flag pro Slot. Darum sind ein Export und ein
-Datenordner auf einem USB-Stick unbedenklich. Eine eigene Verschlüsselung ist
-nicht nötig.
+ein `RequiresPassword`-Flag pro Slot. Darum ist eine Export-Datei
+unbedenklich. Eine eigene Verschlüsselung ist nicht nötig.
 
 ## Teil 1: Export/Import
 
-### Offene Fragen
+### Einstieg
 
-- Was ist "Export"? Variante 1: Die App kopiert oder zeigt den Pfad von
-  `groups.json`. Dann findet und sichert der Benutzer die Datei selbst.
-  Variante 2: Die App zeigt einen echten Save-As-Dialog. Ein einfacher
-  Button "Open data folder" in den Settings ist ein günstiger erster Schritt.
-  Er funktioniert in beiden Modi (normal und portable, siehe Teil 2). Allein
-  deckt er schon einen Teil des Bedarfs ab.
-- Import: Was passiert bei einem Konflikt mit einer konfigurierten Gruppe
-  (gleicher Host und Port, aber andere Slots)? Möglichkeiten: Die App ersetzt
-  die Gruppe ganz, oder sie führt beide zusammen. Oder der Benutzer
-  entscheidet bei jedem Konflikt.
-- Versionierung: Das Format von `groups.json` kann sich in Zukunft ändern.
-  Dann muss ein importierter älterer Export durch dieselbe Migration laufen.
-  `PersistenceService` hat schon eine Migration von einem älteren
-  Flat-Profile-Format (`MigrateLegacyProfilesIfNeeded`).
-- Gehört `sync-state/` in einen Export? Ohne `sync-state/` holt der neue
-  Rechner beim ersten Connect den ganzen Verlauf mit Catch-up neu. Das
-  funktioniert. Aber die App zeigt dann vielleicht alles noch einmal als
-  "neu".
+Der Settings-Dialog (`Views/SettingsWindow.axaml`) bekommt drei Buttons:
 
-## Teil 2: Portable-Modus (nur Zip-Version)
+- "Export servers..."
+- "Import servers..."
+- "Open data folder"
 
-Die Zip-Version ist schon "auspacken und starten". Trotzdem schreibt sie ihre
-Daten nach `%AppData%/Archipolygo`. Ein Portable-Modus legt die Daten neben
-die ausführbare Datei. Dann heißt Umziehen nur noch "Ordner kopieren". Das
-löst den Hauptfall von Teil 1 (Rechnerwechsel) zum großen Teil. Aber es
-ersetzt Teil 1 nicht. Benutzer des Installers brauchen weiter Export und
-Import. Auch für das Zusammenführen mit konfigurierten Gruppen ist Export und
-Import nötig.
+"Open data folder" öffnet den echten Datenordner. Der Button funktioniert im
+normalen Modus und im Portable-Modus.
 
-### Grobe Idee
+### Export
 
-- **Opt-in mit einem Marker neben der EXE** (zum Beispiel ein leerer Ordner
-  `portable` oder eine Datei `portable.txt`). Die App schaltet den Modus
-  nicht automatisch für jede Zip-Version ein. Der Grund: Vorhandene Benutzer
-  der Zip-Version haben ihre Daten schon in AppData. Bei einem
-  automatischen Wechsel ab Version X "verlieren" sie ohne Hinweis alle
-  Gruppen. Wenn der
-  Marker da ist, liegen alle Daten darunter (`groups.json`, `sync-state/`,
-  `settings.json`, Diagnose-Log). Wenn der Marker fehlt, bleibt alles wie
-  bisher.
-- Optional: Der erste Start im Portable-Modus kann anbieten, die Daten aus
-  AppData zu übernehmen. Das gilt, wenn der portable Datenordner leer ist und
-  in AppData Daten liegen. Die App kopiert die Daten, sie verschiebt sie
-  nicht.
+1. Der Benutzer klickt "Export servers...".
+2. Ein Dialog listet alle Gruppen mit einer Checkbox pro Gruppe. Alle Gruppen
+   sind am Anfang angewählt.
+3. Der Dialog hat zusätzlich die Checkbox "Include app settings". Sie ist am
+   Anfang abgewählt.
+4. Der Benutzer klickt "Export...". Ein Save-As-Dialog fragt nach dem
+   Dateinamen.
+5. Die App schreibt eine einzelne JSON-Datei.
 
-### Offene Fragen
+Die Export-Datei enthält diese Teile:
 
-- **Velopack-Installationen ausnehmen.** `vpk pack` erzeugt zusätzlich ein
-  eigenes "portable .zip" (siehe `release.yml`). Velopack tauscht bei jedem
-  Update den App-Ordner aus. Daten in diesem Ordner sind also nach dem
-  nächsten Update weg. Gilt der Portable-Modus also nur, wenn
-  `IsManagedInstall` false ist? Oder behandelt die App das Portable-Zip von
-  Velopack so, dass die Daten eine Ebene über dem ausgetauschten Ordner
-  liegen? Lies vorher in der Velopack-Doku für die referenzierte Version
-  nach, wie das Layout genau aussieht. Rate nicht.
-- **Schreibrechte.** Wenn die entpackte Zip-Version zum Beispiel unter
-  `C:\Program Files` liegt, kann die App in diesen Ordner nicht schreiben.
-  Dann muss die App einen klaren Hinweis zeigen. Sie darf nicht still auf
-  AppData ausweichen. Ein stilles Ausweichen erzeugt genau die Verwirrung,
-  die der Modus beheben will.
-- **macOS.** Gatekeeper und Quarantäne bei heruntergeladenen Dateien können
-  beeinflussen, wo die App wirklich läuft. Sie können auch beeinflussen, ob
-  die App neben sich schreiben darf. Teste das auf echter Mac-Hardware.
-  Nimm es nicht einfach an.
-- **Sichtbarkeit.** Muss die App irgendwo zeigen, dass sie im Portable-Modus
-  läuft? Ein möglicher Ort ist der Settings-Dialog, neben dem vorhandenen
-  Hinweis zur unverwalteten Installation. Spätestens der Button "Open data
-  folder" aus Teil 1 zeigt den echten Pfad sowieso.
+- Ein Feld für die Formatversion.
+- Die angewählten Gruppen im selben Format wie `groups.json`, mit allen
+  Feldern, auch `AutoConnect`.
+- `settings.json`, nur wenn "Include app settings" angewählt ist.
+
+Die Export-Datei enthält nicht `sync-state/`, `datapackage-cache/` und das
+Diagnose-Log. Ohne `sync-state/` holt Catch-up den Verlauf auf dem neuen
+Rechner neu. Der Entwickler akzeptiert, dass die App diesen Verlauf
+vielleicht noch einmal als "neu" zeigt.
+
+### Import
+
+1. Der Benutzer klickt "Import servers...". Ein Open-Dialog fragt nach der
+   Datei.
+2. Die App liest die Datei. Für die Gruppen nutzt sie denselben Ladeweg wie
+   `LoadGroups()`, mit derselben Migration.
+3. Ein Dialog listet alle Gruppen aus der Datei mit einer Checkbox pro
+   Gruppe. Alle Gruppen sind am Anfang angewählt.
+4. Der Dialog markiert jede Gruppe, die es lokal schon gibt (gleicher Host
+   und Port). Die Markierung sagt: Der Import überschreibt diese Gruppe.
+5. Wenn die Datei Settings enthält, zeigt der Dialog die Checkbox "Import
+   app settings".
+6. Der Benutzer klickt "Import". Die App übernimmt nur die angewählten
+   Gruppen.
+
+**Vergleiche Host und Slot-Namen immer mit
+`StringComparison.OrdinalIgnoreCase`.** Das ist die Regel im ganzen Projekt.
+
+### Überschreiben einer vorhandenen Gruppe
+
+Wenn eine importierte Gruppe eine lokale Gruppe überschreibt, gelten diese
+Regeln:
+
+- Die Gruppe behält ihre lokale `Id`. Darum bleibt ihr `datapackage-cache/`
+  gültig.
+- Die App ordnet Slots über den Slot-Namen zu. Ein Slot mit gleichem Namen
+  behält seine lokale `Id`. Darum bleibt sein lokaler sync-state gültig. Alle
+  anderen Daten des Slots kommen aus dem Import.
+- Ein Slot, den es nur lokal gibt, fällt weg. Die App löscht dann auch seine
+  Datei in `sync-state/`.
+- Ein Slot, den es nur im Import gibt, kommt mit seiner `Id` aus der Datei
+  dazu.
+- `PreferredLeaderSlotId` zeigt nach dem Zuordnen auf die lokale `Id` des
+  passenden Slots.
+
+**Wenn die lokale Gruppe gerade verbunden ist, trennt die App sie vor dem
+Überschreiben.** Danach ersetzt die App die Konfiguration. Dann verbindet die
+App die Gruppe mit der neuen Konfiguration wieder. Nutze dafür
+`DisconnectGroupAsync` und `SwitchLeaderAsync` aus `ConnectionManager`. Lege
+keinen eigenen Verbindungsweg an.
+
+### AutoConnect nach dem Import
+
+Der Import übernimmt `AutoConnect` aus der Datei. Wenn `AutoConnect` an ist,
+verbindet die App die Gruppe sofort nach dem Import. Mehrere Gruppen
+verbindet die App nacheinander, mit demselben `StartupGroupSpacing` wie beim
+App-Start (`MainWindowViewModel.InitializeGroupsAsync`). So bekommt der
+Server keinen Schwall von Logins. Eine Gruppe mit `AutoConnect` aus bleibt
+offline.
+
+### Settings importieren
+
+Wenn der Benutzer "Import app settings" anwählt, überschreiben die Settings
+aus der Datei die lokalen Settings. Die App wendet sie sofort an, zum
+Beispiel das Theme.
+
+## Teil 2: Portable-Modus
+
+Der Portable-Modus legt alle Daten neben die ausführbare Datei. Dann heißt
+Umziehen nur noch "Ordner kopieren". Benutzer des Installers brauchen
+weiter Export und Import aus Teil 1.
+
+### Wann der Modus gilt
+
+**Der Portable-Modus gilt nur, wenn alle drei Bedingungen erfüllt sind:**
+
+- Neben der ausführbaren Datei liegt eine Datei `portable.txt`. Ihr Inhalt
+  ist egal.
+- `IUpdateService.IsManagedInstall` ist false. Velopack tauscht bei jedem
+  Update den App-Ordner aus, und die Daten wären danach weg.
+- Das Betriebssystem ist Windows oder Linux.
+
+Wenn eine Bedingung fehlt, nutzt die App AppData wie bisher. Die App schaltet
+den Modus nie automatisch ein. Sonst "verlieren" vorhandene Benutzer der
+Zip-Version ohne Hinweis ihre Gruppen.
+
+macOS ist in der ersten Version ausgenommen. Gatekeeper und App Translocation
+können den Ort "neben der App" unzuverlässig machen. Prüfe das später auf
+echter Mac-Hardware, wie beim Auto-Update.
+
+Wenn eine Velopack-Installation eine `portable.txt` hat, ignoriert die App
+den Marker. Der Settings-Dialog zeigt dann einen Hinweis.
+
+### Datenordner
+
+Im Portable-Modus liegen alle Daten im Ordner `data` neben der ausführbaren
+Datei: `groups.json`, `sync-state/`, `settings.json`, `datapackage-cache/`
+und das Diagnose-Log.
+
+**Berechne den Datenordner an genau einer Stelle beim Start.**
+`PersistenceService` und `DiagnosticLogger` bekommen den Pfad von dort. Heute
+berechnen beide den AppData-Pfad selbst. Ein zweiter Ort für die Berechnung
+erzeugt genau die Verwirrung, die der Modus beheben muss.
+
+### Fehlende Schreibrechte
+
+**Die App darf nie still auf AppData ausweichen.** Wenn der Marker gilt und
+die App nicht in den Ordner `data` schreiben kann, zeigt sie einen Dialog.
+Der Dialog nennt den Pfad und sagt, dass der Ordner nicht beschreibbar ist.
+Danach beendet sich die App. Ein typischer Fall ist eine entpackte
+Zip-Version unter `C:\Program Files`.
+
+### Erster Start
+
+Wenn der Ordner `data` leer ist und in AppData Daten liegen, zeigt die App
+beim Start einen Dialog mit drei Möglichkeiten:
+
+- "Copy data from AppData": Die App kopiert die Daten. AppData bleibt
+  unverändert.
+- "Move data from AppData": Die App kopiert die Daten und löscht sie danach
+  in AppData.
+- "Start empty": Die App ändert nichts.
+
+Bei "Move data from AppData" löscht die App die Daten in AppData erst nach
+einer erfolgreichen Kopie. Wenn die Kopie fehlschlägt, bleibt AppData
+unverändert.
+
+### Sichtbarkeit
+
+Der Settings-Dialog zeigt die Zeile "Portable mode: data stored in <path>".
+Die Zeile steht neben dem Hinweis zur unverwalteten Installation. Der Button
+"Open data folder" steht direkt daneben. Der Fenstertitel ändert sich nicht.
+
+## Arbeitspakete
+
+**Zwei Pakete in derselben Welle dürfen nicht dieselbe Datei ändern.** Darum
+gehört jede Datei unten zu genau einem Paket. Die Pakete einer Welle können
+parallel laufen. Eine Welle beginnt erst, wenn die vorherige Welle fertig
+ist. Jedes Paket bringt seine eigenen Tests aus dem Abschnitt "Tests" mit.
+
+### Welle 1
+
+**AP1: Datenordner berechnen.**
+
+- Ergänze eine neue Klasse, zum Beispiel `Services/DataDirectoryResolver.cs`.
+  Sie berechnet den Datenordner aus Marker, `IsManagedInstall` und
+  Betriebssystem.
+- Ändere in `App.axaml.cs` die Registrierung von `PersistenceService` und
+  `DiagnosticLogger`. Beide bekommen den Pfad über ihren internen
+  Konstruktor.
+- Ändere `PersistenceService.cs` und `DiagnosticLogger.cs` nicht. AP2 ändert
+  `PersistenceService.cs`.
+- Fertig: Tests für jede Kombination der drei Bedingungen. Ohne
+  `portable.txt` verhält sich die App wie bisher.
+
+**AP2: Export-Format und Persistenz.**
+
+- Ergänze eine neue Klasse, zum Beispiel `Services/ConfigExportService.cs`.
+  Sie schreibt und liest die Export-Datei mit Formatversion.
+- Ziehe in `PersistenceService.cs` das Laden der Gruppen aus einem JSON-Text
+  in eine eigene Methode. `LoadGroups()` und der Import nutzen dieselbe
+  Methode und dieselbe Migration.
+- Ergänze in `IPersistenceService` und `PersistenceService` eine Methode, die
+  die sync-state-Datei eines Slots löscht.
+- Fertig: Round-Trip-Test und Migrationstest.
+
+**AP3: Zuordnung beim Import.**
+
+- Ergänze eine reine Logik-Klasse ohne UI und ohne Verbindung, zum Beispiel
+  `Services/ConfigImportMerger.cs`.
+- Eingabe: lokale Gruppen und importierte Gruppen. Ausgabe: neue Gruppen,
+  überschriebene Gruppen und die Slot-`Id`s, deren sync-state wegfällt.
+- Die Klasse setzt alle Regeln aus "Überschreiben einer vorhandenen Gruppe"
+  um, auch für `PreferredLeaderSlotId`.
+- Fertig: Plain-`[Fact]`-Tests für alle Regeln.
+
+### Welle 2
+
+**AP4: Export-Dialog** (braucht AP2).
+
+- Ergänze ein neues View-Model und eine neue View für den Export-Dialog.
+- Fertig: `[AvaloniaFact]`-Test für Liste, Checkboxen und
+  "Include app settings".
+
+**AP5: Import-Dialog und Übernahme** (braucht AP2 und AP3).
+
+- Ergänze ein neues View-Model und eine neue View für den Import-Dialog.
+- Ergänze in `MainWindowViewModel.Servers.cs` die Übernahme: trennen,
+  ersetzen, wieder verbinden, sync-state löschen, Settings anwenden.
+- Verbinde Gruppen mit `AutoConnect` nacheinander mit `StartupGroupSpacing`.
+- Fertig: `[AvaloniaFact]`-Tests für den Dialog und für eine verbundene
+  Gruppe mit `FakeSessionFactory`.
+
+**AP6: Portable-Start** (braucht AP1).
+
+- Ergänze in `App.axaml.cs` die Prüfung der Schreibrechte mit Fehlerdialog
+  und Beenden.
+- Ergänze den Dialog für den ersten Start (kopieren, verschieben, leer
+  starten).
+- Fertig: Tests für Kopieren und Verschieben mit Temp-Verzeichnissen. Bei
+  einer fehlgeschlagenen Kopie bleibt AppData unverändert.
+
+### Welle 3
+
+**AP7: Settings-Dialog** (braucht AP1, AP4 und AP5).
+
+- Ergänze in `SettingsWindow.axaml` und `SettingsViewModel.cs` die Buttons
+  "Export servers...", "Import servers..." und "Open data folder".
+- Ergänze die Zeile für den Portable-Modus und den Hinweis für eine
+  Velopack-Installation mit `portable.txt`.
+- Fertig: `[AvaloniaFact]`-Test für die Sichtbarkeit der Zeile und der
+  Buttons.
+
+### Welle 4
+
+**AP8: Dokumentation und Abschluss** (braucht alle Pakete).
+
+- Ergänze `README.md` (englisch) um Export, Import und Portable-Modus.
+- Ergänze `CLAUDE.md` und `Umsetzungsplan.md`, wenn nötig.
+- Lege `portable.txt` nicht in das Release-Zip. Der Benutzer legt die Datei
+  selbst an.
+- Führe `dotnet test AvaloniaApplication1.sln` aus.
+- Verschiebe diese Datei ins Feature-Plan-Archiv mit dem Status
+  "✅ Umgesetzt".
+
+## Tests
+
+- Plain `[Fact]`: Round-Trip von Export und Import über den internen
+  Konstruktor von `PersistenceService` mit einem Temp-Verzeichnis.
+- Plain `[Fact]`: Zuordnung beim Überschreiben (gleicher Slot-Name behält
+  lokale `Id`, Slot nur lokal fällt weg, `PreferredLeaderSlotId` zeigt auf
+  die lokale `Id`).
+- Plain `[Fact]`: Import einer Datei mit älterem Format läuft durch die
+  Migration.
+- Plain `[Fact]`: Die Berechnung des Datenordners für jede Kombination aus
+  Marker, `IsManagedInstall` und Betriebssystem.
+- `[AvaloniaFact]` mit `FakeSessionFactory`: Import überschreibt eine
+  verbundene Gruppe. Die App trennt sie und verbindet sie wieder.
+- `[AvaloniaFact]` mit den echten Views: Export- und Import-Dialog zeigen
+  die Gruppen, die Markierung für vorhandene Gruppen und die
+  Settings-Checkbox.
