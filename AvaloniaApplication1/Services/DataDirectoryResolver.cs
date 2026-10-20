@@ -24,13 +24,17 @@ public static class DataDirectoryResolver
     public static DataDirectory ResolveForCurrentProcess(bool isManagedInstall) =>
         Resolve(
             AppContext.BaseDirectory,
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            CurrentUserAppDataRoot,
             isManagedInstall,
             OperatingSystem.IsMacOS());
 
+    private static string CurrentUserAppDataRoot => Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+
+    public static string AppDataDirectoryForCurrentUser() => AppDataDirectory(CurrentUserAppDataRoot);
+
     public static DataDirectory Resolve(string executableDirectory, string appDataRoot, bool isManagedInstall, bool isMacOS)
     {
-        var appDataDirectory = new DataDirectory(Path.Combine(appDataRoot, "Archipolygo"), IsPortable: false, IgnoredMarkerReason: null);
+        var appDataDirectory = new DataDirectory(AppDataDirectory(appDataRoot), IsPortable: false, IgnoredMarkerReason: null);
 
         if (!File.Exists(Path.Combine(executableDirectory, PortableMarkerFileName)))
         {
@@ -49,4 +53,6 @@ public static class DataDirectoryResolver
 
         return new DataDirectory(Path.Combine(executableDirectory, PortableDataFolderName), IsPortable: true, IgnoredMarkerReason: null);
     }
+
+    private static string AppDataDirectory(string appDataRoot) => Path.Combine(appDataRoot, "Archipolygo");
 }

@@ -1,0 +1,41 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Archipolygo.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        x:Class="Archipolygo.Views.PortableStartupWindow"
+        x:DataType="vm:PortableStartupViewModel"
+        Width="480" SizeToContent="Height" CanResize="False"
+        WindowStartupLocation="CenterScreen"
+        Title="Archipolygo - portable mode">
+
+    <Design.DataContext>
+        <vm:PortableStartupViewModel ShowTransferChoices="True"/>
+    </Design.DataContext>
+
+    <StackPanel Margin="16" Spacing="12">
+        <ItemsControl ItemsSource="{Binding Paragraphs}">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <StackPanel Spacing="8"/>
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <SelectableTextBlock Text="{Binding}" TextWrapping="Wrap"/>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8"
+                    IsVisible="{Binding ShowTransferChoices}">
+            <Button Name="StartEmptyButton" Content="Start empty" Click="OnStartEmptyClick"/>
+            <Button Name="MoveButton" Content="Move data from AppData" Click="OnMoveClick"/>
+            <Button Name="CopyButton" Content="Copy data from AppData" Click="OnCopyClick" IsDefault="True"/>
+        </StackPanel>
+
+        <Button Name="QuitButton" Content="Quit" Click="OnQuitClick" HorizontalAlignment="Right"
+                IsVisible="{Binding ShowQuitOnly}"/>
+    </StackPanel>
+</Window>
