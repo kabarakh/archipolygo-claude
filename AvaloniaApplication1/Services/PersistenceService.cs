@@ -11,7 +11,7 @@ namespace Archipolygo.Services;
 /// <summary>Loads/saves groups, per-slot sync state and settings as JSON under %AppData%/Archipolygo.</summary>
 public class PersistenceService : IPersistenceService
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
+    internal static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
 
@@ -66,11 +66,7 @@ public class PersistenceService : IPersistenceService
 
         try
         {
-            var json = File.ReadAllText(_groupsFilePath);
-            var groups = JsonSerializer.Deserialize<List<ServerConnectionGroup>>(json, JsonOptions) ?? new List<ServerConnectionGroup>();
-            ApplyLegacyPasswordRequirement(json, groups);
-            AssignMissingColors(groups);
-            return groups;
+            return DeserializeGroups(File.ReadAllText(_groupsFilePath));
         }
         catch (Exception ex)
         {
@@ -78,6 +74,18 @@ public class PersistenceService : IPersistenceService
             _diagnosticLogger.Error($"Failed to load {_groupsFilePath}, starting with no groups", ex);
             return new List<ServerConnectionGroup>();
         }
+    }
+
+    /// <summary>
+    /// Parses a <c>groups.json</c>-shaped JSON array and applies the same upgrades as <see cref="LoadGroups"/>.
+    /// Throws <see cref="JsonException"/> on malformed input; the caller decides how to recover.
+    /// </summary>
+    internal static List<ServerConnectionGroup> DeserializeGroups(string json)
+    {
+        var groups = JsonSerializer.Deserialize<List<ServerConnectionGroup>>(json, JsonOptions) ?? new List<ServerConnectionGroup>();
+        ApplyLegacyPasswordRequirement(json, groups);
+        AssignMissingColors(groups);
+        return groups;
     }
 
     /// <summary>Assigns colors in file order, giving the same result as if each group had been created fresh one after another.</summary>
@@ -191,6 +199,15 @@ public class PersistenceService : IPersistenceService
         var path = GetSyncStateFilePath(state.ProfileId);
         var json = JsonSerializer.Serialize(state, JsonOptions);
         File.WriteAllText(path, json);
+    }
+
+    public void DeleteSyncState(Guid slotId)
+    {
+        var path = GetSyncStateFilePath(slotId);
+        if (File.Exists(path))
+        {
+            File.Delete(path);
+        }
     }
 
     public AppSettings LoadSettings()

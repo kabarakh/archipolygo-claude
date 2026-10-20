@@ -252,6 +252,27 @@ public sealed class PersistenceServiceTests : IDisposable
     }
 
     [Fact]
+    public void DeleteSyncState_RemovesOnlyThatSlotsFile()
+    {
+        var deletedSlotId = Guid.NewGuid();
+        var keptSlotId = Guid.NewGuid();
+        _service.SaveSyncState(new ProfileSyncState { ProfileId = deletedSlotId, LastSeenItemIndex = 3 });
+        _service.SaveSyncState(new ProfileSyncState { ProfileId = keptSlotId, LastSeenItemIndex = 7 });
+
+        _service.DeleteSyncState(deletedSlotId);
+
+        Assert.False(File.Exists(Path.Combine(_tempDirectory, "sync-state", $"{deletedSlotId}.json")));
+        Assert.Equal(0, _service.LoadSyncState(deletedSlotId).LastSeenItemIndex);
+        Assert.Equal(7, _service.LoadSyncState(keptSlotId).LastSeenItemIndex);
+    }
+
+    [Fact]
+    public void DeleteSyncState_NoFile_IsNoOp()
+    {
+        _service.DeleteSyncState(Guid.NewGuid());
+    }
+
+    [Fact]
     public void SaveThenLoadDataPackageCache_RoundTripsChecksumAndItemNames()
     {
         var groupId = Guid.NewGuid();

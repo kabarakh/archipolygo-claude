@@ -24,6 +24,7 @@ public class CollapsibleFilterBarTests
         public void SaveGroups(IEnumerable<ServerConnectionGroup> groups) { }
         public ProfileSyncState LoadSyncState(Guid slotId) => new() { ProfileId = slotId };
         public void SaveSyncState(ProfileSyncState state) { }
+        public void DeleteSyncState(Guid slotId) { }
         public AppSettings LoadSettings() => Settings.Clone();
         public void SaveSettings(AppSettings settings) => Settings = settings.Clone();
         public DataPackageCacheEntry? LoadDataPackageCache(Guid groupId, string game) => null;

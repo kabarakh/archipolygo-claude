@@ -20,6 +20,10 @@ public sealed class FakePersistenceService : IPersistenceService
     {
     }
 
+    public void DeleteSyncState(Guid slotId)
+    {
+    }
+
     public AppSettings LoadSettings() => new();
 
     public void SaveSettings(AppSettings settings)
