@@ -27,7 +27,7 @@ public sealed class DiagnosticLogger : IDiagnosticLogger
     {
     }
 
-    /// <summary>Test-only entry point.</summary>
+    /// <summary>Writes logs under <paramref name="appDataDirectory"/>; see <see cref="DataDirectoryResolver"/>.</summary>
     internal DiagnosticLogger(string appDataDirectory)
     {
         _logDirectory = Path.Combine(appDataDirectory, "logs");

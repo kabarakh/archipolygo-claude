@@ -26,8 +26,12 @@ public partial class App : Application
     {
         var services = new ServiceCollection();
 
-        services.AddSingleton<IDiagnosticLogger, DiagnosticLogger>();
-        services.AddSingleton<IPersistenceService, PersistenceService>();
+        // A logger-less probe: the real UpdateService needs the logger, which itself needs the data directory.
+        var dataDirectory = DataDirectoryResolver.ResolveForCurrentProcess(new UpdateService().IsManagedInstall);
+        services.AddSingleton(dataDirectory);
+        services.AddSingleton<IDiagnosticLogger>(_ => new DiagnosticLogger(dataDirectory.Path));
+        services.AddSingleton<IPersistenceService>(serviceProvider =>
+            new PersistenceService(dataDirectory.Path, serviceProvider.GetRequiredService<IDiagnosticLogger>()));
         services.AddSingleton<IProfileSyncStateStore, ProfileSyncStateStore>();
         services.AddSingleton<IMessageHistoryService, MessageHistoryService>();
         services.AddSingleton<IHintService, HintService>();
