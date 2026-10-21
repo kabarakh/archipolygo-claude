@@ -1,0 +1,62 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Archipolygo.ViewModels"
+        x:Class="Archipolygo.Views.ImportServersWindow"
+        x:DataType="vm:ImportServersViewModel"
+        Width="420" SizeToContent="Height" CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Title="Import servers">
+
+    <!-- Same shape as SettingsWindow: buttons docked below a scrolling body for DialogScreenFit. -->
+    <DockPanel>
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right"
+                    Margin="16,8,16,16">
+            <Button Name="CancelButton" Content="Cancel" Click="OnCancelClick" IsCancel="True"
+                    IsVisible="{Binding ShowServerList}"/>
+            <Button Name="ImportButton" Content="Import" Click="OnImportClick" IsDefault="True"
+                    IsVisible="{Binding ShowServerList}" IsEnabled="{Binding HasSelection}"/>
+            <Button Name="CloseButton" Content="Close" Click="OnCancelClick" IsDefault="True"
+                    IsVisible="{Binding ShowError}"/>
+        </StackPanel>
+
+        <ScrollViewer>
+            <StackPanel Margin="16,16,16,0" Spacing="12">
+                <SelectableTextBlock Name="ErrorText" Text="{Binding ErrorMessage}" TextWrapping="Wrap"
+                                     IsVisible="{Binding ShowError}"/>
+
+                <TextBlock Text="Select the servers to import. A marked server replaces the one you already have."
+                           TextWrapping="Wrap" IsVisible="{Binding ShowServerList}"/>
+
+                <ItemsControl Name="ServerList" ItemsSource="{Binding Rows}" IsVisible="{Binding ShowServerList}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Spacing="6"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:ImportServerRowViewModel">
+                            <CheckBox IsChecked="{Binding IsSelected}">
+                                <StackPanel Spacing="2">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <TextBlock Text="{Binding Group.Name}" FontWeight="SemiBold"
+                                                   VerticalAlignment="Center"/>
+                                        <Border Classes="overwrite-badge" IsVisible="{Binding OverwritesExisting}"
+                                                Background="DarkOrange" CornerRadius="3" Padding="4,0"
+                                                VerticalAlignment="Center">
+                                            <TextBlock Text="replaces existing" Foreground="White" FontSize="11"/>
+                                        </Border>
+                                    </StackPanel>
+                                    <TextBlock Text="{Binding HostPort}" Opacity="0.7"/>
+                                    <TextBlock Text="{Binding SlotSummary}" Opacity="0.7" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </CheckBox>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <CheckBox Name="ImportSettingsCheckBox" Content="Import app settings (replaces your current settings)"
+                          IsChecked="{Binding ImportSettings}" IsVisible="{Binding ShowSettingsOption}"/>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

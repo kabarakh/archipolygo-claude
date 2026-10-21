@@ -12,4 +12,7 @@ public interface IConfigExportService
     /// <summary>Groups go through the same upgrades as <see cref="IPersistenceService.LoadGroups"/>.</summary>
     /// <exception cref="ConfigImportException">Malformed file, not an export, or a format version this app doesn't know.</exception>
     ConfigExportContent Import(string filePath);
+
+    /// <inheritdoc cref="Import"/>
+    ConfigExportContent ImportFromJson(string json);
 }

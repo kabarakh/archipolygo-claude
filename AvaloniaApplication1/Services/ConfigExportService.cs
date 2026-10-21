@@ -33,10 +33,10 @@ public class ConfigExportService : IConfigExportService
         File.WriteAllText(filePath, root.ToJsonString(PersistenceService.JsonOptions));
     }
 
-    public ConfigExportContent Import(string filePath)
-    {
-        var json = File.ReadAllText(filePath);
+    public ConfigExportContent Import(string filePath) => ImportFromJson(File.ReadAllText(filePath));
 
+    public ConfigExportContent ImportFromJson(string json)
+    {
         try
         {
             using var document = JsonDocument.Parse(json);
