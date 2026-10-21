@@ -9,6 +9,10 @@ public interface IConfigExportService
     /// <param name="settings">Null leaves the app settings out of the file.</param>
     void Export(string filePath, IEnumerable<ServerConnectionGroup> groups, AppSettings? settings);
 
+    /// <summary>The file content <see cref="Export"/> writes, for callers that only get a stream (e.g. a save picker).</summary>
+    /// <param name="settings">Null leaves the app settings out.</param>
+    string ExportToJson(IEnumerable<ServerConnectionGroup> groups, AppSettings? settings);
+
     /// <summary>Groups go through the same upgrades as <see cref="IPersistenceService.LoadGroups"/>.</summary>
     /// <exception cref="ConfigImportException">Malformed file, not an export, or a format version this app doesn't know.</exception>
     ConfigExportContent Import(string filePath);

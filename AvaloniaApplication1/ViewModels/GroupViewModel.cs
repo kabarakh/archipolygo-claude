@@ -58,22 +58,21 @@ public partial class GroupViewModel : ViewModelBase, IEventItemClassFilter
     /// The group color resolved for the current theme; falls back to the first palette
     /// color if unparseable. Re-raised on a color change and on a theme switch.
     /// </summary>
-    public IBrush ColorBrush
-    {
-        get
-        {
-            var isLightTheme = Application.Current?.ActualThemeVariant == ThemeVariant.Light;
-            var displayColor = ServerColorPalette.ResolveDisplayColor(Group.Color, isLightTheme);
+    public IBrush ColorBrush => ResolveColorBrush(Group.Color);
 
-            // Avalonia 12.0.4's Brush has only a throwing Parse(string), no TryParse.
-            try
-            {
-                return Brush.Parse(displayColor);
-            }
-            catch (Exception)
-            {
-                return Brush.Parse(ServerColorPalette.Colors[0]);
-            }
+    internal static IBrush ResolveColorBrush(string storedColor)
+    {
+        var isLightTheme = Application.Current?.ActualThemeVariant == ThemeVariant.Light;
+        var displayColor = ServerColorPalette.ResolveDisplayColor(storedColor, isLightTheme);
+
+        // Avalonia 12.0.4's Brush has only a throwing Parse(string), no TryParse.
+        try
+        {
+            return Brush.Parse(displayColor);
+        }
+        catch (Exception)
+        {
+            return Brush.Parse(ServerColorPalette.Colors[0]);
         }
     }
 
