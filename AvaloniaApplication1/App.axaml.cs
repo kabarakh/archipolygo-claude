@@ -132,6 +132,7 @@ public partial class App : Application
         services.AddSingleton<IConnectionManager, ConnectionManager>();
         services.AddSingleton<IMultiworldTrackerService, MultiworldTrackerService>();
         services.AddSingleton<IUpdateService, UpdateService>();
+        services.AddSingleton<IConfigExportService, ConfigExportService>();
         services.AddSingleton<MainWindowViewModel>();
 
         Services = services.BuildServiceProvider();
