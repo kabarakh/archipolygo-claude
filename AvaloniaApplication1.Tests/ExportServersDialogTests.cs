@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using Archipolygo.Models;
 using Archipolygo.Services;
 using Archipolygo.ViewModels;
@@ -17,22 +18,28 @@ public class ExportServersDialogTests
 {
     private sealed class RecordingConfigExportService : IConfigExportService
     {
-        public Exception? ExportFailure { get; init; }
+        public List<(List<ServerConnectionGroup> Groups, AppSettings? Settings)> Exports { get; } = new();
 
-        public List<(string FilePath, List<ServerConnectionGroup> Groups, AppSettings? Settings)> Exports { get; } = new();
+        public void Export(string filePath, IEnumerable<ServerConnectionGroup> groups, AppSettings? settings) =>
+            throw new NotSupportedException("The dialog writes through the picker's stream.");
 
-        public void Export(string filePath, IEnumerable<ServerConnectionGroup> groups, AppSettings? settings)
+        public string ExportToJson(IEnumerable<ServerConnectionGroup> groups, AppSettings? settings)
         {
-            if (ExportFailure is not null)
-            {
-                throw ExportFailure;
-            }
-
-            Exports.Add((filePath, groups.ToList(), settings));
+            Exports.Add((groups.ToList(), settings));
+            return "exported";
         }
 
         public ConfigExportContent Import(string filePath) => throw new NotSupportedException();
     }
+
+    private sealed class KeptOpenMemoryStream : MemoryStream
+    {
+        public string WrittenText => System.Text.Encoding.UTF8.GetString(ToArray());
+
+        protected override void Dispose(bool disposing) { }
+    }
+
+    private static Func<Task<Stream>> OpenInto(Stream stream) => () => Task.FromResult(stream);
 
     private static readonly ServerConnectionGroup Alpha = new() { Name = "Alpha", Host = "alpha.example", Port = 1111, Color = "#E57373" };
     private static readonly ServerConnectionGroup Beta = new() { Name = "Beta", Host = "beta.example", Port = 2222 };
@@ -97,22 +104,35 @@ public class ExportServersDialogTests
     }
 
     [AvaloniaFact]
-    public void TryExport_PassesOnlySelectedGroups_AndNoSettingsByDefault()
+    public async Task TryExport_PassesOnlySelectedGroups_AndNoSettingsByDefault()
     {
         var exportService = new RecordingConfigExportService();
         var viewModel = NewViewModel(exportService);
         viewModel.Servers[1].IsSelected = false;
+        var stream = new KeptOpenMemoryStream();
 
-        Assert.True(viewModel.TryExport("/tmp/export.json"));
+        Assert.True(await viewModel.TryExportAsync(OpenInto(stream)));
 
         var export = Assert.Single(exportService.Exports);
-        Assert.Equal("/tmp/export.json", export.FilePath);
         Assert.Equal(new[] { Alpha, Gamma }, export.Groups);
         Assert.Null(export.Settings);
+        Assert.Equal("exported", stream.WrittenText);
     }
 
     [AvaloniaFact]
-    public void TryExport_WithIncludeAppSettingsChecked_PassesTheSettings()
+    public async Task TryExport_ReplacesLongerExistingContent()
+    {
+        var stream = new KeptOpenMemoryStream();
+        stream.Write(new byte[100]);
+        stream.Position = 0;
+
+        await NewViewModel().TryExportAsync(OpenInto(stream));
+
+        Assert.Equal("exported", stream.WrittenText);
+    }
+
+    [AvaloniaFact]
+    public async Task TryExport_WithIncludeAppSettingsChecked_PassesTheSettings()
     {
         var exportService = new RecordingConfigExportService();
         var settings = new AppSettings();
@@ -121,19 +141,18 @@ public class ExportServersDialogTests
 
         window.FindControl<CheckBox>("IncludeAppSettingsCheckBox")!.IsChecked = true;
         Dispatcher.UIThread.RunJobs();
-        viewModel.TryExport("/tmp/export.json");
+        await viewModel.TryExportAsync(OpenInto(new KeptOpenMemoryStream()));
 
         Assert.Same(settings, Assert.Single(exportService.Exports).Settings);
     }
 
     [AvaloniaFact]
-    public void TryExport_IoFailure_ShowsTheErrorInsteadOfThrowing()
+    public async Task TryExport_IoFailure_ShowsTheErrorInsteadOfThrowing()
     {
-        var exportService = new RecordingConfigExportService { ExportFailure = new IOException("Disk full") };
-        var window = ShowWindow(NewViewModel(exportService));
+        var window = ShowWindow(NewViewModel());
         var viewModel = (ExportServersViewModel)window.DataContext!;
 
-        Assert.False(viewModel.TryExport("/tmp/export.json"));
+        Assert.False(await viewModel.TryExportAsync(() => throw new IOException("Disk full")));
         Dispatcher.UIThread.RunJobs();
 
         var errorText = window.FindControl<TextBlock>("ErrorTextBlock")!;

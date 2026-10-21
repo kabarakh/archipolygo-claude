@@ -33,14 +33,7 @@ public partial class ExportServersWindow : Window
             return;
         }
 
-        var filePath = file.TryGetLocalPath();
-        if (filePath is null)
-        {
-            ViewModel.ErrorText = "This location can't be written to. Choose a folder on this computer.";
-            return;
-        }
-
-        if (ViewModel.TryExport(filePath))
+        if (await ViewModel.TryExportAsync(file.OpenWriteAsync))
         {
             Close(true);
         }

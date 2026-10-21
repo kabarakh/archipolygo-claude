@@ -17,7 +17,10 @@ public class ConfigExportService : IConfigExportService
     internal const string GroupsProperty = "Groups";
     internal const string SettingsProperty = "Settings";
 
-    public void Export(string filePath, IEnumerable<ServerConnectionGroup> groups, AppSettings? settings)
+    public void Export(string filePath, IEnumerable<ServerConnectionGroup> groups, AppSettings? settings) =>
+        File.WriteAllText(filePath, ExportToJson(groups, settings));
+
+    public string ExportToJson(IEnumerable<ServerConnectionGroup> groups, AppSettings? settings)
     {
         var root = new JsonObject
         {
@@ -30,7 +33,7 @@ public class ConfigExportService : IConfigExportService
             root[SettingsProperty] = JsonSerializer.SerializeToNode(settings, PersistenceService.JsonOptions);
         }
 
-        File.WriteAllText(filePath, root.ToJsonString(PersistenceService.JsonOptions));
+        return root.ToJsonString(PersistenceService.JsonOptions);
     }
 
     public ConfigExportContent Import(string filePath)
