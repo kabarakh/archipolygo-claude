@@ -30,6 +30,8 @@ public class ExportServersDialogTests
         }
 
         public ConfigExportContent Import(string filePath) => throw new NotSupportedException();
+
+        public ConfigExportContent ImportFromJson(string json) => throw new NotSupportedException();
     }
 
     private sealed class KeptOpenMemoryStream : MemoryStream

@@ -79,6 +79,7 @@
                     <TextBlock Text="Servers and data" FontWeight="SemiBold"/>
 
                     <StackPanel Name="ServerTransferButtons" Orientation="Horizontal" Spacing="8">
+                        <Button Name="ExportServersButton" Content="Export servers..." Click="OnExportServersClick"/>
                         <Button Name="ImportServersButton" Content="Import servers..." Click="OnImportServersClick"/>
                     </StackPanel>
 

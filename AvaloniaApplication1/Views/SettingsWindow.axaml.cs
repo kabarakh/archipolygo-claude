@@ -67,6 +67,21 @@ public partial class SettingsWindow : Window
         }
     }
 
+    private async void OnExportServersClick(object? sender, RoutedEventArgs e)
+    {
+        if (ViewModel.DataManagement is not { } dataManagement)
+        {
+            return;
+        }
+
+        var exportViewModel = new ExportServersViewModel(
+            dataManagement.GetGroups(), dataManagement.LoadSettings(), dataManagement.ConfigExportService);
+        if (await ExportServersWindow.ShowDialogAsync(this, exportViewModel))
+        {
+            ViewModel.DataStatusText = "Servers exported.";
+        }
+    }
+
     private async void OnImportServersClick(object? sender, RoutedEventArgs e)
     {
         if (ViewModel.DataManagement is not { } dataManagement)

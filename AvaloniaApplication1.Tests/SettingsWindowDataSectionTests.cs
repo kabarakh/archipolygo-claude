@@ -37,6 +37,7 @@ public class SettingsWindowDataSectionTests
     {
         var window = ShowWindow(new DataDirectory("/appdata/Archipolygo", IsPortable: false, IgnoredMarkerReason: null));
 
+        Assert.True(IsVisible(window, "ExportServersButton"));
         Assert.True(IsVisible(window, "ImportServersButton"));
         Assert.True(IsVisible(window, "OpenDataFolderButton"));
         Assert.False(IsVisible(window, "PortableModeLine"));
