@@ -15,6 +15,9 @@ public interface IPersistenceService
 
     void SaveSyncState(ProfileSyncState state);
 
+    /// <summary>For a slot that no longer exists, so its sync state isn't orphaned. No-op if there is no file.</summary>
+    void DeleteSyncState(Guid slotId);
+
     AppSettings LoadSettings();
 
     void SaveSettings(AppSettings settings);
