@@ -86,8 +86,11 @@ public partial class MainWindowViewModel : ViewModelBase
             new ArchipelagoSessionFactoryAdapter());
     }
 
-    public MainWindowViewModel(IPersistenceService persistenceService, IConnectionManager connectionManager, IMultiworldTrackerService multiworldTrackerService, IUpdateService? updateService = null, IDiagnosticLogger? diagnosticLogger = null, IAttentionTracker? attentionTracker = null)
+    public MainWindowViewModel(IPersistenceService persistenceService, IConnectionManager connectionManager, IMultiworldTrackerService multiworldTrackerService, IUpdateService? updateService = null, IDiagnosticLogger? diagnosticLogger = null, IAttentionTracker? attentionTracker = null,
+        DataDirectory? dataDirectory = null, IConfigExportService? configExportService = null)
     {
+        _dataDirectory = dataDirectory;
+        _configExportService = configExportService;
         _attentionTracker = attentionTracker;
         _persistenceService = persistenceService;
         _connectionManager = connectionManager;

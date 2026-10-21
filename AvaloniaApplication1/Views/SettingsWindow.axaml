@@ -74,6 +74,31 @@
                 <CheckBox Content="Show unread count as taskbar/Dock badge" IsChecked="{Binding ShowUnreadBadge}"
                           IsVisible="{Binding SupportsUnreadBadge}"/>
 
+                <StackPanel Name="DataSection" Spacing="8" IsVisible="{Binding ShowDataSection}">
+                    <Border Height="1" Background="Gray" Opacity="0.3" Margin="0,8,0,0"/>
+                    <TextBlock Text="Servers and data" FontWeight="SemiBold"/>
+
+                    <StackPanel Name="ServerTransferButtons" Orientation="Horizontal" Spacing="8">
+                        <Button Name="ImportServersButton" Content="Import servers..." Click="OnImportServersClick"/>
+                    </StackPanel>
+
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0" Text="Data folder" Opacity="0.5" VerticalAlignment="Center"/>
+                        <Button Grid.Column="1" Name="OpenDataFolderButton" Content="Open data folder"
+                                Click="OnOpenDataFolderClick"/>
+                    </Grid>
+
+                    <SelectableTextBlock Name="PortableModeLine"
+                                         Text="{Binding DataFolderPath, StringFormat='Portable mode: data stored in {0}'}"
+                                         IsVisible="{Binding ShowPortableModeLine}"
+                                         Opacity="0.7" FontSize="12" TextWrapping="Wrap"/>
+                    <TextBlock Name="PortableMarkerIgnoredHint" Text="{Binding PortableMarkerIgnoredText}"
+                               IsVisible="{Binding PortableMarkerIgnoredText, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"
+                               Opacity="0.7" FontSize="12" TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding DataStatusText}" Opacity="0.7" FontSize="12" TextWrapping="Wrap"
+                               IsVisible="{Binding DataStatusText, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"/>
+                </StackPanel>
+
                 <!-- Hidden on a manually unzipped install: a check there always finds nothing, which
                      would misleadingly read as "up to date" rather than "can't check". -->
                 <Grid ColumnDefinitions="*,Auto" Margin="0,8,0,0" IsVisible="{Binding !ShowUnmanagedInstallHint}">

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -9,6 +10,30 @@ namespace Archipolygo.ViewModels;
 /// <summary>Applying a config import. See Config-Verwaltung.md, "Import".</summary>
 public partial class MainWindowViewModel
 {
+    /// <summary>Optional (null in tests): the Settings dialog then hides its data section.</summary>
+    private readonly DataDirectory? _dataDirectory;
+
+    private readonly IConfigExportService? _configExportService;
+
+    public DataManagementContext? CreateDataManagementContext() =>
+        _dataDirectory is null || _configExportService is null
+            ? null
+            : new DataManagementContext(_dataDirectory, _configExportService, GetAllGroups, LoadSettings, StartConfigImport);
+
+    private void StartConfigImport(ConfigImportSelection selection) => _ = ApplyConfigImportLoggingFailuresAsync(selection);
+
+    private async Task ApplyConfigImportLoggingFailuresAsync(ConfigImportSelection selection)
+    {
+        try
+        {
+            await ApplyConfigImportAsync(selection);
+        }
+        catch (Exception ex)
+        {
+            _diagnosticLogger.Error("Applying a config import failed", ex);
+        }
+    }
+
     /// <summary>
     /// Completes only after every reconnect, so callers that don't want to wait should not await it.
     /// Overwritten groups are updated in place, so their tab, position and detached window survive.

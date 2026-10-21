@@ -67,6 +67,46 @@ public partial class SettingsWindow : Window
         }
     }
 
+    private async void OnImportServersClick(object? sender, RoutedEventArgs e)
+    {
+        if (ViewModel.DataManagement is not { } dataManagement)
+        {
+            return;
+        }
+
+        var selection = await ImportServersWindow.PickFileAndShowAsync(
+            this, dataManagement.ConfigExportService, dataManagement.GetGroups());
+        if (selection is null)
+        {
+            return;
+        }
+
+        dataManagement.StartImport(selection);
+
+        // Saving this dialog afterwards would write its stale copy over the imported settings.
+        if (selection.Settings is not null)
+        {
+            Close(null);
+            return;
+        }
+
+        ViewModel.DataStatusText = selection.Groups.Count == 1 ? "Imported 1 server." : $"Imported {selection.Groups.Count} servers.";
+    }
+
+    private async void OnOpenDataFolderClick(object? sender, RoutedEventArgs e)
+    {
+        if (ViewModel.DataFolderPath is not { } path)
+        {
+            return;
+        }
+
+        var directory = new DirectoryInfo(path);
+        if (!directory.Exists || !await Launcher.LaunchDirectoryInfoAsync(directory))
+        {
+            ViewModel.DataStatusText = $"Could not open {path}.";
+        }
+    }
+
     public static Task<AppSettings?> ShowDialogAsync(Window owner, SettingsViewModel viewModel)
     {
         var window = new SettingsWindow { DataContext = viewModel };

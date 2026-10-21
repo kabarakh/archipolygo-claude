@@ -107,13 +107,36 @@ public partial class SettingsViewModel : ViewModelBase
     /// </summary>
     public bool ShowUnmanagedInstallHint { get; private init; }
 
+    // --- Data (export/import, data folder) ---
+
+    /// <summary>Null (tests, design time) hides the whole data section.</summary>
+    public DataManagementContext? DataManagement { get; private init; }
+
+    public bool ShowDataSection => DataManagement is not null;
+
+    public bool ShowPortableModeLine => DataManagement?.DataDirectory.IsPortable == true;
+
+    public string? DataFolderPath => DataManagement?.DataDirectory.Path;
+
+    public string? PortableMarkerIgnoredText => DataManagement?.DataDirectory.IgnoredMarkerReason switch
+    {
+        PortableMarkerIgnoredReason.ManagedInstall =>
+            "portable.txt was found but ignored: this installation updates itself, and an update would delete data stored next to the app.",
+        PortableMarkerIgnoredReason.UnsupportedOperatingSystem =>
+            "portable.txt was found but ignored: portable mode is not supported on macOS yet.",
+        _ => null
+    };
+
+    [ObservableProperty]
+    private string? _dataStatusText;
+
     public SettingsViewModel()
     {
         _selectedBlinkMode = BlinkModes[0];
     }
 
     public static SettingsViewModel FromSettings(AppSettings settings, Func<Task<string?>>? checkForUpdatesAsync = null, bool showUnmanagedInstallHint = false, Func<string>? readDiagnosticLog = null,
-                                                 bool? supportsBlinkCount = null)
+                                                 bool? supportsBlinkCount = null, DataManagementContext? dataManagement = null)
     {
         var viewModel = new SettingsViewModel
         {
@@ -128,7 +151,8 @@ public partial class SettingsViewModel : ViewModelBase
             _originalSettings = settings.Clone(),
             _checkForUpdatesAsync = checkForUpdatesAsync,
             ShowUnmanagedInstallHint = showUnmanagedInstallHint,
-            _readDiagnosticLog = readDiagnosticLog
+            _readDiagnosticLog = readDiagnosticLog,
+            DataManagement = dataManagement
         };
         viewModel.SelectedBlinkMode = viewModel.BlinkModes.First(m => m.Mode == settings.BlinkMode);
         return viewModel;
