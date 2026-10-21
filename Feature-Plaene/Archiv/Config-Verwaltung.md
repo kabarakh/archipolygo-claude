@@ -1,14 +1,42 @@
-# Umsetzungsplan: Config-Verwaltung (Export/Import + Portable-Modus)
+# Feature: Config-Verwaltung (Export/Import + Portable-Modus)
 
-**Status: 📝 Bereit zur Umsetzung** - Der Entwickler hat am 2026-10-20 alle
-offenen Fragen der früheren Skizze entschieden. Die Entscheidungen stehen
-unten. Die Idee kommt aus der Datei `archipolygo_feature_ideas.md`, die jetzt
-im Archiv liegt ("Config export/import - back up and restore the server/slot
-list (`groups.json`) when moving to another machine"). Früher hieß diese
-Datei `Config-Export-Import.md`. Am 2026-10-02 kam der Portable-Modus dazu.
-Beide Teile lösen dasselbe Problem. Der Benutzer sagt: "Meine Konfiguration
-liegt an einem Ort, den ich nicht sehe, und sie kommt nicht mit auf einen
-anderen Rechner." Darum plane beide Teile zusammen.
+## Status: ✅ Umgesetzt (2026-10-21)
+
+Die App setzt den Plan um. Der Rest des Dokuments ist der Plan vom
+2026-10-20. In diesen Punkten weicht die Umsetzung vom Plan ab oder geht
+über ihn hinaus:
+
+- **Überschreiben an Ort und Stelle.** Die App ersetzt eine überschriebene
+  Gruppe nicht durch ein neues `GroupViewModel`. Sie ändert die vorhandene
+  Gruppe. Darum bleiben Tab, Position, ein abgelöstes Fenster und der
+  Verlauf der behaltenen Slots erhalten.
+- **Eigene Partial-Datei.** Die Übernahme liegt in
+  `MainWindowViewModel.ConfigImport.cs`, nicht in
+  `MainWindowViewModel.Servers.cs`.
+- **Streams statt Pfade.** Die Dateidialoge von Avalonia liefern laut Doku
+  nur Streams. Darum hat `ConfigExportService` zusätzlich `ExportToJson`
+  und `ImportFromJson`.
+- **Kollidierende Ids.** Wenn eine importierte Id schon zu einer fremden
+  lokalen Gruppe oder einem fremden lokalen Slot gehört, bekommt sie eine
+  neue Guid.
+- **Passwörter im Speicher.** Ein überschriebener Slot behält ein Passwort,
+  das der Benutzer in dieser Sitzung eingegeben hat.
+- **"Import app settings" ist am Anfang abgewählt**, wie "Include app
+  settings" beim Export.
+- **Settings-Dialog nach dem Import.** Wenn ein Import auch Settings
+  übernimmt, schließt die App den Settings-Dialog ohne Speichern. Sonst
+  überschreibt "Save" die importierten Settings mit den alten Werten.
+- **Fenster-X im Portable-Dialog** bedeutet "Quit". Die App ändert dann
+  nichts auf der Festplatte.
+- **Fehlgeschlagene Kopie beim ersten Start.** Die App löscht die halbe
+  Kopie, zeigt den Fehler und beendet sich. Sonst ist der Ordner `data`
+  nicht mehr leer, und der nächste Start bietet die Übernahme nicht mehr an.
+- **Velopack-Portable-Zip geprüft.** Im Quellcode von Velopack 1.2.0 ist
+  `IsInstalled` auch für das Portable-Zip von Velopack true. Darum
+  ignoriert die App dort `portable.txt` richtig.
+- **Nicht von Hand geprüft:** die nativen Dateidialoge, "Open data folder"
+  und der Portable-Modus auf echtem Windows und Linux. Headless-Tests decken
+  nur die View-Models und die Dialoge ohne native Teile ab.
 
 ## Ausgangslage
 
@@ -27,7 +55,7 @@ Das Datenverzeichnis ist schon austauschbar. `PersistenceService` hat einen
 internen Konstruktor mit dem Verzeichnis als Parameter. Bisher nutzen nur
 Tests diesen Konstruktor.
 
-Seit [Passwort-Speicherung](Archiv/Passwort-Speicherung.md) (umgesetzt
+Seit [Passwort-Speicherung](Passwort-Speicherung.md) (umgesetzt
 2026-09-15) enthält `groups.json` keine Passwörter mehr. Die Datei hat nur
 ein `RequiresPassword`-Flag pro Slot. Darum ist eine Export-Datei
 unbedenklich. Eine eigene Verschlüsselung ist nicht nötig.

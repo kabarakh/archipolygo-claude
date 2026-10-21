@@ -150,9 +150,13 @@ changing behavior it explains, and update the Umsetzungsplan.md section
   data into `EventEntry`/`HintEntry` and append them to a `GroupViewModel`'s
   collections; also own the per-slot "what have I already shown"
   bookkeeping (`ProfileSyncState`: last seen item index, seen hint ids).
-- `Services/PersistenceService.cs` - JSON under
-  `%AppData%/Archipolygo` (`groups.json`, `sync-state/<slotId>.json`,
-  `settings.json`). Contains a one-time migration
+- `Services/PersistenceService.cs` - JSON under the data directory
+  (`groups.json`, `sync-state/<slotId>.json`, `settings.json`). The data
+  directory is `%AppData%/Archipolygo`, or `data/` next to the executable
+  in portable mode - decided once at startup by
+  `Services/DataDirectoryResolver.cs` and passed to `PersistenceService`
+  and `DiagnosticLogger` from `App.axaml.cs`; never compute that path
+  anywhere else. Contains a one-time migration
   (`MigrateLegacyProfilesIfNeeded`) from the pre-Phase-6 flat-profile format
   - old profile `Id`s are preserved as the new `SlotProfile.Id` so existing
     per-slot sync state still applies after migrating.
@@ -170,7 +174,8 @@ changing behavior it explains, and update the Umsetzungsplan.md section
   (`StartupSyncTotal`/`StartupSyncCompleted`, fed by
   `IConnectionManager.SlotInitialSyncCompleted`). Also a `partial class`:
   `MainWindowViewModel.cs` (core: ctor, startup, settings), `.Servers.cs`
-  (add/edit/remove servers and slots), `.TabLayout.cs` (reorder, detach/
+  (add/edit/remove servers and slots), `.ConfigImport.cs` (applying a
+  config import), `.TabLayout.cs` (reorder, detach/
   redock), `.PasswordPrompt.cs`, `.StatusDisplay.cs` (sync banner, unread
   title/badge), `.Toolbar.cs` (theme button, update indicator).
 - `ViewModels/ConnectionEditorViewModel.cs` +
@@ -210,6 +215,22 @@ changing behavior it explains, and update the Umsetzungsplan.md section
   See `Admin-Funktionen.md` in the feature-plan archive, and
   Umsetzungsplan.md's section "Admin-Ansicht: ServerReplyReceived und
   LeaderConnected".
+- Config export/import and portable mode (Settings' "Servers and data"
+  section, wired through `ViewModels/DataManagementContext.cs`):
+  - `Services/ConfigExportService.cs` reads/writes the single export file
+    (format version + groups + optional settings; never sync state, caches
+    or logs). Groups go through `PersistenceService.DeserializeGroups`, the
+    same migration path as `LoadGroups`.
+  - `Services/ConfigImportMerger.cs` is the pure mapping of imported groups
+    onto local ones (same Host+Port overwrites, slots matched by name keep
+    their local Id so their sync state stays valid).
+    `MainWindowViewModel.ApplyConfigImportAsync` then applies that plan in
+    place (disconnect, overwrite, reconnect spaced by
+    `StartupGroupSpacing`).
+  - `Services/PortableDataSetup.cs` + `Views/PortableStartupWindow.axaml`
+    run before any service is built (the logger creates its folder on
+    construction): write check, first-start copy/move from AppData.
+  - See `Config-Verwaltung.md` in the feature-plan archive.
 - `Views/MainWindow.axaml(.cs)` - the tab strip, per-group panels
   (Events/Hints/Items with their filters), and a handful of Avalonia-quirk
   workarounds (see below) that live in the code-behind rather than XAML
@@ -294,6 +315,15 @@ way first - each was a real bug with a specific root cause.
   and moves the window back onto it. In their XAML, the buttons are docked
   at the bottom of a `DockPanel` and the body sits in a `ScrollViewer`. A
   new tall dialog should do the same.
+- **A headless test hung forever on a wrapping text containing `\n`** inside
+  a `SizeToContent="Height"` window (observed with `PortableStartupWindow`;
+  root cause not investigated). That dialog now shows a list of paragraphs
+  instead of one string with line breaks. Run tests with
+  `--blame-hang-timeout 60s` so a hang names its test instead of stalling.
+- **A plain `[Fact]` must not touch `Application.Current`** (e.g. via
+  `ThemeService.Apply`): a parallel `[AvaloniaFact]` may own it on another
+  thread, and the call throws "a different thread owns it" only when the
+  tests happen to overlap. Use `[AvaloniaFact]` for such a test.
 - **`CommunityToolkit.Mvvm`'s `[RelayCommand]` strips a trailing `Async`
   from the generated command name.** `RemoveConfiguredSlotAsync()` →
   `RemoveConfiguredSlotCommand`, not `RemoveConfiguredSlotAsyncCommand`. Easy

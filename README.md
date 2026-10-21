@@ -81,6 +81,18 @@ The other configured slots on the server also stay current:
   - "Compact layout" makes lists and controls smaller. It is on by default.
   - The "Notifications" section sets, for each type of event, if it increases the unread count and if it flashes the taskbar button. It also sets how the flash behaves.
   - On Windows and Linux, the "Check for updates" button looks for a new version. The app also does this check at startup, without a message. When an update is available, a small dot shows on this button. On macOS, you must download updates manually.
+  - The "Servers and data" section moves your configuration to a different computer:
+    - "Export servers..." writes the servers that you select to one file. You can also include the app settings. The file contains no passwords, because the app never stores them.
+    - "Import servers..." reads such a file and shows its servers. Clear the servers that you do not want. A server with the same host and port as one of your servers is marked "replaces existing". The import replaces that server, but slots with the same name keep their local history. If a server was connected, it connects again after the import. An imported server with auto-connect on connects immediately.
+    - "Open data folder" opens the folder that contains all data of the app.
+
+## Portable mode
+
+The zip download of Windows and Linux can keep all its data next to the executable, so that you can move the app with its folder. To turn on portable mode, put an empty file `portable.txt` next to the executable. The app then stores its data in a `data` folder next to the executable, and Settings shows "Portable mode".
+
+- At the first start in portable mode, the app finds the data that you already have in your user profile. It asks if you want to copy that data, move it, or start empty.
+- If the app cannot write to its folder (for example, below `C:\Program Files`), it shows an error and stops. It does not use the user profile instead.
+- Portable mode does not work with the installer version, because each update replaces the app folder. It also does not work on macOS yet. In these cases, the app ignores `portable.txt` and tells you so in Settings.
 
 ## Dashboard
 
@@ -117,7 +129,6 @@ Some ideas that are not built yet:
 
 - **Better item and trap icons.** Icons for each game. At this time, the app uses only color and text (see `Item-Trap-Icons.md`).
 - **Tray icon and log export.** Options for when the app runs in the background. The project removed these ideas early, but they can be useful (see `Tray-Icon.md`, `Log-Export.md`).
-- **Configuration management.** There is no backup and restore for `groups.json` yet. There is also no portable mode for the zip download that keeps its data next to the executable (see `Config-Verwaltung.md`).
 - **Keyboard shortcuts** (see `Tastenkuerzel.md`).
 
 ## Technology
