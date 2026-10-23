@@ -30,9 +30,9 @@ public interface IConnectionManager
     event Action<GroupViewModel, SlotProfile>? SlotInitialSyncCompleted;
 
     /// <summary>
-    /// Raised before <see cref="SwitchLeaderAsync"/> processes the given number of slots
-    /// as one batch (the leader connect, then the sibling catch-up); each counted slot gets exactly
-    /// one <see cref="SlotInitialSyncCompleted"/>. Raised on the UI thread.
+    /// Raised when the given number of slots was added to the pending sync work (a leader connect, or
+    /// slots appended to the app-wide catch-up queue); each counted slot gets exactly one
+    /// <see cref="SlotInitialSyncCompleted"/>. Raised on the UI thread.
     /// </summary>
     event Action<int>? SlotSyncBatchStarting;
 
@@ -61,8 +61,9 @@ public interface IConnectionManager
     /// <summary>
     /// Makes <paramref name="targetSlot"/> the leader: connects it, then disconnects the previous
     /// leader (no-op if already leader). On success sets AutoConnect/PreferredLeaderSlotId and raises
-    /// <see cref="GroupPersistNeeded"/>. If this brings the group online, also catches up every other
-    /// slot one at a time, aborting if the connection is interrupted.
+    /// <see cref="GroupPersistNeeded"/>. If this brings the group online, also appends every other slot
+    /// to the app-wide catch-up queue (dropped again if the connection is interrupted). Completes once
+    /// the leader is connected; it does not wait for those catch-ups.
     /// </summary>
     Task SwitchLeaderAsync(GroupViewModel group, SlotProfile targetSlot);
 
@@ -73,9 +74,10 @@ public interface IConnectionManager
     Task DisconnectGroupAsync(GroupViewModel group);
 
     /// <summary>
-    /// Briefly connects as <paramref name="slot"/> to resync its item/hint backlog, then disconnects;
-    /// the leader is never touched. Serialized on the group's gate; no-op if the group is manually
-    /// disconnected or the slot was removed. Also adds the slot to the live leader's hint tracking.
+    /// Appends <paramref name="slot"/> to the app-wide catch-up queue: when its turn comes, briefly connects
+    /// as it to resync its item/hint backlog, then disconnects; the leader is never touched. Skipped if the
+    /// group is offline by then or the slot was removed. Also adds the slot to the live leader's hint
+    /// tracking. Completes once the slot's turn is done.
     /// </summary>
     Task CatchUpSyncAsync(GroupViewModel group, SlotProfile slot);
 

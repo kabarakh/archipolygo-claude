@@ -1,6 +1,6 @@
 ---
 name: deutsch-ste
-description: Schreibregeln "Deutsch-STE" - eine deutsche Variante von ASD-STE100 (Simplified Technical English). Nutzen, bevor du in diesem Repo einen Feature-Plan, Umsetzungsplan.md, Test-Umsetzungsplan.md, CLAUDE.md, einen Skill oder ein ähnliches Projektdokument neu schreibst oder einen Abschnitt darin änderst. Auch nutzen, wenn du so ein Dokument für eine Aufgabe liest und es noch nicht in Deutsch-STE ist.
+description: Schreibregeln "Deutsch-STE" - eine deutsche Variante von ASD-STE100 (Simplified Technical English). Nutzen, bevor du in diesem Repo einen Feature-Plan, Umsetzungsplan.md, Test-Umsetzungsplan.md, einen Skill oder ein ähnliches Projektdokument neu schreibst oder einen Abschnitt darin änderst. Auch nutzen, wenn du so ein Dokument für eine Aufgabe liest und es noch nicht in Deutsch-STE ist.
 ---
 
 # Deutsch-STE: Schreibregeln für Projektdokumente
@@ -17,13 +17,14 @@ Deutsch-STE gilt für diese Dokumente:
 - Feature-Pläne im Feature-Plan-Verzeichnis und im Feature-Plan-Archiv,
   auch für den Status-Abschnitt "✅ Umgesetzt".
 - `Umsetzungsplan.md` und `Test-Umsetzungsplan.md`.
-- `CLAUDE.md`.
 - Skills unter `.claude/skills/`.
 - Neue Dokumente derselben Art, zum Beispiel ein Konzept für Entwickler.
 
 Deutsch-STE gilt nicht für diese Texte:
 
 - `README.md`. Die README ist für Benutzer und bleibt englisch.
+- `CLAUDE.md`. Diese Datei ist englisch und folgt ASD-STE100
+  (Simplified Technical English), nicht Deutsch-STE.
 - UI-Texte. Sie bleiben englisch (siehe `CLAUDE.md`).
 - Code, Code-Kommentare und Bezeichner. Sie bleiben englisch.
 

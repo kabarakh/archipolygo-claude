@@ -73,19 +73,11 @@ public partial class MainWindowViewModel
 
         if (groupViewModel.LeaderSlotId is not null)
         {
-            _ = CatchUpNewSlotsSequentiallyAsync(groupViewModel, addedSlots);
-        }
-    }
-
-    /// <summary>
-    /// One at a time, never concurrently: a burst of simultaneous handshakes to the same room
-    /// can get rate-limited or rejected by the server.
-    /// </summary>
-    private async Task CatchUpNewSlotsSequentiallyAsync(GroupViewModel groupViewModel, IReadOnlyList<SlotProfile> slots)
-    {
-        foreach (var slot in slots)
-        {
-            await _connectionManager.CatchUpSyncAsync(groupViewModel, slot);
+            // The app-wide queue runs them one at a time, after anything already waiting.
+            foreach (var slot in addedSlots)
+            {
+                _ = _connectionManager.CatchUpSyncAsync(groupViewModel, slot);
+            }
         }
     }
 

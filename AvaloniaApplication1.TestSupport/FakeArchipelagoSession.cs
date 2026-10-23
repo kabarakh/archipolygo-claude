@@ -60,9 +60,13 @@ public sealed class FakeArchipelagoSession : IArchipelagoSession
 
     public string? LastPasswordArgument { get; private set; }
 
+    /// <summary>Shows whether a connect got past ConnectionManager's app-wide connect gate (CreateSession runs before it).</summary>
+    public int LoginCallCount { get; private set; }
+
     public Task<LoginResult> LoginAsync(string game, string name, ItemsHandlingFlags itemsHandlingFlags,
         Version? version = null, string[]? tags = null, string? uuid = null, string? password = null, bool requestSlotData = true)
     {
+        LoginCallCount++;
         LastPasswordArgument = password;
         return LoginResultSource.Task;
     }

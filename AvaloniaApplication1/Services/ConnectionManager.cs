@@ -43,6 +43,8 @@ public class ConnectionManager : IConnectionManager
 
     private static readonly TimeSpan DefaultDataPackageRequestTimeout = TimeSpan.FromSeconds(10);
 
+    private static readonly TimeSpan DefaultConnectGateMaxHold = TimeSpan.FromSeconds(30);
+
     private readonly IMessageHistoryService _messageHistoryService;
     private readonly IHintService _hintService;
     private readonly ISessionFactory _sessionFactory;
@@ -63,6 +65,10 @@ public class ConnectionManager : IConnectionManager
 
     private readonly SessionEventTranslator _sessionEvents;
     private readonly SocketCleanup _socketCleanup;
+
+    // App-wide, not per group. See Umsetzungsplan.md, "Globale Connect-Sperre und Catch-up-Queue".
+    private readonly ConnectGate _connectGate;
+    private readonly CatchUpQueue _catchUpQueue;
 
     // Keyed by SlotProfile.Id. See Umsetzungsplan.md, "_roomInfoBySlot".
     private readonly ConcurrentDictionary<Guid, RoomInfoPacket> _roomInfoBySlot = new();
@@ -111,7 +117,8 @@ public class ConnectionManager : IConnectionManager
         IPersistenceService? persistenceService = null,
         TimeSpan? dataPackageRequestTimeout = null,
         IDiagnosticLogger? diagnosticLogger = null,
-        IAttentionTracker? attentionTracker = null)
+        IAttentionTracker? attentionTracker = null,
+        TimeSpan? connectGateMaxHold = null)
     {
         _messageHistoryService = messageHistoryService;
         _hintService = hintService;
@@ -124,6 +131,8 @@ public class ConnectionManager : IConnectionManager
         _attentionTracker = attentionTracker;
         _sessionEvents = new SessionEventTranslator(_messageHistoryService, _hintService, _attentionTracker);
         _socketCleanup = new SocketCleanup(_messageHistoryService, _diagnosticLogger);
+        _connectGate = new ConnectGate(connectGateMaxHold ?? DefaultConnectGateMaxHold);
+        _catchUpQueue = new CatchUpQueue(ProcessQueuedCatchUpAsync, RaiseSlotSyncBatchStarting, RaiseSlotInitialSyncCompleted);
     }
 
     public async Task SwitchLeaderAsync(GroupViewModel group, SlotProfile targetSlot)
@@ -156,15 +165,16 @@ public class ConnectionManager : IConnectionManager
         PromoteToLeader(group, targetSlot);
         await CloseOutgoingLeaderAsync(group, previousLeaderId, targetSlot);
 
-        // The leader already got its own full backlog via login.
-        RaiseSlotInitialSyncCompleted(group, targetSlot);
-
-        // See Umsetzungsplan.md, "Sibling-Catch-up-Sweep: wann er läuft und wann er abbricht".
+        // See Umsetzungsplan.md, "Sibling-Catch-up: wann er läuft und wann er abbricht".
         var groupJustCameOnline = previousLeaderId is null;
         if (groupJustCameOnline)
         {
-            await RunSiblingCatchUpSweepAsync(group, targetSlot);
+            EnqueueSiblingCatchUps(group, targetSlot);
         }
+
+        // The leader already got its own full backlog via login. Raised after the siblings are
+        // announced, so the banner never briefly shows a finished pass in between.
+        RaiseSlotInitialSyncCompleted(group, targetSlot);
     }
 
     /// <summary>The error was already reported; the previous leader was never touched, so point the dropdown back at it.</summary>
@@ -240,45 +250,45 @@ public class ConnectionManager : IConnectionManager
         await _socketCleanup.CloseAsync(group, previousSlot, oldSession);
     }
 
-    /// <summary>
-    /// Strictly sequential; caller holds the group's gate. See Umsetzungsplan.md,
-    /// "Sibling-Catch-up-Sweep: wann er läuft und wann er abbricht".
-    /// </summary>
-    private async Task RunSiblingCatchUpSweepAsync(GroupViewModel group, SlotProfile leaderSlot)
+    /// <summary>Appended to the app-wide queue; the caller doesn't wait for them.</summary>
+    private void EnqueueSiblingCatchUps(GroupViewModel group, SlotProfile leaderSlot)
     {
-        var groupId = group.Group.Id;
         var siblingSlots = group.Group.Slots.Where(s => s.Id != leaderSlot.Id).ToList();
         if (siblingSlots.Count == 0)
         {
             return;
         }
 
-        RaiseSlotSyncBatchStarting(siblingSlots.Count);
-        _diagnosticLogger.Info($"[{group.Group.Name}] Catch-up sweep starting for {siblingSlots.Count} sibling slot(s)");
+        _diagnosticLogger.Info($"[{group.Group.Name}] Queueing catch-up for {siblingSlots.Count} sibling slot(s)");
+        _ = _catchUpQueue.EnqueueAsync(group, siblingSlots);
+    }
 
-        for (var i = 0; i < siblingSlots.Count; i++)
+    /// <summary>Takes the group's gate per slot, so other work on that server can run in between.</summary>
+    private async Task ProcessQueuedCatchUpAsync(GroupViewModel group, SlotProfile slot)
+    {
+        try
         {
-            var siblingSlot = siblingSlots[i];
-            await CatchUpSyncCoreAsync(group, siblingSlot);
-            RaiseSlotInitialSyncCompleted(group, siblingSlot);
+            using var groupLock = await LockGroupAsync(group.Group.Id);
 
-            if (!IsStillOnlineAs(groupId, leaderSlot.Id))
+            // See Umsetzungsplan.md, "Sibling-Catch-up: wann er läuft und wann er abbricht".
+            if (!IsOnline(group.Group.Id))
             {
-                _diagnosticLogger.Warning($"[{group.Group.Name}] Catch-up sweep aborted after {i + 1}/{siblingSlots.Count} slot(s) - group no longer online");
-
-                // Skipped slots still count as processed for the progress indicator.
-                foreach (var skippedSlot in siblingSlots.Skip(i + 1))
-                {
-                    RaiseSlotInitialSyncCompleted(group, skippedSlot);
-                }
-
                 return;
             }
+
+            await CatchUpSyncCoreAsync(group, slot);
+        }
+        catch (Exception ex)
+        {
+            _diagnosticLogger.Error($"[{group.Group.Name}] Catch-up failed for {slot.DisplayName}", ex);
         }
     }
 
-    private bool IsStillOnlineAs(Guid groupId, Guid leaderSlotId) =>
-        !_autoReconnectSuppressed.ContainsKey(groupId) && IsLeader(groupId, leaderSlotId);
+    private bool IsOnline(Guid groupId) =>
+        !_autoReconnectSuppressed.ContainsKey(groupId) && GetLeaderId(groupId) is not null;
+
+    /// <summary>Test hook: completes once no catch-up is pending or in flight.</summary>
+    internal Task WhenCatchUpQueueIdleAsync() => _catchUpQueue.WhenIdleAsync();
 
     public async Task DisconnectGroupAsync(GroupViewModel group)
     {
@@ -290,6 +300,8 @@ public class ConnectionManager : IConnectionManager
         {
             inFlightCts.Cancel();
         }
+
+        _catchUpQueue.RemoveGroup(groupId);
 
         using var groupLock = await LockGroupAsync(groupId);
 
@@ -321,14 +333,10 @@ public class ConnectionManager : IConnectionManager
         }
     }
 
-    public async Task CatchUpSyncAsync(GroupViewModel group, SlotProfile slot)
-    {
-        // See Umsetzungsplan.md, "CatchUpSyncAsync vs. CatchUpSyncCoreAsync (Locking)".
-        using var groupLock = await LockGroupAsync(group.Group.Id);
-        await CatchUpSyncCoreAsync(group, slot);
-    }
+    public Task CatchUpSyncAsync(GroupViewModel group, SlotProfile slot) =>
+        _catchUpQueue.EnqueueAsync(group, new[] { slot });
 
-    /// <summary>Ungated; caller holds the group's gate. See Umsetzungsplan.md, "CatchUpSyncAsync vs. CatchUpSyncCoreAsync (Locking)".</summary>
+    /// <summary>Caller holds the group's gate. See Umsetzungsplan.md, "CatchUpSyncAsync vs. CatchUpSyncCoreAsync (Locking)".</summary>
     private async Task CatchUpSyncCoreAsync(GroupViewModel group, SlotProfile slot)
     {
         var groupId = group.Group.Id;
@@ -352,7 +360,7 @@ public class ConnectionManager : IConnectionManager
             return;
         }
 
-        var session = await ConnectCancellableAsync(group, slot, isLeaderSession: false);
+        var session = await ConnectCancellableAsync(group, slot, isLeaderSession: false, isBackgroundCatchUp: true);
         if (session is null)
         {
             return;
@@ -732,7 +740,8 @@ public class ConnectionManager : IConnectionManager
     /// Null (failure already reported) if connect or login fails. See Umsetzungsplan.md,
     /// "Transiente Verbindungsfehler und Retry" and "Passwort-Prompt und Retry-Flow".
     /// </summary>
-    private async Task<IArchipelagoSession?> ConnectSlotSessionAsync(GroupViewModel group, SlotProfile slot, bool isLeaderSession, CancellationToken cancellationToken = default)
+    /// <param name="isBackgroundCatchUp">Waits behind every interactive connect at the app-wide <see cref="ConnectGate"/>.</param>
+    private async Task<IArchipelagoSession?> ConnectSlotSessionAsync(GroupViewModel group, SlotProfile slot, bool isLeaderSession, CancellationToken cancellationToken = default, bool isBackgroundCatchUp = false)
     {
         for (var attempt = 1; attempt <= 1 + MaxTransientConnectRetries; attempt++)
         {
@@ -754,7 +763,7 @@ public class ConnectionManager : IConnectionManager
             LoginOutcome outcome;
             try
             {
-                outcome = await ConnectAndLoginAsync(group, slot, session, isLeaderSession, cancellationToken);
+                outcome = await ConnectAndLoginAsync(group, slot, session, isLeaderSession, isBackgroundCatchUp, cancellationToken);
             }
             catch (Exception ex) when (IsTransientConnectFailure(ex) && attempt <= MaxTransientConnectRetries)
             {
@@ -864,7 +873,7 @@ public class ConnectionManager : IConnectionManager
     }
 
     /// <summary>May throw a transient error. See Umsetzungsplan.md, "Passwort-Prompt und Retry-Flow".</summary>
-    private async Task<LoginOutcome> ConnectAndLoginAsync(GroupViewModel group, SlotProfile slot, IArchipelagoSession session, bool isLeaderSession, CancellationToken cancellationToken)
+    private async Task<LoginOutcome> ConnectAndLoginAsync(GroupViewModel group, SlotProfile slot, IArchipelagoSession session, bool isLeaderSession, bool isBackgroundCatchUp, CancellationToken cancellationToken)
     {
         if (NeedsPasswordPrompt(group, slot) && PasswordRequested is not null)
         {
@@ -873,6 +882,36 @@ public class ConnectionManager : IConnectionManager
             {
                 return QuietlyAbandon(group, isLeaderSession);
             }
+        }
+
+        // slot.Password is only set for a custom-hosted room's per-slot override.
+        var effectivePassword = !string.IsNullOrEmpty(slot.Password) ? slot.Password : group.Group.Password;
+
+        var loginResult = await OpenSocketAndLoginAsync(group, slot, session, effectivePassword, isBackgroundCatchUp, cancellationToken);
+        if (loginResult is null)
+        {
+            return LoginOutcome.Abandoned;
+        }
+
+        if (loginResult is not LoginSuccessful)
+        {
+            return await HandleLoginFailureAsync(group, slot, session, isLeaderSession, (LoginFailure)loginResult, cancellationToken);
+        }
+
+        UpdateRequiresPassword(group, slot, !string.IsNullOrEmpty(effectivePassword));
+        return LoginOutcome.Succeeded;
+    }
+
+    /// <summary>
+    /// Holds the app-wide <see cref="ConnectGate"/> only for the handshake itself - never across a password
+    /// prompt, so an open dialog doesn't stall every other server. Null = cancelled, already cleaned up.
+    /// </summary>
+    private async Task<LoginResult?> OpenSocketAndLoginAsync(GroupViewModel group, SlotProfile slot, IArchipelagoSession session, string? effectivePassword, bool isBackgroundCatchUp, CancellationToken cancellationToken)
+    {
+        using var gateLease = await _connectGate.EnterAsync(isBackgroundCatchUp, cancellationToken);
+        if (gateLease is null)
+        {
+            return null; // socket never opened
         }
 
         var roomInfo = await session.ConnectAsync();
@@ -884,11 +923,8 @@ public class ConnectionManager : IConnectionManager
         if (cancellationToken.IsCancellationRequested)
         {
             await _socketCleanup.CloseAsync(group, slot, session);
-            return LoginOutcome.Abandoned;
+            return null;
         }
-
-        // slot.Password is only set for a custom-hosted room's per-slot override.
-        var effectivePassword = !string.IsNullOrEmpty(slot.Password) ? slot.Password : group.Group.Password;
 
         var loginResult = await session.LoginAsync(
             string.Empty, // generic tracker client: no specific game implementation
@@ -901,16 +937,10 @@ public class ConnectionManager : IConnectionManager
         if (cancellationToken.IsCancellationRequested)
         {
             await _socketCleanup.CloseAsync(group, slot, session);
-            return LoginOutcome.Abandoned;
+            return null;
         }
 
-        if (loginResult is not LoginSuccessful)
-        {
-            return await HandleLoginFailureAsync(group, slot, session, isLeaderSession, (LoginFailure)loginResult, cancellationToken);
-        }
-
-        UpdateRequiresPassword(group, slot, !string.IsNullOrEmpty(effectivePassword));
-        return LoginOutcome.Succeeded;
+        return loginResult;
     }
 
     /// <summary>Only InvalidPassword is retried. See Umsetzungsplan.md, "Passwort-Prompt und Retry-Flow".</summary>
@@ -1076,6 +1106,9 @@ public class ConnectionManager : IConnectionManager
         _leaderSlotByGroup.TryRemove(groupId, out _);
         PostLeaderState(group, null, null);
 
+        // No leader left to piggyback on; the next successful connect re-queues every slot.
+        _catchUpQueue.RemoveGroup(groupId);
+
         if (!_autoReconnectSuppressed.ContainsKey(groupId) && group.Group.AutoConnect)
         {
             _diagnosticLogger.Warning($"[{group.Group.Name}] Leader {slot.DisplayName} dropped unexpectedly ({reason}), scheduling reconnect");
@@ -1164,14 +1197,14 @@ public class ConnectionManager : IConnectionManager
     }
 
     /// <summary>Cancellable by a manual disconnect via <see cref="_connectCancellationSources"/>.</summary>
-    private async Task<IArchipelagoSession?> ConnectCancellableAsync(GroupViewModel group, SlotProfile slot, bool isLeaderSession)
+    private async Task<IArchipelagoSession?> ConnectCancellableAsync(GroupViewModel group, SlotProfile slot, bool isLeaderSession, bool isBackgroundCatchUp = false)
     {
         var groupId = group.Group.Id;
         using var connectCts = new CancellationTokenSource();
         _connectCancellationSources[groupId] = connectCts;
         try
         {
-            return await ConnectSlotSessionAsync(group, slot, isLeaderSession, connectCts.Token);
+            return await ConnectSlotSessionAsync(group, slot, isLeaderSession, connectCts.Token, isBackgroundCatchUp);
         }
         finally
         {

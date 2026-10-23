@@ -89,7 +89,7 @@ public partial class MainWindowViewModel
             ApplyImportedSettings(settings);
         }
 
-        await ConnectGroupsSequentiallyAsync(groupsToConnect);
+        await ConnectGroupsSpacedAsync(groupsToConnect);
     }
 
     private void OverwriteGroupInPlace(GroupViewModel groupViewModel, ServerConnectionGroup replacement)
@@ -149,19 +149,8 @@ public partial class MainWindowViewModel
     }
 
     /// <summary>Spaced like startup, so importing several servers doesn't fire a burst of logins.</summary>
-    private async Task ConnectGroupsSequentiallyAsync(IReadOnlyList<GroupViewModel> groups)
-    {
-        for (var i = 0; i < groups.Count; i++)
-        {
-            if (groups[i].Group.ResolveStartupLeader() is { } leader)
-            {
-                await _connectionManager.SwitchLeaderAsync(groups[i], leader);
-            }
-
-            if (i < groups.Count - 1)
-            {
-                await Task.Delay(ConnectionManager.StartupGroupSpacing);
-            }
-        }
-    }
+    private Task ConnectGroupsSpacedAsync(IReadOnlyList<GroupViewModel> groups) =>
+        StartSpacedAsync(groups, group => group.Group.ResolveStartupLeader() is { } leader
+            ? _connectionManager.SwitchLeaderAsync(group, leader)
+            : Task.CompletedTask);
 }

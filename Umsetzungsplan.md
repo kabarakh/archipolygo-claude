@@ -322,9 +322,20 @@ in keiner festen Reihenfolge dazu:
   Dialog-Durchlauf pro Slot nötig.
 - **Sequenzielles Catch-up beim Hinzufügen mehrerer Slots.** Wenn der
   Benutzer mehrere Slots auf einmal hinzufügt, laufen ihre Catch-ups
-  nacheinander (`MainWindowViewModel.CatchUpNewSlotsSequentiallyAsync`).
-  Gleichzeitige Catch-ups überlasten den Server mit zu vielen parallelen
-  Verbindungsversuchen.
+  nacheinander. Gleichzeitige Catch-ups überlasten den Server mit zu vielen
+  parallelen Verbindungsversuchen. Heute hängt `AddSlotsToGroup` die Slots
+  an die globale Catch-up-Queue an (siehe nächster Punkt).
+- **Eine Connect-Sperre und eine Catch-up-Queue für alle Gruppen.** Vorher
+  galt "eine Verbindung gleichzeitig" nur pro Gruppe. Beim Start lief eine
+  Gruppe nach der anderen komplett durch, und der Fortschrittsbalken zeigte
+  immer nur eine Gruppe. Ein manueller Connect einer anderen Gruppe lief
+  parallel zu einem laufenden Catch-up. Heute gilt:
+  - Beim Start verbindet die App zuerst die Leader aller Gruppen.
+  - Alle Catch-ups aller Gruppen laufen nacheinander in einer Queue.
+  - Der Fortschrittsbalken zeigt eine Gesamtzahl für alle Gruppen.
+  - Ein Leader-Connect hat Vorrang vor der Queue.
+
+  Details stehen im Abschnitt "Globale Connect-Sperre und Catch-up-Queue".
 - **Slot-Verwaltung im Dialog „Edit server".** Der Dialog zeigt alle eigenen
   Slots eines Servers.
   - Der Benutzer wählt dort den Standard-Leader (`Make default`).
@@ -535,8 +546,8 @@ genau diesen Slot, der gerade verbunden ist.
 Das Feld bildet die GroupId auf die `CancellationTokenSource` ab. Diese
 gehört zu dem einen Connect-Versuch, der gerade in dieser Gruppe läuft. Der
 Versuch ist entweder ein Leader-Connect aus `SwitchLeaderAsync` oder ein
-kurzer Catch-up aus `CatchUpSyncAsync`. Nach der Invariante "Slots verbinden
-sich nie gleichzeitig" laufen nie beide zugleich.
+kurzer Catch-up aus der Catch-up-Queue. Beide halten den Lock der Gruppe.
+Darum laufen nie beide zugleich.
 
 `DisconnectGroupAsync` cancelt dieses Token, *bevor* es auf `_groupLocks`
 wartet. So unterbricht ein manuelles Disconnect einen Connect, der
@@ -560,7 +571,7 @@ erste dieser Events.
 Methode ein laufendes Connect-Token. Beides passiert synchron, *bevor* die
 Methode `_groupLocks` überhaupt anfasst. Diese Reihenfolge ist Absicht.
 
-Grund für "Cancel vor Lock": `SwitchLeaderAsync`/`CatchUpSyncAsync` halten
+Grund für "Cancel vor Lock": `SwitchLeaderAsync` und ein Catch-up aus der Queue halten
 diesen Lock während ihres ganzen Connects, mit allen Retry-Versuchen. Wenn
 Disconnect zuerst auf den Lock wartet, reiht es sich lautlos hinter einem
 feststeckenden Connect ein. Es wartet dann, bis dieser Connect von selbst
@@ -575,17 +586,61 @@ der Zeile mit dem Cancel. Darum ist das Flag zu diesem Zeitpunkt garantiert
 sichtbar. Das gilt unabhängig davon, wie schnell die Methode den Lock
 wirklich bekommt.
 
-### Sibling-Catch-up-Sweep: wann er läuft und wann er abbricht
+### Globale Connect-Sperre und Catch-up-Queue
 
-Der Sweep läuft nur, wenn ein Leader-Connect die *Gruppe* wirklich online
-bringt (`groupJustCameOnline`, das heißt `previousLeaderId is null`). Das
-passiert beim Start (`InitializeGroupAsync`) oder nach einem manuellen
-Reconnect oder einem unerwarteten Drop. Eine Gruppe im Offline-Zustand hat
-keine Netzwerkaktivität (siehe `InitializeGroupAsync`). Darum ist der Moment
-des Connects genau der Moment, in dem die App jeden eigenen Slot von Grund
-auf neu aktuell machen muss. Das ist einfacher und vorhersagbarer als der
-Versuch, nur das nachzuholen, was ein früherer, vielleicht unterbrochener
-Durchlauf übersprungen hat.
+**Regel: In der ganzen App läuft immer nur ein Verbindungsaufbau mit Login
+zur gleichen Zeit.** Das gilt über alle Gruppen hinweg, nicht nur pro
+Gruppe. Viele gleichzeitige Handshakes führen zu abgelehnten oder
+blockierten Logins.
+
+Zwei Klassen setzen die Regel um. `ConnectionManager` erzeugt beide einmal:
+
+- `ConnectGate` ist die Sperre für die ganze App. `OpenSocketAndLoginAsync`
+  hält sie nur für `ConnectAsync()` und `LoginAsync()`.
+- `CatchUpQueue` ist eine Liste aller wartenden Catch-ups aller Gruppen. Ein
+  Worker arbeitet sie in Reihenfolge ab, einen Slot nach dem anderen.
+
+Die Sperre kennt zwei Arten von Wartenden:
+
+- Interaktiv: Leader-Connect, Hint-Picker, Roster-Probe.
+- Hintergrund: Catch-up aus der Queue.
+
+Wenn die Sperre frei wird, bekommt immer zuerst ein interaktiver Wartender
+die Sperre. So pausiert ein Leader-Connect die Queue: Der laufende Catch-up
+macht seinen Login fertig. Dann verbindet die App den Leader. Seine
+Sibling-Slots kommen an das Ende der Queue. Danach läuft die Queue weiter.
+
+Der Passwort-Prompt läuft *vor* dem Holen der Sperre. Ein offener
+Passwort-Dialog für eine Gruppe hält darum die anderen Gruppen nicht auf.
+Aus demselben Grund startet `MainWindowViewModel.StartSpacedAsync` die
+Leader-Connects beim Start im Abstand von `StartupGroupSpacing`. Es wartet
+nicht auf das Ende des vorherigen Connects.
+
+Ein Handshake kann hängen. Dann gibt die Sperre sich nach höchstens 30
+Sekunden selbst frei (`DefaultConnectGateMaxHold`). Sonst blockiert ein
+einziger hängender Server alle anderen Gruppen für immer.
+
+Der Worker holt pro Slot den Lock der Gruppe (`_groupLocks`) und danach die
+Sperre. Jeder andere Aufrufer holt die beiden Sperren in derselben
+Reihenfolge. Darum gibt es keinen Deadlock. Der Worker hält den Lock der
+Gruppe nur für einen Slot. Zwischen zwei Slots kann darum andere Arbeit an
+derselben Gruppe laufen.
+
+Der Worker läuft auf dem Kontext des Aufrufers, der ihn startet. In der
+echten App ist das der UI-Thread. In den Tests macht das den Ablauf mit
+`Dispatcher.UIThread.RunJobs()` deterministisch.
+
+### Sibling-Catch-up: wann er läuft und wann er abbricht
+
+Die App hängt die Sibling-Slots nur dann an die Queue an, wenn ein
+Leader-Connect die *Gruppe* wirklich online bringt (`groupJustCameOnline`,
+das heißt `previousLeaderId is null`). Das passiert beim Start
+(`InitializeGroupAsync`) oder nach einem manuellen Reconnect oder einem
+unerwarteten Drop. Eine Gruppe im Offline-Zustand hat keine
+Netzwerkaktivität (siehe `InitializeGroupAsync`). Darum ist der Moment des
+Connects genau der Moment, in dem die App jeden eigenen Slot von Grund auf
+neu aktuell machen muss. `SwitchLeaderAsync` wartet nicht auf diese
+Catch-ups.
 
 Wenn die Gruppe schon online war (`previousLeaderId is not null`), ist es nur
 ein Account-Wechsel über das Dropdown "Chat as". Dann hat der ausgehende
@@ -594,41 +649,32 @@ Broadcast-Abdeckung aktuell gehalten (siehe
 `OnLeaderMessageReceived`/`OnHintsUpdated`). Ein neuer Catch-up bei jedem
 Account-Wechsel ist darum nur eine redundante Runde Logins ohne neuen Nutzen.
 
-Der Sweep bricht sofort ab, wenn die Verbindung der Gruppe mittendrin
-abbricht. Dafür gibt es zwei Ursachen:
+Die App entfernt die wartenden Einträge einer Gruppe sofort aus der Queue,
+wenn die Verbindung der Gruppe abbricht (`CatchUpQueue.RemoveGroup`). Dafür
+gibt es zwei Ursachen:
 
-- Ein manuelles Disconnect. `DisconnectGroupAsync` setzt
-  `_autoReconnectSuppressed` synchron, noch bevor es versucht, denselben Lock
-  zu bekommen.
-- Der Leader selbst bricht unerwartet ab. `OnSocketClosed` entfernt ihn
-  synchron aus `_leaderSlotByGroup`. Das passiert ebenfalls auf dem eigenen
-  Event-Thread des Sockets, ohne auf diesen Lock zu warten.
+- Ein manuelles Disconnect (`DisconnectGroupAsync`).
+- Der Leader selbst bricht unerwartet ab (`OnSocketClosed`).
 
-In beiden Fällen bleibt keine Verbindung der Gruppe übrig, die die restlichen
-eigenen Slots (Sibling-Slots) nutzen können. Wenn der Sweep weitermacht,
-öffnet er nur sinnlos neue Verbindungen nacheinander. Der nächste
-erfolgreiche Leader-Connect wiederholt den ganzen Sweep von vorne für jeden
-eigenen Slot. Er versucht nicht, nur das Übersprungene nachzuholen.
+In beiden Fällen bleibt keine Verbindung der Gruppe übrig, die die
+Sibling-Slots nutzen können. Der nächste erfolgreiche Leader-Connect hängt
+wieder jeden Sibling-Slot an die Queue an. Ein Slot, der schon wartet, kommt
+nicht zweimal in die Queue. Zur Sicherheit prüft der Worker vor jedem Slot
+noch einmal, ob die Gruppe online ist (`IsOnline`). Ein Leader-Wechsel über
+"Chat as" bricht die Catch-ups der Gruppe nicht ab.
 
 ### CatchUpSyncAsync vs. CatchUpSyncCoreAsync (Locking)
 
-`CatchUpSyncAsync` (öffentlich) holt sich denselben Lock pro Gruppe wie
-`SwitchLeaderAsync`/`DisconnectGroupAsync`. Grund: Ein Catch-up von außen
-(zum Beispiel "Add slot" bei einer schon verbundenen Gruppe) darf nie eine
-zweite Verbindung öffnen, während ein Sweep aus `SwitchLeaderAsync` läuft.
-Dieser Sweep nutzt schon die Invariante "eine Verbindung gleichzeitig" der
-Gruppe. Der Catch-up von außen reiht sich stattdessen einfach dahinter ein.
-Der Sweep selbst hält den Lock schon. Darum ruft er direkt
-`CatchUpSyncCoreAsync` auf, denn `SemaphoreSlim` ist nicht reentrant.
+`CatchUpSyncAsync` (öffentlich) verbindet nicht selbst. Es hängt den Slot an
+die Catch-up-Queue an und wartet, bis der Slot fertig ist. Ein Catch-up von
+außen (zum Beispiel "Add slot" bei einer schon verbundenen Gruppe) reiht
+sich darum hinter alle wartenden Catch-ups ein. `CatchUpSyncCoreAsync` macht
+den eigentlichen Catch-up. Der Aufrufer (der Worker der Queue) hält dabei
+den Lock der Gruppe.
 
 `CatchUpSyncCoreAsync` bricht außerdem sofort ab, wenn der Slot inzwischen
-nicht mehr in der Konfiguration der Gruppe ist. Das gilt in beiden Fällen:
-
-- Der Slot wartet noch in der eigenen Liste des Sweeps.
-- Der Slot wartet in einem separat eingereihten Aufruf von
-  `CatchUpSyncAsync`.
-
-Die App verbindet einen entfernten Slot nie, mit oder ohne Sweep.
+nicht mehr in der Konfiguration der Gruppe ist. Die App verbindet einen
+entfernten Slot nie.
 
 ### Leader-Wechsel: bewusste kurze Überlappung
 
@@ -642,15 +688,21 @@ vielleicht im Event-Log.
 
 Beim Leader-Connect kündigt die App zuerst nur den einen Leader-Versuch an
 (`RaiseSlotSyncBatchStarting(1)`). Zu diesem Zeitpunkt steht noch nicht fest,
-ob er gelingt und ob der Sibling-Sweep danach überhaupt läuft. Der
+ob er gelingt und ob danach Sibling-Slots in die Queue kommen. Der
 Fortschrittsbalken darf nicht mehr Arbeit versprechen, als die App sicher
 versucht. Erst wenn der Leader wirklich verbunden ist, meldet die App die
-tatsächliche Anzahl der Sibling-Slots nach.
+tatsächliche Anzahl der Sibling-Slots nach. Die App meldet diese Anzahl
+*vor* dem Abschluss des Leaders. Sonst zeigt der Balken kurz einen fertigen
+Durchlauf und beginnt dann wieder bei null.
+
+Alle Gruppen zählen in dieselbe Gesamtzahl. `OnSlotSyncBatchStarting` in
+`MainWindowViewModel` erhöht die Gesamtzahl, solange noch Arbeit offen ist.
+Erst wenn alles fertig ist, beginnt die nächste Meldung wieder bei null.
 
 Ein fehlgeschlagener Leader-Versuch zählt trotzdem als "verarbeitet"
 (`RaiseSlotInitialSyncCompleted`). Sonst bleibt die Anzeige für immer zu kurz
-stehen. Wenn der Sweep später vorzeitig abbricht, meldet die App die
-übersprungenen Slots ebenfalls als "verarbeitet" nach.
+stehen. Wenn die App wartende Einträge aus der Queue entfernt, meldet sie
+diese Slots ebenfalls als "verarbeitet".
 
 ### Passwort-Prompt und Retry-Flow
 
@@ -748,7 +800,7 @@ antwortet die Methode sofort aus `_missingLocationsBySlot`. Sie holt dafür
 keinen Lock. Nur wenn der Cache leer ist, holt die Methode den Lock pro
 Gruppe und prüft den Cache erneut. Der Grund: Ein gleichzeitiger Aufruf für
 denselben Slot kann den Cache inzwischen füllen. Dasselbe gilt für einen
-parallelen Sibling-Sweep, der gerade endet.
+Catch-up aus der Queue, der gerade endet.
 
 Wenn der Slot wirklich noch nie verbunden war, verbindet die Methode ihn
 einmal mit `RunAsSlotAsync(..., keepAlive: true)`. Das füllt den Cache als

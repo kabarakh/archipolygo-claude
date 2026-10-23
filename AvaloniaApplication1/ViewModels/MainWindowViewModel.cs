@@ -165,21 +165,30 @@ public partial class MainWindowViewModel : ViewModelBase
         _attentionTracker?.RefreshSeenState();
     }
 
-    private async Task InitializeGroupsAsync()
+    // Sync counts come from each connect's own SlotSyncBatchStarting; don't force
+    // Completed = Total afterwards, it could cut off an overlapping later pass.
+    private Task InitializeGroupsAsync() =>
+        StartSpacedAsync(Groups.ToList(), _connectionManager.InitializeGroupAsync);
+
+    /// <summary>
+    /// Starts one connect per group, <see cref="ConnectionManager.StartupGroupSpacing"/> apart, without
+    /// waiting for the previous one: ConnectionManager already runs handshakes one at a time, and an
+    /// open password prompt for one server must not hold up the others.
+    /// </summary>
+    private static async Task StartSpacedAsync(IReadOnlyList<GroupViewModel> groups, Func<GroupViewModel, Task> connect)
     {
-        var groupsSnapshot = Groups.ToList();
-
-        // Sync counts come from each connect's own SlotSyncBatchStarting; don't force
-        // Completed = Total after this loop, it could cut off an overlapping later pass.
-        for (var i = 0; i < groupsSnapshot.Count; i++)
+        var connects = new List<Task>();
+        for (var i = 0; i < groups.Count; i++)
         {
-            await _connectionManager.InitializeGroupAsync(groupsSnapshot[i]);
+            connects.Add(connect(groups[i]));
 
-            if (i < groupsSnapshot.Count - 1)
+            if (i < groups.Count - 1)
             {
                 await Task.Delay(ConnectionManager.StartupGroupSpacing);
             }
         }
+
+        await Task.WhenAll(connects);
     }
 
     /// <summary>Used by the connection editor to detect duplicate Host+Port / slot names.</summary>
