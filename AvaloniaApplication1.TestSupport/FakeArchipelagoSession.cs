@@ -129,7 +129,7 @@ public sealed class FakeReceivedItemsHelper : IReceivedItemsHelper
 {
     public event ReceivedItemsHelper.ItemReceivedHandler? ItemReceived;
 
-    public string GetItemName(long id, string? game = null) => throw new NotImplementedException();
+    public string GetItemName(long id, string? game = null) => null!;
     public int Index => throw new NotImplementedException();
     public ReadOnlyCollection<ItemInfo> AllItemsReceived => throw new NotImplementedException();
     public bool Any() => false;

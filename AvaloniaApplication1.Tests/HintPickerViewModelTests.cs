@@ -34,11 +34,12 @@ public class HintPickerViewModelTests
     };
 
     /// <summary>SlotId mirrors the real fallback: receiver if configured, else finder.</summary>
-    private static HintEntry Hint(SlotProfile owningSlot, string itemName, string receivingPlayerName, string findingPlayerName = "SomeFinder", bool found = false, string locationName = "Some Location") => new()
+    private static HintEntry Hint(SlotProfile owningSlot, string itemName, string receivingPlayerName, string findingPlayerName = "SomeFinder", bool found = false, string locationName = "Some Location", bool slotIsReceiver = true) => new()
     {
         Key = System.Guid.NewGuid().ToString(),
         SlotId = owningSlot.Id,
         ReceivingPlayerName = receivingPlayerName,
+        ReceivingPlayerKind = slotIsReceiver ? EventTextSegmentKind.OwnSlotName : EventTextSegmentKind.OtherSlotName,
         FindingPlayerName = findingPlayerName,
         ItemName = itemName,
         LocationName = locationName,
@@ -76,7 +77,7 @@ public class HintPickerViewModelTests
         var kss = group.Slots[0];
 
         // SlotId falls back to the finder because the receiver isn't a configured slot.
-        viewModel.Hints.Add(Hint(kss, "Memory of a Distant World", receivingPlayerName: "KabaXIV", findingPlayerName: "KabaKSS"));
+        viewModel.Hints.Add(Hint(kss, "Memory of a Distant World", receivingPlayerName: "KabaXIV", findingPlayerName: "KabaKSS", slotIsReceiver: false));
 
         viewModel.HintPicker.OnOpened();
 
@@ -84,14 +85,13 @@ public class HintPickerViewModelTests
     }
 
     [Fact]
-    public void ItemMode_IncludesHintWhereSlotIsTheReceiver_ByAliasToo()
+    public void ItemMode_IncludesHintWhereSlotIsTheReceiver_WhateverItsDisplayName()
     {
         var (viewModel, group, _) = MakeGroup("KabaKSS");
         var kss = group.Slots[0];
-        kss.Alias = "KabaDone";
 
-        // ReceivingPlayerName is the room alias, not necessarily the slot name.
-        viewModel.Hints.Add(Hint(kss, "Fire Rod", receivingPlayerName: "KabaDone", findingPlayerName: "SomeoneElse"));
+        // The slot's alias is not known yet, so the display name matches neither SlotName nor DisplayName.
+        viewModel.Hints.Add(Hint(kss, "Fire Rod", receivingPlayerName: "KabaKSS (KabaDone)", findingPlayerName: "SomeoneElse"));
 
         viewModel.HintPicker.OnOpened();
 

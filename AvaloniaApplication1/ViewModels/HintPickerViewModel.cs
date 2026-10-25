@@ -247,10 +247,13 @@ public partial class HintPickerViewModel : ObservableObject
         ApplySearchFilter();
     }
 
-    /// <summary>Matches by slot name or alias - <c>ReceivingPlayerName</c> is resolved via <c>GetPlayerAlias</c>.</summary>
+    /// <summary>
+    /// SlotId names the receiver whenever the receiver is a configured slot, so a configured receiver
+    /// on this SlotId can only be this slot. Not by name: the display name carries the alias.
+    /// </summary>
     private static bool IsReceivingPlayer(HintEntry hint, SlotProfile slot) =>
-        string.Equals(hint.ReceivingPlayerName, slot.SlotName, StringComparison.OrdinalIgnoreCase) ||
-        (!string.IsNullOrEmpty(slot.Alias) && string.Equals(hint.ReceivingPlayerName, slot.Alias, StringComparison.OrdinalIgnoreCase));
+        hint.SlotId == slot.Id &&
+        hint.ReceivingPlayerKind is EventTextSegmentKind.OwnSlotName or EventTextSegmentKind.ConnectedSlotName;
 
     private void ApplySearchFilter()
     {

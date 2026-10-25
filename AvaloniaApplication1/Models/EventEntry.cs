@@ -15,9 +15,17 @@ public class EventEntry
 
     /// <summary>
     /// The configured slot this entry is about, for the slot filter on the merged per-group log;
-    /// null for room-wide entries (e.g. chat), which stay visible under every slot filter.
+    /// null for room-wide entries (e.g. chat) and for item sends/hints between other players.
     /// </summary>
     public Guid? SlotId { get; init; }
+
+    /// <summary>
+    /// Room-wide lines stay visible under every slot filter; item sends and hints that involve none
+    /// of the configured slots do not, since they concern the selected slot no more than any other.
+    /// </summary>
+    public bool PassesSlotFilter(Guid slotId) =>
+        SlotId == slotId ||
+        (SlotId is null && Type is not (EventType.ItemReceived or EventType.HintReceived));
 
     /// <summary>True if this arrived since the slot was last connected (see <see cref="ProfileSyncState"/>).</summary>
     public bool IsNewSinceLastSession { get; init; }

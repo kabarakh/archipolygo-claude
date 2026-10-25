@@ -366,7 +366,7 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
 
     public bool HasAdminServer => _groups.Any(g => g.ShowAdminButton);
 
-    /// <summary>Room-wide entries (<see cref="EventEntry.SlotId"/> null, e.g. plain chat) always pass the slot filter.</summary>
+    /// <summary>Slot filtering follows <see cref="EventEntry.PassesSlotFilter"/>.</summary>
     public IEnumerable<DashboardEventRow> VisibleEvents
     {
         get
@@ -403,7 +403,7 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
             if (EventsFilter.SelectedSlot is not null)
             {
                 var filterId = EventsFilter.SelectedSlot.Id;
-                rows = rows.Where(r => r.Event.SlotId is null || r.Event.SlotId == filterId);
+                rows = rows.Where(r => r.Event.PassesSlotFilter(filterId));
             }
 
             // SelectMany yields server by server; sort so the result is a true cross-server merge.

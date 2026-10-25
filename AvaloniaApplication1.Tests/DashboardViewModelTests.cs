@@ -370,7 +370,7 @@ public class DashboardViewModelTests
     }
 
     [Fact]
-    public void VisibleEvents_SlotFilter_CombinesWithServerFilter_RoomWideEntriesAlwaysPass()
+    public void VisibleEvents_SlotFilter_CombinesWithServerFilter_RoomWideChatPasses_ForeignItemLinesDoNot()
     {
         var groups = new ObservableCollection<GroupViewModel>();
         var g1 = MakeGroup("Server1");
@@ -384,6 +384,8 @@ public class DashboardViewModelTests
         g1.Events.Add(new EventEntry { Text = "Alice's event", Type = EventType.ItemReceived, SlotId = alice.Id });
         g1.Events.Add(new EventEntry { Text = "Bob's event", Type = EventType.ItemReceived, SlotId = bob.Id });
         g1.Events.Add(new EventEntry { Text = "room-wide chat", Type = EventType.Chat, SlotId = null });
+        g1.Events.Add(new EventEntry { Text = "Carol sent X to Dave", Type = EventType.ItemReceived, SlotId = null });
+        g1.Events.Add(new EventEntry { Text = "Carol's X is at Dave's Y", Type = EventType.HintReceived, SlotId = null });
 
         dashboard.EventsFilter.SelectedServer = g1;
         dashboard.EventsFilter.SelectedSlot = alice;

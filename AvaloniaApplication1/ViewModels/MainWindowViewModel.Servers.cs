@@ -97,7 +97,7 @@ public partial class MainWindowViewModel
             .Select(p => new PlayerChoice
             {
                 SlotName = p.Name,
-                DisplayText = string.Equals(p.Name, p.Alias, StringComparison.Ordinal) ? p.Name : $"{p.Name} ({p.Alias})"
+                DisplayText = SlotProfile.FormatDisplayName(p.Name, p.Alias)
             })
             .ToList();
     }

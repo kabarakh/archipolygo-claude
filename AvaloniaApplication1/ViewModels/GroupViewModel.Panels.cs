@@ -123,7 +123,7 @@ public partial class GroupViewModel
 
     public string HintsIReceiveButtonText => UnfoundHintIReceiveCount > 0 ? $"My item ({UnfoundHintIReceiveCount})" : "My item";
 
-    /// <summary>Room-wide lines (null <see cref="EventEntry.SlotId"/>) always pass the slot filter.</summary>
+    /// <summary>Slot filtering follows <see cref="EventEntry.PassesSlotFilter"/>.</summary>
     public IEnumerable<EventEntry> VisibleEvents
     {
         get
@@ -166,7 +166,7 @@ public partial class GroupViewModel
             if (SelectedEventsSlotFilter is not null)
             {
                 var filterId = SelectedEventsSlotFilter.Id;
-                events = events.Where(e => e.SlotId is null || e.SlotId == filterId);
+                events = events.Where(e => e.PassesSlotFilter(filterId));
             }
 
             return events;

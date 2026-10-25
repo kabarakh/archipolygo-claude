@@ -204,7 +204,7 @@ internal sealed class SessionEventTranslator
             roster.TryGetValue(itemSend.Receiver.Slot, out var targetSlot))
         {
             var senderKind = EventSegmentBuilder.ClassifyPlayerSlot(itemSend.Item.Player, session.ConnectionInfo.Slot, siblingIds);
-            var senderName = session.Players.GetPlayerAlias(itemSend.Item.Player) ?? string.Empty;
+            var senderName = PlayerDisplayName(session, itemSend.Item.Player);
             _messageHistoryService.HandleObservedItemForSlot(
                 group, targetSlot,
                 itemSend.Item.ItemDisplayName, itemSend.Item.LocationDisplayName, itemSend.Item.Flags,
@@ -247,8 +247,8 @@ internal sealed class SessionEventTranslator
             SlotId = slotId.Value,
             ReceivingPlayer = receivingPlayer,
             FindingPlayer = findingPlayer,
-            ReceivingPlayerName = session.Players.GetPlayerAlias(receivingPlayer),
-            FindingPlayerName = session.Players.GetPlayerAlias(findingPlayer),
+            ReceivingPlayerName = PlayerDisplayName(session, receivingPlayer),
+            FindingPlayerName = PlayerDisplayName(session, findingPlayer),
             ItemName = hintMessage.Item.ItemDisplayName,
             LocationName = hintMessage.Item.LocationDisplayName,
             Found = hintMessage.IsFound,
@@ -278,7 +278,7 @@ internal sealed class SessionEventTranslator
         if (helper.AllItemsReceived.Count > 0)
         {
             var latest = helper.AllItemsReceived[helper.AllItemsReceived.Count - 1];
-            senderName = session.Players.GetPlayerAlias(latest.Player) ?? string.Empty;
+            senderName = PlayerDisplayName(session, latest.Player);
             var roster = BuildSlotRoster(session, group.Group);
             var siblingIds = SiblingIdsExcludingOwn(roster, session.ConnectionInfo.Slot);
             senderKind = EventSegmentBuilder.ClassifyPlayerSlot(latest.Player, session.ConnectionInfo.Slot, siblingIds);
@@ -343,8 +343,8 @@ internal sealed class SessionEventTranslator
                 SlotId = slotId.Value,
                 ReceivingPlayer = hint.ReceivingPlayer,
                 FindingPlayer = hint.FindingPlayer,
-                ReceivingPlayerName = session.Players.GetPlayerAlias(hint.ReceivingPlayer),
-                FindingPlayerName = session.Players.GetPlayerAlias(hint.FindingPlayer),
+                ReceivingPlayerName = PlayerDisplayName(session, hint.ReceivingPlayer),
+                FindingPlayerName = PlayerDisplayName(session, hint.FindingPlayer),
                 ItemName = session.Items.GetItemName(hint.ItemId, receivingGame) ?? $"Item #{hint.ItemId}",
                 LocationName = session.Locations.GetLocationNameFromId(hint.LocationId, findingGame) ?? $"Location #{hint.LocationId}",
                 Found = hint.Found,
@@ -359,6 +359,11 @@ internal sealed class SessionEventTranslator
             _hintService.SyncHints(group, snapshots, isLive);
         }
     }
+
+    private static string PlayerDisplayName(IArchipelagoSession session, int slot) =>
+        session.Players.GetPlayerInfo(slot) is { } player
+            ? SlotProfile.FormatDisplayName(player.Name, player.Alias)
+            : string.Empty;
 
     private static AttentionCategory ItemAttentionCategory(Archipelago.MultiClient.Net.Enums.ItemFlags flags) =>
         EventSegmentBuilder.ClassifyItemFlags(flags) == EventTextSegmentKind.ItemProgression
