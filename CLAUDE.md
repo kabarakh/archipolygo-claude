@@ -199,6 +199,9 @@ To change connection, leader or reconnect behavior, start in
   - `.Progress.cs` - Tier 1/2 location progress.
   - `.Attention.cs` - unread/badge/mute.
   - `.Chat.cs` - message box and recall history.
+  - `.Goals.cs` - goal state of each slot in the room (`RoomSlotStatus`).
+    Entries, segments and hints keep a reference to it. Thus a later
+    goal also marks and filters older entries.
 
   Add new members to the file of their topic, not to the core file.
 - `ViewModels/MainWindowViewModel.cs` owns `Groups`, the add/remove/edit

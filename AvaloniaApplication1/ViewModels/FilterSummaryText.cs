@@ -49,6 +49,8 @@ public static class FilterSummaryText
         _ => null
     };
 
+    public static string? HideGoaled(bool hide) => hide ? "No goaled" : null;
+
     public static string? Slot(SlotProfile? slot) => slot?.DisplayName;
 
     public static string? Search(string? text) => string.IsNullOrWhiteSpace(text) ? null : $"\"{text.Trim()}\"";

@@ -163,6 +163,7 @@ public class ConnectionManager : IConnectionManager
 
         var previousLeaderId = GetLeaderId(groupId);
         PromoteToLeader(group, targetSlot);
+        _ = ReadGoalStatesAsync(group, newSession);
         await CloseOutgoingLeaderAsync(group, previousLeaderId, targetSlot);
 
         // See Umsetzungsplan.md, "Sibling-Catch-up: wann er läuft und wann er abbricht".
@@ -175,6 +176,19 @@ public class ConnectionManager : IConnectionManager
         // The leader already got its own full backlog via login. Raised after the siblings are
         // announced, so the banner never briefly shows a finished pass in between.
         RaiseSlotInitialSyncCompleted(group, targetSlot);
+    }
+
+    /// <summary>A plain request on the open session, not a handshake, so it needs neither the group lock nor the connect gate.</summary>
+    private async Task ReadGoalStatesAsync(GroupViewModel group, IArchipelagoSession session)
+    {
+        try
+        {
+            await _sessionEvents.ReadGoalStatesAsync(group, session);
+        }
+        catch (Exception ex)
+        {
+            _diagnosticLogger.Warning($"[{group.Group.Name}] Could not read goal states: {ex.Message}");
+        }
     }
 
     /// <summary>The error was already reported; the previous leader was never touched, so point the dropdown back at it.</summary>

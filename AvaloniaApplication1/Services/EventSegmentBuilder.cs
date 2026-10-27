@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Archipelago.MultiClient.Net.Enums;
 using Archipelago.MultiClient.Net.MessageLog.Messages;
@@ -12,7 +13,8 @@ namespace Archipolygo.Services;
 /// </summary>
 public static class EventSegmentBuilder
 {
-    public static IReadOnlyList<EventTextSegment> BuildChatSegments(LogMessage logMessage, IReadOnlySet<int> otherConnectedSlotIds)
+    public static IReadOnlyList<EventTextSegment> BuildChatSegments(LogMessage logMessage, IReadOnlySet<int> otherConnectedSlotIds,
+                                                                    Func<int, RoomSlotStatus>? slotStatus = null)
     {
         var segments = new List<EventTextSegment>(logMessage.Parts.Length);
 
@@ -25,7 +27,8 @@ public static class EventSegmentBuilder
                 _ => EventTextSegmentKind.PlainText
             };
 
-            segments.Add(new EventTextSegment(part.Text ?? string.Empty, kind));
+            var slot = part is PlayerMessagePart player ? slotStatus?.Invoke(player.SlotId) : null;
+            segments.Add(new EventTextSegment(part.Text ?? string.Empty, kind, slot));
         }
 
         return segments;
@@ -43,15 +46,16 @@ public static class EventSegmentBuilder
         string itemName, ItemFlags itemFlags,
         string findingPlayerName, EventTextSegmentKind findingPlayerKind,
         string receivingPlayerName, EventTextSegmentKind receivingPlayerKind,
-        string locationName) =>
+        string locationName,
+        RoomSlotStatus? findingSlot = null, RoomSlotStatus? receivingSlot = null) =>
         new[]
         {
             new EventTextSegment("Hint: ", EventTextSegmentKind.PlainText),
             new EventTextSegment(itemName, ClassifyItemFlags(itemFlags)),
             new EventTextSegment(" (", EventTextSegmentKind.PlainText),
-            new EventTextSegment(findingPlayerName, findingPlayerKind),
+            new EventTextSegment(findingPlayerName, findingPlayerKind, findingSlot),
             new EventTextSegment(" -> ", EventTextSegmentKind.PlainText),
-            new EventTextSegment(receivingPlayerName, receivingPlayerKind),
+            new EventTextSegment(receivingPlayerName, receivingPlayerKind, receivingSlot),
             new EventTextSegment($", {locationName})", EventTextSegmentKind.PlainText)
         };
 

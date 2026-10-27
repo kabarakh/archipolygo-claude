@@ -55,6 +55,13 @@ public partial class GroupViewModel
     [ObservableProperty]
     private bool _showTrapItemEvents = true;
 
+    /// <summary>Hides entries whose receiver reached their goal; see <see cref="RoomSlotStatus"/>.</summary>
+    [ObservableProperty]
+    private bool _hideGoaledEvents;
+
+    [ObservableProperty]
+    private bool _hideGoaledHints;
+
     [ObservableProperty]
     private RightPanelView _selectedRightPanel = RightPanelView.Hints;
 
@@ -88,6 +95,9 @@ public partial class GroupViewModel
             };
 
             hints = hints.Where(h => MatchesItemCategory(h.ItemKind, SelectedHintItemCategoryFilter));
+
+            if (HideGoaledHints)
+                hints = hints.Where(h => h.ReceivingSlot?.HasGoal != true);
 
             if (SelectedHintsSlotFilter is not null)
                 hints = hints.Where(h => h.SlotId == SelectedHintsSlotFilter.Id);
@@ -163,6 +173,11 @@ public partial class GroupViewModel
                 _ => true, // no item class
             });
 
+            if (HideGoaledEvents)
+            {
+                events = events.Where(e => e.Receiver?.HasGoal != true);
+            }
+
             if (SelectedEventsSlotFilter is not null)
             {
                 var filterId = SelectedEventsSlotFilter.Id;
@@ -199,6 +214,7 @@ public partial class GroupViewModel
         FilterSummaryText.Relevance(SelectedEventRelevanceFilter),
         FilterSummaryText.Category(SelectedEventCategoryFilter),
         FilterSummaryText.ItemClasses(this),
+        FilterSummaryText.HideGoaled(HideGoaledEvents),
         FilterSummaryText.Slot(SelectedEventsSlotFilter));
 
     /// <summary>Same for whichever of Hints/Items is showing.</summary>
@@ -207,6 +223,7 @@ public partial class GroupViewModel
             FilterSummaryText.HintFound(SelectedHintFilter),
             FilterSummaryText.HintRole(SelectedHintRoleFilter),
             FilterSummaryText.ItemCategory(SelectedHintItemCategoryFilter),
+            FilterSummaryText.HideGoaled(HideGoaledHints),
             FilterSummaryText.Slot(SelectedHintsSlotFilter),
             FilterSummaryText.Search(ItemSearchText))
         : FilterSummaryText.Join(
@@ -282,6 +299,10 @@ public partial class GroupViewModel
     partial void OnSelectedEventRelevanceFilterChanged(EventRelevanceFilter value) => OnPropertyChanged(nameof(VisibleEvents));
 
     partial void OnSelectedEventCategoryFilterChanged(EventCategoryFilter value) => OnPropertyChanged(nameof(VisibleEvents));
+
+    partial void OnHideGoaledEventsChanged(bool value) => OnPropertyChanged(nameof(VisibleEvents));
+
+    partial void OnHideGoaledHintsChanged(bool value) => OnPropertyChanged(nameof(VisibleHints));
 
     partial void OnShowProgressionItemEventsChanged(bool value) => OnEventItemClassFilterChanged();
 

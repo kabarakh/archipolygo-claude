@@ -19,6 +19,11 @@ public partial class HintEntry : ObservableObject
 
     public int FindingPlayer { get; init; }
 
+    /// <summary>Shared goal state of <see cref="ReceivingPlayer"/>; null only in hand-built entries.</summary>
+    public RoomSlotStatus? ReceivingSlot { get; init; }
+
+    public RoomSlotStatus? FindingSlot { get; init; }
+
     public string ReceivingPlayerName { get; init; } = string.Empty;
 
     public string FindingPlayerName { get; init; } = string.Empty;

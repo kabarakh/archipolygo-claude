@@ -4,14 +4,22 @@
                     xmlns:conv="using:Archipolygo.Converters">
 
     <conv:EventTextSegmentKindToBrushConverter x:Key="SegmentKindToBrushConverter"/>
+    <conv:GoalMarkerTextConverter x:Key="GoalMarkerTextConverter"/>
 
     <!-- Hand-drawn rather than emoji, whose rendering differs per platform.
          For a stroked Path, not PathIcon (which only fills). -->
     <StreamGeometry x:Key="BellOffGeometry">M8,2 C5.8,2 4.5,3.8 4.5,6 L4.5,9.5 L3,11.5 L13,11.5 L11.5,9.5 L11.5,6 C11.5,3.8 10.2,2 8,2 Z M6.5,13.5 L9.5,13.5 M2,2 L14,14</StreamGeometry>
 
     <DataTemplate x:Key="EventTextSegmentTemplate" DataType="m:EventTextSegment">
-        <TextBlock Text="{Binding Text}" TextWrapping="Wrap"
-                   Foreground="{Binding Kind, Converter={StaticResource SegmentKindToBrushConverter}}"/>
+        <TextBlock TextWrapping="Wrap"
+                   Foreground="{Binding Kind, Converter={StaticResource SegmentKindToBrushConverter}}">
+            <TextBlock.Text>
+                <MultiBinding Converter="{StaticResource GoalMarkerTextConverter}">
+                    <Binding Path="Text"/>
+                    <Binding Path="Slot.HasGoal"/>
+                </MultiBinding>
+            </TextBlock.Text>
+        </TextBlock>
     </DataTemplate>
 
 </ResourceDictionary>

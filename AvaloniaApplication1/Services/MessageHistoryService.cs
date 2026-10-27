@@ -49,7 +49,8 @@ public class MessageHistoryService : IMessageHistoryService
     public void HandleError(GroupViewModel group, string message) =>
         AddEvent(group, new EventEntry { Type = EventType.Error, Text = message });
 
-    public void HandleChatMessage(GroupViewModel group, string text, IReadOnlyList<EventTextSegment> segments, Guid? slotId, EventType eventType = EventType.Chat)
+    public void HandleChatMessage(GroupViewModel group, string text, IReadOnlyList<EventTextSegment> segments, Guid? slotId, EventType eventType = EventType.Chat,
+                                  RoomSlotStatus? receiver = null)
     {
         // Only lines naming one of this group's slots count; banter between other players doesn't.
         var concernsOwnSlot = false;
@@ -62,10 +63,11 @@ public class MessageHistoryService : IMessageHistoryService
             }
         }
 
-        AddEvent(group, new EventEntry { SlotId = slotId, Type = eventType, Text = text, Segments = segments, ConcernsOwnSlot = concernsOwnSlot });
+        AddEvent(group, new EventEntry { SlotId = slotId, Type = eventType, Text = text, Segments = segments, ConcernsOwnSlot = concernsOwnSlot, Receiver = receiver });
     }
 
-    public void HandleItemsReceivedSinceLastConnection(GroupViewModel group, SlotProfile slot, ReadOnlyCollection<ItemInfo> allItemsReceived)
+    public void HandleItemsReceivedSinceLastConnection(GroupViewModel group, SlotProfile slot, ReadOnlyCollection<ItemInfo> allItemsReceived,
+                                                       RoomSlotStatus? receiver = null)
     {
         var syncState = _syncStateStore.Get(slot.Id);
 
@@ -78,7 +80,8 @@ public class MessageHistoryService : IMessageHistoryService
                 Type = EventType.ItemReceived,
                 Text = $"Received {item.ItemDisplayName} ({item.LocationDisplayName}) since last connection",
                 Segments = EventSegmentBuilder.BuildItemReceivedSegments(item.ItemDisplayName, item.Flags, item.LocationDisplayName),
-                IsNewSinceLastSession = true
+                IsNewSinceLastSession = true,
+                Receiver = receiver
             });
         }
 
@@ -115,7 +118,7 @@ public class MessageHistoryService : IMessageHistoryService
 
     public void HandleObservedItemForSlot(GroupViewModel group, SlotProfile targetSlot, string itemDisplayName,
                                            string locationDisplayName, ItemFlags itemFlags,
-                                           string senderName, EventTextSegmentKind senderKind)
+                                           string senderName, EventTextSegmentKind senderKind, RoomSlotStatus? receiver = null)
     {
         AddEvent(group, new EventEntry
         {
@@ -123,7 +126,8 @@ public class MessageHistoryService : IMessageHistoryService
             Type = EventType.ItemReceived,
             Text = $"{senderName} sent {itemDisplayName} to {targetSlot.DisplayName} ({locationDisplayName})",
             Segments = EventSegmentBuilder.BuildItemReceivedSegments(itemDisplayName, itemFlags, locationDisplayName),
-            ConcernsOwnSlot = true
+            ConcernsOwnSlot = true,
+            Receiver = receiver
         });
 
         var entry = new ReceivedItemEntry

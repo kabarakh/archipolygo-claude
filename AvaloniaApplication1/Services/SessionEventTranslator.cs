@@ -2,7 +2,9 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Archipelago.MultiClient.Net;
+using Archipelago.MultiClient.Net.Enums;
 using Archipelago.MultiClient.Net.Helpers;
 using Archipelago.MultiClient.Net.MessageLog.Messages;
 using Archipelago.MultiClient.Net.MessageLog.Parts;
@@ -89,6 +91,37 @@ internal sealed class SessionEventTranslator
         }
     }
 
+    /// <summary>
+    /// One status read per leader connect; afterwards <see cref="GoalLogMessage"/> keeps it current, since the
+    /// server never undoes a goal.
+    /// </summary>
+    public async Task ReadGoalStatesAsync(GroupViewModel group, IArchipelagoSession session)
+    {
+        var players = ConnectionManager.FilterToRealPlayers(session.Players.AllPlayers);
+        var statuses = await Task.WhenAll(players.Select(p => session.DataStorage.GetClientStatusAsync(p.Slot, p.Team)));
+
+        var goaled = players.Where((_, i) => statuses[i] == ArchipelagoClientState.ClientGoal).Select(p => p.Slot).ToHashSet();
+        goaled.UnionWith(GoaledItemLinkGroups(session, goaled));
+
+        var seed = session.RoomState.Seed;
+        Dispatcher.UIThread.Post(() => group.ApplyGoals(seed, goaled));
+    }
+
+    internal void OnGoalReached(GroupViewModel group, IArchipelagoSession session, int slotNumber)
+    {
+        var goaled = group.GoaledSlotNumbers.ToHashSet();
+        goaled.Add(slotNumber);
+        goaled.UnionWith(GoaledItemLinkGroups(session, goaled));
+
+        Dispatcher.UIThread.Post(() => group.ApplyGoals(seed: null, goaled));
+    }
+
+    private static IEnumerable<int> GoaledItemLinkGroups(IArchipelagoSession session, IReadOnlySet<int> goaledSlots) =>
+        // Not via FilterToRealPlayers: that drops exactly these item-link groups.
+        session.Players.AllPlayers
+            .Where(p => p.IsGroup && p.GetGroupMembers(session.Players).All(member => goaledSlots.Contains(member.Slot)))
+            .Select(p => p.Slot);
+
     private static HashSet<int> SiblingIdsExcludingOwn(Dictionary<int, SlotProfile> roster, int ownNumericSlotId) =>
         new(roster.Keys.Where(id => id != ownNumericSlotId));
 
@@ -159,7 +192,8 @@ internal sealed class SessionEventTranslator
         var roster = BuildSlotRoster(session, group.Group);
         var siblingIds = SiblingIdsExcludingOwn(roster, session.ConnectionInfo.Slot);
 
-        var segments = EventSegmentBuilder.BuildChatSegments(logMessage, siblingIds);
+        var segments = EventSegmentBuilder.BuildChatSegments(logMessage, siblingIds, group.GetRoomSlotStatus);
+        var receiver = logMessage is ItemSendLogMessage send ? group.GetRoomSlotStatus(send.Receiver.Slot) : null;
         var slotId = ResolvePrimarySlotId(logMessage, roster);
         // HintItemSendLogMessage derives from ItemSendLogMessage, so it must be matched first.
         var eventType = logMessage switch
@@ -178,7 +212,12 @@ internal sealed class SessionEventTranslator
             segments = AdminEventFormatter.BuildSegments(text, BuildPlayerNameKinds(session, siblingIds));
         }
 
-        _messageHistoryService.HandleChatMessage(group, text, segments, slotId, eventType);
+        _messageHistoryService.HandleChatMessage(group, text, segments, slotId, eventType, receiver);
+
+        if (logMessage is GoalLogMessage goal)
+        {
+            OnGoalReached(group, session, goal.Player.Slot);
+        }
 
         // Server lines, join/leave notices and "[Hint]: ..." lines are separate LogMessage types, so only
         // genuine player chat lands here; an "!admin ..." echo never deserves attention.
@@ -208,10 +247,13 @@ internal sealed class SessionEventTranslator
             _messageHistoryService.HandleObservedItemForSlot(
                 group, targetSlot,
                 itemSend.Item.ItemDisplayName, itemSend.Item.LocationDisplayName, itemSend.Item.Flags,
-                senderName, senderKind);
+                senderName, senderKind, receiver);
 
             // Passive coverage has no backlog, so this is always live.
-            _attentionTracker?.Report(group, ItemAttentionCategory(itemSend.Item.Flags));
+            if (receiver?.HasGoal != true)
+            {
+                _attentionTracker?.Report(group, ItemAttentionCategory(itemSend.Item.Flags));
+            }
         }
     }
 
@@ -262,6 +304,7 @@ internal sealed class SessionEventTranslator
     {
         // See Umsetzungsplan.md, section "Item-Backlog vs. Live bei OnItemReceived".
         var isLive = isLeaderSession && hasAnnouncedConnection;
+        var receiver = group.GetRoomSlotStatus(session.ConnectionInfo.Slot);
 
         if (isLive)
         {
@@ -270,7 +313,7 @@ internal sealed class SessionEventTranslator
         }
         else
         {
-            _messageHistoryService.HandleItemsReceivedSinceLastConnection(group, slot, helper.AllItemsReceived);
+            _messageHistoryService.HandleItemsReceivedSinceLastConnection(group, slot, helper.AllItemsReceived, receiver);
         }
 
         var senderName = string.Empty;
@@ -284,7 +327,7 @@ internal sealed class SessionEventTranslator
             senderKind = EventSegmentBuilder.ClassifyPlayerSlot(latest.Player, session.ConnectionInfo.Slot, siblingIds);
 
             // Catch-up backlog must never trigger attention.
-            if (isLive)
+            if (isLive && !receiver.HasGoal)
             {
                 _attentionTracker?.Report(group, ItemAttentionCategory(latest.Flags));
             }

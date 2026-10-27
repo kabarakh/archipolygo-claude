@@ -26,13 +26,16 @@ public interface IMessageHistoryService
     /// <param name="eventType">
     /// <see cref="EventType.ItemReceived"/> for item sends/cheats on the MessageLog, so they filter as "Item".
     /// </param>
-    void HandleChatMessage(GroupViewModel group, string text, IReadOnlyList<EventTextSegment> segments, Guid? slotId, EventType eventType = EventType.Chat);
+    /// <param name="receiver">Receiving slot of an item send or hint line; null for every other line.</param>
+    void HandleChatMessage(GroupViewModel group, string text, IReadOnlyList<EventTextSegment> segments, Guid? slotId, EventType eventType = EventType.Chat,
+                           RoomSlotStatus? receiver = null);
 
     /// <summary>
     /// Appends items beyond the last persisted index as "received since last connection". Call once
     /// per successful connect/catch-up, before any live item arrives.
     /// </summary>
-    void HandleItemsReceivedSinceLastConnection(GroupViewModel group, SlotProfile slot, ReadOnlyCollection<ItemInfo> allItemsReceived);
+    void HandleItemsReceivedSinceLastConnection(GroupViewModel group, SlotProfile slot, ReadOnlyCollection<ItemInfo> allItemsReceived,
+                                                RoomSlotStatus? receiver = null);
 
     /// <summary>
     /// Only advances the persisted last-seen index; the "X sent Y to Z" chat line already announces live items.
@@ -50,7 +53,7 @@ public interface IMessageHistoryService
     /// </summary>
     void HandleObservedItemForSlot(GroupViewModel group, SlotProfile targetSlot, string itemDisplayName,
                                     string locationDisplayName, ItemFlags itemFlags,
-                                    string senderName, EventTextSegmentKind senderKind);
+                                    string senderName, EventTextSegmentKind senderKind, RoomSlotStatus? receiver = null);
 
     /// <summary>
     /// Clears only <paramref name="slot"/>'s received items - the server re-delivers a slot's full

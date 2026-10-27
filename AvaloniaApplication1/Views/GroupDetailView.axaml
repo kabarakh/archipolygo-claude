@@ -125,6 +125,10 @@
                             Classes.active="{Binding SelectedEventCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Admin}"/>
                     <Border Classes="filter-separator"/>
                     <views:ItemClassFilterButton/>
+                    <Border Classes="filter-separator"/>
+                    <CheckBox Name="HideGoaledEventsCheckBox" Content="Hide goaled"
+                              IsChecked="{Binding HideGoaledEvents}"
+                              ToolTip.Tip="Hide items and hints for slots that reached their goal"/>
                     <!-- Fixed Width, not MinWidth, so the box doesn't resize and reflow the row per selected slot. -->
                     <ComboBox Name="EventsSlotFilterComboBox" ItemsSource="{Binding SlotFilterOptions}" SelectedItem="{Binding SelectedEventsSlotFilter}" Width="130">
                         <ComboBox.ItemTemplate>
@@ -221,6 +225,10 @@
                                     Classes.active="{Binding SelectedHintItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Normal}"/>
                             <Button Content="Trap" Classes="filter-toggle" Command="{Binding ShowTrapHintItemsCommand}"
                                     Classes.active="{Binding SelectedHintItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Trap}"/>
+                            <Border Classes="filter-separator"/>
+                            <CheckBox Name="HideGoaledHintsCheckBox" Content="Hide goaled"
+                                      IsChecked="{Binding HideGoaledHints}"
+                                      ToolTip.Tip="Hide hints for receivers that reached their goal"/>
                         </WrapPanel>
 
                         <WrapPanel Classes="filter-row"
@@ -288,12 +296,26 @@
                                         <TextBlock Text="{Binding ItemName}" FontWeight="Bold" TextWrapping="Wrap"
                                                    Foreground="{Binding ItemKind, Converter={StaticResource SegmentKindToBrushConverter}}"/>
                                         <TextBlock Text="-" Opacity="0.5"/>
-                                        <TextBlock Text="{Binding ReceivingPlayerName}" FontWeight="SemiBold" Opacity="0.85" TextWrapping="Wrap"
-                                                   Foreground="{Binding ReceivingPlayerKind, Converter={StaticResource SegmentKindToBrushConverter}}"/>
+                                        <TextBlock FontWeight="SemiBold" Opacity="0.85" TextWrapping="Wrap"
+                                                   Foreground="{Binding ReceivingPlayerKind, Converter={StaticResource SegmentKindToBrushConverter}}">
+                                            <TextBlock.Text>
+                                                <MultiBinding Converter="{StaticResource GoalMarkerTextConverter}">
+                                                    <Binding Path="ReceivingPlayerName"/>
+                                                    <Binding Path="ReceivingSlot.HasGoal"/>
+                                                </MultiBinding>
+                                            </TextBlock.Text>
+                                        </TextBlock>
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Spacing="4">
-                                        <TextBlock Text="{Binding FindingPlayerName}" Opacity="0.85" TextWrapping="Wrap"
-                                                   Foreground="{Binding FindingPlayerKind, Converter={StaticResource SegmentKindToBrushConverter}}"/>
+                                        <TextBlock Opacity="0.85" TextWrapping="Wrap"
+                                                   Foreground="{Binding FindingPlayerKind, Converter={StaticResource SegmentKindToBrushConverter}}">
+                                            <TextBlock.Text>
+                                                <MultiBinding Converter="{StaticResource GoalMarkerTextConverter}">
+                                                    <Binding Path="FindingPlayerName"/>
+                                                    <Binding Path="FindingSlot.HasGoal"/>
+                                                </MultiBinding>
+                                            </TextBlock.Text>
+                                        </TextBlock>
                                         <TextBlock Text=":" Opacity="0.7"/>
                                         <TextBlock Text="{Binding LocationName}" Opacity="0.7" TextWrapping="Wrap"/>
                                     </StackPanel>

@@ -85,6 +85,10 @@
                                     Classes.active="{Binding SelectedEventCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Admin}"/>
                             <Border Classes="filter-separator"/>
                             <views:ItemClassFilterButton/>
+                            <Border Classes="filter-separator"/>
+                            <CheckBox Name="DashboardHideGoaledEventsCheckBox" Content="Hide goaled"
+                                      IsChecked="{Binding HideGoaledEvents}"
+                                      ToolTip.Tip="Hide items and hints for slots that reached their goal"/>
                             <ComboBox Name="DashboardEventsServerComboBox" Width="130"
                                       ItemsSource="{Binding EventsFilter.ServerOptions}" SelectedItem="{Binding EventsFilter.SelectedServer}">
                                 <ComboBox.ItemTemplate>
@@ -362,6 +366,10 @@
                                 Classes.active="{Binding SelectedHintItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Normal}"/>
                         <Button Content="Trap" Classes="filter-toggle" Command="{Binding ShowTrapHintItemsCommand}"
                                 Classes.active="{Binding SelectedHintItemCategoryFilter, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Trap}"/>
+                        <Border Classes="filter-separator"/>
+                        <CheckBox Name="DashboardHideGoaledHintsCheckBox" Content="Hide goaled"
+                                  IsChecked="{Binding HideGoaledHints}"
+                                  ToolTip.Tip="Hide hints for receivers that reached their goal"/>
                     </WrapPanel>
                 </views:CollapsibleFilterBar>
 
@@ -376,10 +384,24 @@
                                     <TextBlock Text="{Binding Hint.ItemName}" FontWeight="Bold" TextWrapping="Wrap"
                                                Foreground="{Binding Hint.ItemKind, Converter={StaticResource SegmentKindToBrushConverter}}"/>
                                     <TextBlock Text="-" Opacity="0.5"/>
-                                    <TextBlock Text="{Binding Hint.ReceivingPlayerName}" Opacity="0.85" TextWrapping="Wrap"/>
+                                    <TextBlock Opacity="0.85" TextWrapping="Wrap">
+                                        <TextBlock.Text>
+                                                <MultiBinding Converter="{StaticResource GoalMarkerTextConverter}">
+                                                    <Binding Path="Hint.ReceivingPlayerName"/>
+                                                    <Binding Path="Hint.ReceivingSlot.HasGoal"/>
+                                                </MultiBinding>
+                                            </TextBlock.Text>
+                                    </TextBlock>
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="4">
-                                    <TextBlock Text="{Binding Hint.FindingPlayerName}" Opacity="0.85" TextWrapping="Wrap"/>
+                                    <TextBlock Opacity="0.85" TextWrapping="Wrap">
+                                        <TextBlock.Text>
+                                                <MultiBinding Converter="{StaticResource GoalMarkerTextConverter}">
+                                                    <Binding Path="Hint.FindingPlayerName"/>
+                                                    <Binding Path="Hint.FindingSlot.HasGoal"/>
+                                                </MultiBinding>
+                                            </TextBlock.Text>
+                                    </TextBlock>
                                     <TextBlock Text=":" Opacity="0.7"/>
                                     <TextBlock Text="{Binding Hint.LocationName}" Opacity="0.7" TextWrapping="Wrap"/>
                                 </StackPanel>

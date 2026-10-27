@@ -27,6 +27,9 @@ public class EventEntry
         SlotId == slotId ||
         (SlotId is null && Type is not (EventType.ItemReceived or EventType.HintReceived));
 
+    /// <summary>Receiving slot of an item send or hint, for the "Hide goaled" filter; null for every other line.</summary>
+    public RoomSlotStatus? Receiver { get; init; }
+
     /// <summary>True if this arrived since the slot was last connected (see <see cref="ProfileSyncState"/>).</summary>
     public bool IsNewSinceLastSession { get; init; }
 

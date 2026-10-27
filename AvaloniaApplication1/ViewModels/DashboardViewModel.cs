@@ -37,13 +37,15 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
         FilterSummaryText.Relevance(SelectedEventRelevanceFilter),
         FilterSummaryText.Category(SelectedEventCategoryFilter),
         FilterSummaryText.ItemClasses(this),
+        FilterSummaryText.HideGoaled(HideGoaledEvents),
         EventsFilter.SelectedServer?.HeaderText,
         FilterSummaryText.Slot(EventsFilter.SelectedSlot));
 
     public string HintFilterSummaryText => FilterSummaryText.Join(
         HintFilter.SelectedServer?.HeaderText,
         FilterSummaryText.Slot(HintFilter.SelectedSlot),
-        FilterSummaryText.ItemCategory(SelectedHintItemCategoryFilter));
+        FilterSummaryText.ItemCategory(SelectedHintItemCategoryFilter),
+        FilterSummaryText.HideGoaled(HideGoaledHints));
 
     /// <summary>Every filter change already raises VisibleX, so the summary texts piggyback on that.</summary>
     protected override void OnPropertyChanged(PropertyChangedEventArgs e)
@@ -156,6 +158,8 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
         NotifyCollectionChangedEventHandler eventsHandler = (_, _) => OnPropertyChanged(nameof(VisibleEvents));
         _eventsCollectionHandlers[group] = eventsHandler;
         group.Events.CollectionChanged += eventsHandler;
+
+        group.GoalStatesChanged += OnGroupGoalStatesChanged;
     }
 
     private void UnsubscribeGroup(GroupViewModel group)
@@ -177,12 +181,27 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
             group.Events.CollectionChanged -= eventsHandler;
         }
 
+        group.GoalStatesChanged -= OnGroupGoalStatesChanged;
+
         HintFilter.HandleGroupRemoved(group);
         EventsFilter.HandleGroupRemoved(group);
 
         if (SelectedSendServerGroup == group)
         {
             SelectedSendServerGroup = null;
+        }
+    }
+
+    private void OnGroupGoalStatesChanged()
+    {
+        if (HideGoaledEvents)
+        {
+            OnPropertyChanged(nameof(VisibleEvents));
+        }
+
+        if (HideGoaledHints)
+        {
+            OnPropertyChanged(nameof(VisibleHints));
         }
     }
 
@@ -271,6 +290,9 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
                 _                           => rows,
             };
 
+            if (HideGoaledHints)
+                rows = rows.Where(r => r.Hint.ReceivingSlot?.HasGoal != true);
+
             if (HintFilter.SelectedSlot is not null)
                 rows = rows.Where(r => r.Hint.SlotId == HintFilter.SelectedSlot.Id);
 
@@ -279,6 +301,12 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
     }
 
     partial void OnSelectedHintItemCategoryFilterChanged(ItemCategoryFilter value) => OnPropertyChanged(nameof(VisibleHints));
+
+    /// <summary>Independent of every tab's own "Hide goaled" switch.</summary>
+    [ObservableProperty]
+    private bool _hideGoaledHints;
+
+    partial void OnHideGoaledHintsChanged(bool value) => OnPropertyChanged(nameof(VisibleHints));
 
     [RelayCommand]
     private void ShowAllHintItemCategories() => SelectedHintItemCategoryFilter = ItemCategoryFilter.All;
@@ -317,6 +345,11 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
 
     [ObservableProperty]
     private bool _showTrapItemEvents = true;
+
+    [ObservableProperty]
+    private bool _hideGoaledEvents;
+
+    partial void OnHideGoaledEventsChanged(bool value) => OnPropertyChanged(nameof(VisibleEvents));
 
     partial void OnSelectedEventRelevanceFilterChanged(EventRelevanceFilter value) => OnPropertyChanged(nameof(VisibleEvents));
 
@@ -399,6 +432,11 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
                 EventTextSegmentKind.ItemTrap => ShowTrapItemEvents,
                 _ => true,
             });
+
+            if (HideGoaledEvents)
+            {
+                rows = rows.Where(r => r.Event.Receiver?.HasGoal != true);
+            }
 
             if (EventsFilter.SelectedSlot is not null)
             {

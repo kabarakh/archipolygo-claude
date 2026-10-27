@@ -29,12 +29,14 @@ public sealed class FakeArchipelagoSession : IArchipelagoSession
     public FakePlayerHelper Players { get; } = new();
     IPlayerHelper IArchipelagoSession.Players => Players;
 
-    public IDataStorageHelper DataStorage => throw new NotImplementedException();
+    public FakeDataStorageHelper DataStorage { get; } = new();
+    IDataStorageHelper IArchipelagoSession.DataStorage => DataStorage;
 
     public FakeConnectionInfoProvider ConnectionInfo { get; }
     IConnectionInfoProvider IArchipelagoSession.ConnectionInfo => ConnectionInfo;
 
-    public IRoomStateHelper RoomState => throw new NotImplementedException();
+    public FakeRoomStateHelper RoomState { get; } = new();
+    IRoomStateHelper IArchipelagoSession.RoomState => RoomState;
 
     public FakeMessageLogHelper MessageLog { get; } = new();
     IMessageLogHelper IArchipelagoSession.MessageLog => MessageLog;
@@ -180,7 +182,7 @@ public sealed class FakePlayerHelper : IPlayerHelper
     public string GetPlayerAlias(int slot) => throw new NotImplementedException();
     public string GetPlayerName(int slot) => throw new NotImplementedException();
     public string GetPlayerAliasAndName(int slot) => throw new NotImplementedException();
-    public PlayerInfo GetPlayerInfo(int team, int slot) => throw new NotImplementedException();
+    public PlayerInfo GetPlayerInfo(int team, int slot) => AllPlayers.FirstOrDefault(p => p.Team == team && p.Slot == slot)!;
 
     /// <summary>Needed because <see cref="FakeConnectionInfoProvider.Game"/> is always empty.</summary>
     public PlayerInfo GetPlayerInfo(int slot) => AllPlayers.FirstOrDefault(p => p.Slot == slot)!;

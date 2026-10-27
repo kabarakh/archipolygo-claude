@@ -85,6 +85,8 @@ public class HintService : IHintService
             FindingPlayer = snapshot.FindingPlayer,
             ReceivingPlayerName = snapshot.ReceivingPlayerName,
             FindingPlayerName = snapshot.FindingPlayerName,
+            ReceivingSlot = group.GetRoomSlotStatus(snapshot.ReceivingPlayer),
+            FindingSlot = group.GetRoomSlotStatus(snapshot.FindingPlayer),
             ItemName = snapshot.ItemName,
             LocationName = snapshot.LocationName,
             Found = snapshot.Found,
@@ -111,7 +113,9 @@ public class HintService : IHintService
                         newEntry.ItemName, snapshot.ItemFlags,
                         newEntry.FindingPlayerName, snapshot.FindingPlayerKind,
                         newEntry.ReceivingPlayerName, snapshot.ReceivingPlayerKind,
-                        newEntry.LocationName),
+                        newEntry.LocationName,
+                        newEntry.FindingSlot, newEntry.ReceivingSlot),
+                    Receiver = newEntry.ReceivingSlot,
                     IsNewSinceLastSession = newEntry.IsNewSinceLastSession,
                     // TrackHints also reports hints between unrelated players.
                     ConcernsOwnSlot = snapshot.ReceivingPlayerKind is EventTextSegmentKind.OwnSlotName or EventTextSegmentKind.ConnectedSlotName ||
@@ -119,7 +123,7 @@ public class HintService : IHintService
                 });
             }
 
-            if (reportAttention)
+            if (reportAttention && newEntry.ReceivingSlot?.HasGoal != true)
             {
                 _attentionTracker?.Report(group, AttentionCategory.OwnHint);
             }
