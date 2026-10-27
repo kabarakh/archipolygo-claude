@@ -14,4 +14,8 @@ public sealed partial class RoomSlotStatus : ObservableObject
 
     [ObservableProperty]
     private bool _hasGoal;
+
+    /// <summary>Set only for an item-link group: its members, one per line. Drives the tooltip on the group's name.</summary>
+    [ObservableProperty]
+    private string? _itemLinkMembersText;
 }

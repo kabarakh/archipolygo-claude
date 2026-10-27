@@ -2,9 +2,38 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="TestHarness.TestHarnessApp"
              RequestedThemeVariant="Default">
+
+    <!-- Mirrors App.axaml's resources and styles; a missing shared resource otherwise crashes the first view that uses it. -->
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceInclude Source="avares://Archipolygo/Views/SharedTemplates.axaml"/>
+                <ResourceInclude Source="avares://Archipolygo/Views/CollapsibleFilterBar.axaml"/>
+            </ResourceDictionary.MergedDictionaries>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="PanelDividerBrush" Color="#FAFAFA"/>
+                    <SolidColorBrush x:Key="FloatingButtonBackground" Color="#FFFFFF"/>
+                    <SolidColorBrush x:Key="FloatingButtonBackgroundPointerOver" Color="#F0F0F0"/>
+                    <SolidColorBrush x:Key="FloatingButtonBackgroundPressed" Color="#E4E4E4"/>
+                    <SolidColorBrush x:Key="FloatingButtonBorderBrush" Color="#BDBDBD"/>
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="PanelDividerBrush" Color="#0A0A0A"/>
+                    <SolidColorBrush x:Key="FloatingButtonBackground" Color="#2F2F2F"/>
+                    <SolidColorBrush x:Key="FloatingButtonBackgroundPointerOver" Color="#3A3A3A"/>
+                    <SolidColorBrush x:Key="FloatingButtonBackgroundPressed" Color="#262626"/>
+                    <SolidColorBrush x:Key="FloatingButtonBorderBrush" Color="#555555"/>
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
+
     <Application.Styles>
         <FluentTheme/>
         <StyleInclude Source="avares://Archipolygo/Styles/DialogStyles.axaml"/>
         <StyleInclude Source="avares://Archipolygo/Styles/FilterStyles.axaml"/>
+        <StyleInclude Source="avares://Archipolygo/Styles/OverlayStyles.axaml"/>
+        <StyleInclude Source="avares://Archipolygo/Styles/IconButtonStyles.axaml"/>
     </Application.Styles>
 </Application>

@@ -150,6 +150,7 @@ dann nur das Wort aus dem Glossar.
 | Leader | Der eine eigene Slot einer Gruppe mit einer offenen Verbindung. | Haupt-Slot |
 | Catch-up | Kurzer Login, der verpasste Daten holt und dann trennt. | Sync, Nachladen |
 | Roster | Die Liste aller Slots im Raum. | Spielerliste |
+| Item-Link-Gruppe | Mehrere Slots im Raum mit einem gemeinsamen Item-Pool. Im Roster ein Eintrag mit `PlayerInfo.IsGroup`. | Item-Gruppe, Gruppe (allein) |
 | Hint | Ein Hinweis von Archipelago auf einen Item-Ort. | Tipp |
 | Item | Ein Gegenstand, den ein Slot empfängt oder sendet. | Gegenstand |
 | Progression-Item | Ein Item mit `ItemKind == ItemProgression`. | wichtiges Item |

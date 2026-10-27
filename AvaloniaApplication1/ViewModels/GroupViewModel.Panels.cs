@@ -233,10 +233,16 @@ public partial class GroupViewModel
 
     public bool ShowAdminButton => Group.IsAdmin;
 
-    /// <summary>Hides the Hints/Items filter bar; the Admin view has its own header.</summary>
     public bool IsAdminPanelVisible => SelectedRightPanel == RightPanelView.Admin;
 
-    partial void OnSelectedRightPanelChanged(RightPanelView value) => OnPropertyChanged(nameof(IsAdminPanelVisible));
+    /// <summary>Only Hints and Items have filters; the Admin view has its own header and Item links needs none.</summary>
+    public bool IsRightPanelFilterBarVisible => SelectedRightPanel is RightPanelView.Hints or RightPanelView.ReceivedItems;
+
+    partial void OnSelectedRightPanelChanged(RightPanelView value)
+    {
+        OnPropertyChanged(nameof(IsAdminPanelVisible));
+        OnPropertyChanged(nameof(IsRightPanelFilterBarVisible));
+    }
 
     /// <summary>Unticking "I'm the admin" must not leave the Admin view or the Admin event filter selected with no way back.</summary>
     private void OnIsAdminChanged()

@@ -164,6 +164,7 @@ public class ConnectionManager : IConnectionManager
         var previousLeaderId = GetLeaderId(groupId);
         PromoteToLeader(group, targetSlot);
         _ = ReadGoalStatesAsync(group, newSession);
+        ReadItemLinkGroups(group, newSession);
         await CloseOutgoingLeaderAsync(group, previousLeaderId, targetSlot);
 
         // See Umsetzungsplan.md, "Sibling-Catch-up: wann er läuft und wann er abbricht".
@@ -188,6 +189,19 @@ public class ConnectionManager : IConnectionManager
         catch (Exception ex)
         {
             _diagnosticLogger.Warning($"[{group.Group.Name}] Could not read goal states: {ex.Message}");
+        }
+    }
+
+    /// <summary>Display only, so a broken roster must not fail the leader connect.</summary>
+    private void ReadItemLinkGroups(GroupViewModel group, IArchipelagoSession session)
+    {
+        try
+        {
+            _sessionEvents.ReadItemLinkGroups(group, session);
+        }
+        catch (Exception ex)
+        {
+            _diagnosticLogger.Warning($"[{group.Group.Name}] Could not read item-link groups: {ex.Message}");
         }
     }
 

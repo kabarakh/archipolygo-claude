@@ -42,6 +42,7 @@ public sealed class ControlPanelWindow : Window
 
         var panel = new StackPanel { Orientation = Orientation.Vertical, Spacing = 6, Margin = new Avalonia.Thickness(10) };
 
+        AddItemLinksSection(panel);
         AddAdminSection(panel, group, connectionManager);
 
         panel.Children.Add(new TextBlock { Text = "Notifications (Benachrichtigungen.md)", FontWeight = Avalonia.Media.FontWeight.Bold });
@@ -118,6 +119,75 @@ public sealed class ControlPanelWindow : Window
         });
 
         Content = new ScrollViewer { Content = panel };
+    }
+
+    // Slot numbers match SeedAdminDemo's roster in TestHarnessApp.
+    private void AddItemLinksSection(StackPanel panel)
+    {
+        panel.Children.Add(new TextBlock { Text = "Item links", FontWeight = Avalonia.Media.FontWeight.Bold });
+        panel.Children.Add(new TextBlock
+        {
+            Text = "TestServer → \"Item links\" next to Hints/Items. Hover a group name in Events or Hints for its members.",
+            FontSize = 11,
+            Opacity = 0.7,
+            TextWrapping = Avalonia.Media.TextWrapping.Wrap
+        });
+        panel.Children.Add(Btn("Room has 3 item links", SeedItemLinks));
+        panel.Children.Add(Btn("Room has no item links", () => _group.ApplyItemLinkGroups([])));
+        panel.Children.Add(Btn("Item + hint for a link group", AddItemLinkEvents));
+        panel.Children.Add(Btn("All of \"Samus Link\" goal", () => _group.ApplyGoals(null, [3, 6, 11])));
+    }
+
+    private void SeedItemLinks()
+    {
+        RoomPlayerRef P(int slot, string name, string? alias = null) => new(slot, name, SlotProfile.FormatDisplayName(name, alias));
+        _group.ApplyItemLinkGroups(
+        [
+            new(P(9, "Sword Link"), "A Link to the Past", [P(1, _slot.SlotName), P(4, "Player One"), P(8, "Nightowl")]),
+            new(P(10, "Bug Link"), "Hollow Knight", [P(2, _siblingSlot.SlotName), P(5, "Kestrel"), P(7, "Latecomer")]),
+            new(P(11, "Samus Link"), "Super Metroid", [P(3, "Mira", "Mira the Brave"), P(6, "Done Dan")]),
+        ]);
+    }
+
+    private void AddItemLinkEvents()
+    {
+        _counter++;
+        var group = _group.GetRoomSlotStatus(9);
+        var finder = _group.GetRoomSlotStatus(3);
+        _group.Events.Add(new EventEntry
+        {
+            Type = EventType.ItemReceived,
+            Text = $"Mira sent Hookshot to Sword Link (Varia Suit #{_counter})",
+            Segments =
+            [
+                new("Mira (Mira the Brave)", EventTextSegmentKind.OtherSlotName, finder),
+                new(" sent ", EventTextSegmentKind.PlainText),
+                new("Hookshot", EventTextSegmentKind.ItemProgression),
+                new(" to ", EventTextSegmentKind.PlainText),
+                new("Sword Link", EventTextSegmentKind.OtherSlotName, group),
+                new($" (Varia Suit #{_counter})", EventTextSegmentKind.PlainText),
+            ],
+            SlotId = _slot.Id,
+        });
+
+        _group.Hints.Add(new HintEntry
+        {
+            Key = Guid.NewGuid().ToString(),
+            SlotId = _slot.Id,
+            ReceivingPlayer = 9,
+            FindingPlayer = 3,
+            ReceivingPlayerName = "Sword Link",
+            FindingPlayerName = "Mira (Mira the Brave)",
+            ReceivingSlot = group,
+            FindingSlot = finder,
+            ItemName = "Moon Pearl",
+            LocationName = $"Speed Booster #{_counter}",
+            ItemFlags = ItemFlags.Advancement,
+            ItemKind = EventTextSegmentKind.ItemProgression,
+            ReceivingPlayerKind = EventTextSegmentKind.OtherSlotName,
+            FindingPlayerKind = EventTextSegmentKind.OtherSlotName,
+            Found = false,
+        });
     }
 
     private static void AddAdminSection(StackPanel panel, GroupViewModel group, FakeConnectionManager connectionManager)

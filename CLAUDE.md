@@ -202,6 +202,10 @@ To change connection, leader or reconnect behavior, start in
   - `.Goals.cs` - goal state of each slot in the room (`RoomSlotStatus`).
     Entries, segments and hints keep a reference to it. Thus a later
     goal also marks and filters older entries.
+  - `.ItemLinks.cs` - item-link groups of the room (the "Item links"
+    panel). Their member list also goes into `RoomSlotStatus`, for the
+    tooltip on the group name. See `Item-Link-Uebersicht.md` in the
+    feature-plan archive.
 
   Add new members to the file of their topic, not to the core file.
 - `ViewModels/MainWindowViewModel.cs` owns `Groups`, the add/remove/edit

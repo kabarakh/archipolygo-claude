@@ -65,6 +65,7 @@ The other configured slots on the server also stay current:
   - **Server settings...** changes the release, collect and remaining modes, the hint cost, the points for each check, and the room and admin passwords.
   - **Automatic login:** The server logs you out when you switch accounts with "Chat as" or when you reconnect. The server also logs you out when a different client logs in as admin. While the app runs, Archipolygo logs you in again automatically.
   - **Visibility:** All players in the room see admin commands in the chat. The server hides passwords.
+- **Item links.** A room can have item-link groups: several slots share one item pool. The event log and the hints then show only the name of the group. Move the mouse over that name to see its members. If the room has item-link groups, an **Item links** button shows next to "Hints" and "Items". It lists each group with its game and its members. Your own slots are at the top.
 - **Hint...** opens a picker window for the leader of that server. You can browse the full item list of the game, not only the items that you saw before. Then you can send a `!hint` or `!hint_location` request without typing it. A checkbox hides items that you already received or hinted.
 - **Progress bar.** The progress bar is in the status row of each tab. It has up to four colored segments:
   - Your checks that are done.

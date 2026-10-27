@@ -154,6 +154,10 @@
                         IsVisible="{Binding ShowAdminButton}" IsEnabled="{Binding IsLeaderConnected}"
                         ToolTip.Tip="Admin tools for this server (needs a live connection)"
                         Classes.active="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Admin}"/>
+                <Button Content="Item links" Classes="filter-toggle" Command="{Binding ShowItemLinksPanelCommand}"
+                        IsVisible="{Binding HasItemLinkGroups}"
+                        ToolTip.Tip="Which slots share an item-link group in this room"
+                        Classes.active="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ItemLinks}"/>
             </WrapPanel>
 
             <!-- Grid so JumpToNewestButton can float over the list. Once a row is selected, Avalonia keeps
@@ -197,7 +201,7 @@
 
                 <!-- The Hints/Items switch in the header row is navigation and never collapses. -->
                 <views:CollapsibleFilterBar Grid.Row="0"
-                                            IsVisible="{Binding !IsAdminPanelVisible}"
+                                            IsVisible="{Binding IsRightPanelFilterBarVisible}"
                                             IsExpanded="{Binding FilterLayout.RightPanelFiltersExpanded}"
                                             Summary="{Binding RightPanelFilterSummaryText}">
                     <StackPanel>
@@ -297,7 +301,8 @@
                                                    Foreground="{Binding ItemKind, Converter={StaticResource SegmentKindToBrushConverter}}"/>
                                         <TextBlock Text="-" Opacity="0.5"/>
                                         <TextBlock FontWeight="SemiBold" Opacity="0.85" TextWrapping="Wrap"
-                                                   Foreground="{Binding ReceivingPlayerKind, Converter={StaticResource SegmentKindToBrushConverter}}">
+                                                   Foreground="{Binding ReceivingPlayerKind, Converter={StaticResource SegmentKindToBrushConverter}}"
+                                                   ToolTip.Tip="{Binding ReceivingSlot.ItemLinkMembersText}">
                                             <TextBlock.Text>
                                                 <MultiBinding Converter="{StaticResource GoalMarkerTextConverter}">
                                                     <Binding Path="ReceivingPlayerName"/>
@@ -358,6 +363,47 @@
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>
+
+                <!-- Same background as the neighbouring ListBoxes (Fluent's ListBox theme). -->
+                <ScrollViewer Grid.Row="0" Grid.RowSpan="2"
+                              Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                              IsVisible="{Binding SelectedRightPanel, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ItemLinks}">
+                    <ItemsControl ItemsSource="{Binding ItemLinkGroups}" Margin="12,8">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="m:ItemLinkGroup">
+                                <StackPanel Spacing="2" Margin="0,0,0,12">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <TextBlock FontWeight="Bold" TextWrapping="Wrap">
+                                            <TextBlock.Text>
+                                                <MultiBinding Converter="{StaticResource GoalMarkerTextConverter}">
+                                                    <Binding Path="DisplayName"/>
+                                                    <Binding Path="Slot.HasGoal"/>
+                                                </MultiBinding>
+                                            </TextBlock.Text>
+                                        </TextBlock>
+                                        <TextBlock Text="{Binding MemberCountText}" Opacity="0.6" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <TextBlock Text="{Binding Game}" Opacity="0.6" FontStyle="Italic" TextWrapping="Wrap"/>
+                                    <ItemsControl ItemsSource="{Binding Members}" Margin="12,2,0,0">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="m:ItemLinkMember">
+                                                <TextBlock TextWrapping="Wrap"
+                                                           Foreground="{Binding Kind, Converter={StaticResource SegmentKindToBrushConverter}}">
+                                                    <TextBlock.Text>
+                                                        <MultiBinding Converter="{StaticResource GoalMarkerTextConverter}">
+                                                            <Binding Path="DisplayName"/>
+                                                            <Binding Path="Slot.HasGoal"/>
+                                                        </MultiBinding>
+                                                    </TextBlock.Text>
+                                                </TextBlock>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
 
             </Grid>
         </Grid>

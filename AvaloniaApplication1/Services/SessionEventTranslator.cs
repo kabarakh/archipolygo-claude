@@ -122,6 +122,24 @@ internal sealed class SessionEventTranslator
             .Where(p => p.IsGroup && p.GetGroupMembers(session.Players).All(member => goaledSlots.Contains(member.Slot)))
             .Select(p => p.Slot);
 
+    /// <summary>Item links are fixed per seed, so one read per leader connect is enough.</summary>
+    public void ReadItemLinkGroups(GroupViewModel group, IArchipelagoSession session)
+    {
+        // Not via FilterToRealPlayers: that drops exactly these item-link groups.
+        var snapshots = session.Players.AllPlayers
+            .Where(p => p.IsGroup)
+            .Select(p => new ItemLinkGroupSnapshot(
+                ToRoomPlayerRef(p),
+                p.Game,
+                p.GetGroupMembers(session.Players).Select(ToRoomPlayerRef).ToList()))
+            .ToList();
+
+        Dispatcher.UIThread.Post(() => group.ApplyItemLinkGroups(snapshots));
+    }
+
+    private static RoomPlayerRef ToRoomPlayerRef(PlayerInfo player) =>
+        new(player.Slot, player.Name, SlotProfile.FormatDisplayName(player.Name, player.Alias));
+
     private static HashSet<int> SiblingIdsExcludingOwn(Dictionary<int, SlotProfile> roster, int ownNumericSlotId) =>
         new(roster.Keys.Where(id => id != ownNumericSlotId));
 
