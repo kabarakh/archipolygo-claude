@@ -86,7 +86,7 @@
                                                       IsChecked="{Binding ShowOverride}"
                                                       ToolTip.Tip="This slot needs its own password"/>
                                     </Grid>
-                                    <TextBox Text="{Binding OverridePassword}" PasswordChar="*"
+                                    <TextBox Text="{Binding OverridePassword}" PasswordChar="*" Classes="revealPasswordButton"
                                              IsVisible="{Binding ShowOverride}"
                                              Watermark="Password just for this slot"
                                              Margin="24,0,0,4"/>
@@ -131,7 +131,7 @@
                 </StackPanel>
 
                 <TextBlock Text="Password" IsVisible="{Binding !ShowPlayerPicker}"/>
-                <TextBox Text="{Binding Password}" PasswordChar="*" IsVisible="{Binding !ShowPlayerPicker}"/>
+                <TextBox Text="{Binding Password}" PasswordChar="*" Classes="revealPasswordButton" IsVisible="{Binding !ShowPlayerPicker}"/>
 
                 <CheckBox Content="Auto-connect" IsChecked="{Binding AutoConnect}" IsVisible="{Binding ShowAutoConnect}"/>
 

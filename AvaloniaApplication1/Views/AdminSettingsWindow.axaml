@@ -49,7 +49,7 @@
         <StackPanel Spacing="4">
             <TextBlock Text="Room password"/>
             <TextBlock Text="{Binding RoomPasswordStatus}" Opacity="0.6" FontSize="12"/>
-            <TextBox Text="{Binding NewRoomPassword}" PasswordChar="*" PlaceholderText="New room password (leave empty to keep it)"
+            <TextBox Text="{Binding NewRoomPassword}" PasswordChar="*" Classes="revealPasswordButton" PlaceholderText="New room password (leave empty to keep it)"
                      IsEnabled="{Binding !RemoveRoomPassword}"/>
             <CheckBox Content="Remove the room password" IsChecked="{Binding RemoveRoomPassword}"/>
         </StackPanel>
@@ -60,7 +60,7 @@
             <StackPanel Spacing="4">
                 <TextBlock Text="Admin password (server_password)" FontWeight="SemiBold"/>
                 <TextBlock Text="Leave empty to keep it. Everyone who logs in as admin needs the new one." Opacity="0.6" FontSize="12" TextWrapping="Wrap"/>
-                <TextBox Text="{Binding NewAdminPassword}" PasswordChar="*" PlaceholderText="(unchanged)"/>
+                <TextBox Text="{Binding NewAdminPassword}" PasswordChar="*" Classes="revealPasswordButton" PlaceholderText="(unchanged)"/>
             </StackPanel>
         </Border>
 

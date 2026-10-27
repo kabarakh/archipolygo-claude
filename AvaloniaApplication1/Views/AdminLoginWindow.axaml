@@ -11,7 +11,7 @@
         <TextBlock Text="{Binding IntroText}" TextWrapping="Wrap"/>
 
         <TextBlock Text="Admin password (server_password)" Opacity="0.6"/>
-        <TextBox Name="PasswordBox" Text="{Binding Password}" PasswordChar="*"/>
+        <TextBox Name="PasswordBox" Text="{Binding Password}" PasswordChar="*" Classes="revealPasswordButton"/>
 
         <TextBlock Text="{Binding ErrorText}" IsVisible="{Binding HasError}" Foreground="Red" TextWrapping="Wrap"/>
         <Border IsVisible="{Binding ShowDisabledHelp}" Background="#22888888" CornerRadius="4" Padding="8,6">
