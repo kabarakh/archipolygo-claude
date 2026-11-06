@@ -95,9 +95,8 @@ public partial class GroupViewModel : ViewModelBase, IEventItemClassFilter
         HintPicker = new HintPickerViewModel(this, connectionManager);
         Admin = new AdminPanelViewModel(this, connectionManager, multiworldTrackerService);
 
-        Events.CollectionChanged += OnEventsCollectionChanged;
+        InitializeVisibleCollections();
         Hints.CollectionChanged += OnHintsCollectionChanged;
-        ReceivedItems.CollectionChanged += (_, _) => OnPropertyChanged(nameof(VisibleReceivedItems));
         Group.PropertyChanged += OnGroupPropertyChanged;
 
         // Never unsubscribed: a GroupViewModel lives as long as its server entry.

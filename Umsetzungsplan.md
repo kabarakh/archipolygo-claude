@@ -1080,3 +1080,107 @@ Die Methode bricht ab, sobald einer dieser Fälle eintritt:
 - Der Slot ist schon wieder verbunden.
 - `CancelPendingReconnect` hat das Token gecancelt (manueller Switch oder
   Disconnect).
+
+## UI-Updates in Zeitscheiben
+
+Ein Release oder ein großer Catch-up erzeugt tausende Log-Zeilen in kurzer
+Zeit. Früher fror die App dann für viele Sekunden ein. Jede Zeile hat
+die ganze gefilterte Liste neu aufgebaut. Der Plan dazu ist
+`UI-Updates-in-Zeitscheiben.md` im Feature-Plan-Archiv.
+
+**Regeln für neuen Code:**
+
+- Leite jede Änderung an `Events`, `Hints` oder `ReceivedItems` aus einem
+  Service durch `IUiUpdateQueue.Enqueue`. Poste sie nicht direkt mit
+  `Dispatcher.UIThread.Post`.
+- Hänge Events nur mit `GroupViewModel.AppendEvent` an, nie mit
+  `Events.Add`. Sonst kommt die Zeile vor älteren Zeilen aus dem Batch.
+- Gib aus `VisibleEvents`, `VisibleHints` und `VisibleReceivedItems` immer
+  dieselbe Collection zurück. Gib kein neues LINQ-`IEnumerable` zurück.
+
+### Der Pfad einer Zeile
+
+1. `SessionEventTranslator` baut Segmente und Snapshots im Thread der
+   Bibliothek.
+2. `MessageHistoryService`, `HintService` und `AttentionTracker.Report`
+   legen die Änderung in `UiUpdateQueue.Shared`.
+3. Der erste `Enqueue` auf eine leere Queue plant genau einen Flush mit
+   `DispatcherPriority.Background`.
+4. Der Flush arbeitet höchstens `SliceBudget` (8 ms). Er führt mindestens
+   eine Änderung aus.
+5. Wenn die Queue nicht leer ist, plant der Flush den nächsten Flush.
+
+In Avalonia 12.0.4 ist `Background` (-2) niedriger als `Input` (-1) und
+`Render` (4). Darum verarbeitet Avalonia zwischen zwei Zeitscheiben
+Eingaben und zeichnet ein Frame. Der Benutzer sieht die Liste wachsen und
+kann klicken. Bei wenig Verkehr hat ein Flush eine Zeile. Die Zeile
+erscheint dann sofort.
+
+Es gibt nur eine Queue für die ganze App. Eine zweite Queue zerstört die
+Reihenfolge zwischen den Listen. Die Services nehmen `UiUpdateQueue.Shared`,
+wenn kein anderer Wert kommt. DI registriert dieselbe Instanz.
+
+### Eine Meldung pro Zeitscheibe
+
+Der Flush ruft `BeginUpdateBatch` und `EndUpdateBatch` für jede betroffene
+Gruppe auf. Während des Batch gilt:
+
+- `AppendEvent` sammelt die Events. `EndUpdateBatch` trimmt einmal auf
+  `EventHistoryLimit` und hängt alles mit einem `AddRange` an.
+- Die Hint-Zähler (`UnfoundHintCount` und die Button-Texte) zählen jeden
+  Hint. Darum melden sie sich nur einmal am Ende des Batch.
+- Ein `Found`-Wechsel baut `VisibleHints` einmal am Ende des Batch neu.
+
+Außerhalb eines Batch wirkt `AppendEvent` sofort. Das betrifft zum Beispiel
+`AdminPanelViewModel` und Tests.
+
+`RangeObservableCollection<T>` meldet `AddRange` und `RemoveRange` mit einer
+Meldung. `VirtualizingStackPanel` in Avalonia 12.0.4 verarbeitet solche
+Meldungen mit mehreren Items.
+
+`FilteredCollection<T>` ist die gefilterte Kopie hinter den
+`Visible*`-Properties. Sie folgt der Quelle so:
+
+- Ein Anhängen am Ende prüft nur die neuen Items.
+- Ein Entfernen am Anfang entfernt dieselben Items vorne. Sie vergleicht
+  die Referenzen, nicht das Prädikat. Ein Goal kann den Filterwert seit dem
+  Anhängen ändern.
+- Jede andere Änderung und jeder Filterwechsel (`Refresh`) baut die Liste
+  mit einem `Reset` neu.
+
+Ein Filterwechsel meldet die `Visible*`-Property trotzdem. Die
+Zusammenfassungen der Filterleiste hängen an dieser Meldung. Die Bindung
+ignoriert die unveränderte Instanz.
+
+### Hints
+
+`HintService` fügt Hints weiter einzeln mit `Hints.Add` ein. Die
+Deduplizierung braucht jeden neuen Hint sofort in `group.Hints`.
+`SyncHints` legt pro Snapshot eine eigene Änderung in die Queue. Ein
+`TrackHints` mit dem ganzen Raum verteilt sich so auf mehrere Zeitscheiben.
+
+Der `HintIndex` bleibt pro Gruppe über alle Aufrufe erhalten. Wenn
+`Hints.Count` nicht zum Index passt, baut `HintService` den Index neu. Das
+passiert, wenn Hints auf einem anderen Weg dazukommen (Tests, `TestHarness`).
+
+### Dashboard
+
+- `DashboardViewModel.IsShown` folgt `MainWindowViewModel.IsDashboardVisible`.
+  Wenn das Dashboard verborgen ist, markiert eine Änderung die Listen nur
+  als veraltet. Beim Einblenden baut das Dashboard jede Liste einmal neu.
+- Das Dashboard verwendet Rows wieder (`_eventRows`, `_hintRows`). Ein
+  Neuaufbau gibt der `ListBox` dieselben Row-Instanzen.
+- Neue Events kommen an ihre Position nach `Timestamp`. Fast immer ist das
+  das Ende. `OrderBy` läuft nur beim Neuaufbau.
+- Wenn eine Gruppe trimmt, entfernt das Dashboard genau ihre Rows. Wenn sie
+  nicht vorne liegen, filtert es die Liste einmal ohne neue Sortierung.
+- Ein neuer Hint kommt hinter den letzten Hint seiner Gruppe. Die Rows
+  bleiben nach der Tab-Reihenfolge gruppiert.
+
+### Tests
+
+`Dispatcher.UIThread.RunJobs()` führt in Avalonia 12.0.4 auch
+`Background`-Jobs aus. Es führt auch Jobs aus, die während `RunJobs` neu
+dazukommen. Darum brauchen Tests keine eigene Flush-Methode.
+`UiUpdateBatchingTests` prüft die Zahl der Meldungen, die Eingaben zwischen
+den Zeitscheiben und Stick-to-bottom in der echten `GroupDetailView`.

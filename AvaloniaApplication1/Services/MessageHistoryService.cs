@@ -4,7 +4,6 @@ using System.Collections.ObjectModel;
 using Archipelago.MultiClient.Net.BounceFeatures.DeathLink;
 using Archipelago.MultiClient.Net.Enums;
 using Archipelago.MultiClient.Net.Models;
-using Avalonia.Threading;
 using Archipolygo.Models;
 using Archipolygo.ViewModels;
 
@@ -14,10 +13,13 @@ public class MessageHistoryService : IMessageHistoryService
 {
     private readonly IProfileSyncStateStore _syncStateStore;
     private readonly int _eventHistoryLimit;
+    private readonly IUiUpdateQueue _updateQueue;
 
-    public MessageHistoryService(IPersistenceService persistenceService, IProfileSyncStateStore syncStateStore)
+    public MessageHistoryService(IPersistenceService persistenceService, IProfileSyncStateStore syncStateStore,
+                                 IUiUpdateQueue? updateQueue = null)
     {
         _syncStateStore = syncStateStore;
+        _updateQueue = updateQueue ?? UiUpdateQueue.Shared;
         // Read once at startup; a changed limit takes effect after a restart.
         _eventHistoryLimit = Math.Max(1, persistenceService.LoadSettings().EventHistoryLimit);
     }
@@ -113,7 +115,7 @@ public class MessageHistoryService : IMessageHistoryService
             SenderKind        = senderKind,
         };
 
-        Dispatcher.UIThread.Post(() => group.ReceivedItems.Add(entry));
+        _updateQueue.Enqueue(group, () => group.ReceivedItems.Add(entry));
     }
 
     public void HandleObservedItemForSlot(GroupViewModel group, SlotProfile targetSlot, string itemDisplayName,
@@ -141,7 +143,7 @@ public class MessageHistoryService : IMessageHistoryService
             SenderKind        = senderKind,
         };
 
-        Dispatcher.UIThread.Post(() => group.ReceivedItems.Add(entry));
+        _updateQueue.Enqueue(group, () => group.ReceivedItems.Add(entry));
     }
 
     public void HandleDeathLinkReceived(GroupViewModel group, DeathLink deathLink) =>
@@ -154,16 +156,7 @@ public class MessageHistoryService : IMessageHistoryService
 
     public void ClearReceivedItemsForSlot(GroupViewModel group, Guid slotId)
     {
-        Dispatcher.UIThread.Post(() =>
-        {
-            for (var i = group.ReceivedItems.Count - 1; i >= 0; i--)
-            {
-                if (group.ReceivedItems[i].SlotId == slotId)
-                {
-                    group.ReceivedItems.RemoveAt(i);
-                }
-            }
-        });
+        _updateQueue.Enqueue(group, () => group.ReceivedItems.RemoveAll(item => item.SlotId == slotId));
     }
 
     private void AdvanceSyncState(ProfileSyncState syncState, int newCount)
@@ -175,17 +168,6 @@ public class MessageHistoryService : IMessageHistoryService
         }
     }
 
-    private void AddEvent(GroupViewModel group, EventEntry entry)
-    {
-        // Archipelago callbacks arrive on a background thread.
-        Dispatcher.UIThread.Post(() =>
-        {
-            group.Events.Add(entry);
-
-            while (group.Events.Count > _eventHistoryLimit)
-            {
-                group.Events.RemoveAt(0);
-            }
-        });
-    }
+    private void AddEvent(GroupViewModel group, EventEntry entry) =>
+        _updateQueue.Enqueue(group, () => group.AppendEvent(entry, _eventHistoryLimit));
 }

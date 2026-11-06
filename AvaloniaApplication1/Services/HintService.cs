@@ -1,5 +1,5 @@
 using System.Collections.Generic;
-using Avalonia.Threading;
+using System.Runtime.CompilerServices;
 using Archipolygo.Models;
 using Archipolygo.ViewModels;
 
@@ -11,46 +11,63 @@ public class HintService : IHintService
 
     private readonly IAttentionTracker? _attentionTracker;
 
-    public HintService(IProfileSyncStateStore syncStateStore, IAttentionTracker? attentionTracker = null)
+    private readonly IUiUpdateQueue _updateQueue;
+
+    /// <summary>Kept across calls, so a per-snapshot update costs no scan of every hint. UI-thread only.</summary>
+    private readonly ConditionalWeakTable<GroupViewModel, HintIndex> _indexes = new();
+
+    public HintService(IProfileSyncStateStore syncStateStore, IAttentionTracker? attentionTracker = null, IUiUpdateQueue? updateQueue = null)
     {
         _syncStateStore = syncStateStore;
         _attentionTracker = attentionTracker;
+        _updateQueue = updateQueue ?? UiUpdateQueue.Shared;
     }
 
     public void SyncHints(GroupViewModel group, IReadOnlyList<HintSnapshot> hints, bool isLive)
     {
         // Diff on the UI thread: TrackHints can fire in quick succession while a previous Add is still pending.
-        Dispatcher.UIThread.Post(() =>
+        // One update per snapshot, so a room-wide batch spreads over time slices instead of blocking one.
+        var changedStates = new HashSet<ProfileSyncState>();
+        foreach (var snapshot in hints)
         {
-            var changedStates = new HashSet<ProfileSyncState>();
-            var index = new HintIndex(group.Hints);
+            _updateQueue.Enqueue(group, () =>
+                AddOrUpdate(group, IndexFor(group), snapshot, addEventEntry: true, reportAttention: isLive, changedStates));
+        }
 
-            foreach (var snapshot in hints)
-            {
-                AddOrUpdate(group, index, snapshot, addEventEntry: true, reportAttention: isLive, changedStates);
-            }
-
-            foreach (var state in changedStates)
-            {
-                _syncStateStore.Save(state);
-            }
-        });
+        _updateQueue.Enqueue(group, () => SaveSyncStates(changedStates));
     }
 
     public void AddHintFromChat(GroupViewModel group, HintSnapshot snapshot)
     {
-        Dispatcher.UIThread.Post(() =>
+        _updateQueue.Enqueue(group, () =>
         {
             var changedStates = new HashSet<ProfileSyncState>();
 
             // The chat line itself is already in the log; chat lines are never replayed backlog, so always live.
-            AddOrUpdate(group, new HintIndex(group.Hints), snapshot, addEventEntry: false, reportAttention: true, changedStates);
-
-            foreach (var state in changedStates)
-            {
-                _syncStateStore.Save(state);
-            }
+            AddOrUpdate(group, IndexFor(group), snapshot, addEventEntry: false, reportAttention: true, changedStates);
+            SaveSyncStates(changedStates);
         });
+    }
+
+    private void SaveSyncStates(HashSet<ProfileSyncState> changedStates)
+    {
+        foreach (var state in changedStates)
+        {
+            _syncStateStore.Save(state);
+        }
+    }
+
+    /// <summary>Rebuilt when hints arrived some other way (count differs). UI-thread only.</summary>
+    private HintIndex IndexFor(GroupViewModel group)
+    {
+        if (_indexes.TryGetValue(group, out var index) && index.Count == group.Hints.Count)
+        {
+            return index;
+        }
+
+        index = new HintIndex(group.Hints);
+        _indexes.AddOrUpdate(group, index);
+        return index;
     }
 
     /// <summary>
@@ -104,7 +121,7 @@ public class HintService : IHintService
         {
             if (addEventEntry)
             {
-                group.Events.Add(new EventEntry
+                group.AppendEvent(new EventEntry
                 {
                     SlotId = snapshot.SlotId,
                     Type = EventType.HintReceived,
@@ -149,8 +166,11 @@ public class HintService : IHintService
             }
         }
 
+        public int Count { get; private set; }
+
         public void Add(HintEntry hint)
         {
+            Count++;
             _byKey[hint.Key] = hint;
             _byFinderAndLocation[(hint.FindingPlayer, hint.LocationName)] = hint;
         }

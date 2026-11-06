@@ -486,5 +486,5 @@ public partial class AdminPanelViewModel : ViewModelBase
     }
 
     private void AddInfo(string text) =>
-        _group.Events.Add(new EventEntry { Type = EventType.Admin, Text = $"[Archipolygo] {text}" });
+        _group.AppendEvent(new EventEntry { Type = EventType.Admin, Text = $"[Archipolygo] {text}" });
 }

@@ -56,6 +56,7 @@ public partial class MainWindowViewModel : ViewModelBase
     partial void OnIsDashboardVisibleChanged(bool value)
     {
         OnPropertyChanged(nameof(DashboardToggleButtonText));
+        Dashboard.IsShown = value;
 
         // Leaving the Dashboard makes the selected tab visible again.
         _attentionTracker?.RefreshSeenState();

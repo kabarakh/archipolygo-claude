@@ -19,17 +19,21 @@ public sealed class AttentionTracker : IAttentionTracker
 
     private AppSettings _settings;
 
-    public AttentionTracker(IWindowAttentionService windows, IPersistenceService persistenceService)
+    private readonly IUiUpdateQueue _updateQueue;
+
+    public AttentionTracker(IWindowAttentionService windows, IPersistenceService persistenceService, IUiUpdateQueue? updateQueue = null)
     {
         _windows = windows;
+        _updateQueue = updateQueue ?? UiUpdateQueue.Shared;
         _settings = persistenceService.LoadSettings();
         _windows.WindowAcknowledged += OnWindowAcknowledged;
     }
 
     public void ApplySettings(AppSettings settings) => Dispatcher.UIThread.Post(() => _settings = settings.Clone());
 
+    /// <summary>Through the update queue, so a burst of item reports is time-sliced like the items themselves.</summary>
     public void Report(GroupViewModel group, AttentionCategory category) =>
-        Dispatcher.UIThread.Post(() => ReportOnUiThread(group, category));
+        _updateQueue.Enqueue(group, () => ReportOnUiThread(group, category));
 
     public void RefreshSeenState()
     {

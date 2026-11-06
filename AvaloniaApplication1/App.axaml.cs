@@ -123,6 +123,7 @@ public partial class App : Application
         services.AddSingleton<IPersistenceService>(serviceProvider =>
             new PersistenceService(dataDirectory.Path, serviceProvider.GetRequiredService<IDiagnosticLogger>()));
         services.AddSingleton<IProfileSyncStateStore, ProfileSyncStateStore>();
+        services.AddSingleton<IUiUpdateQueue>(UiUpdateQueue.Shared);
         services.AddSingleton<IMessageHistoryService, MessageHistoryService>();
         services.AddSingleton<IHintService, HintService>();
         services.AddSingleton<ISessionFactory, ArchipelagoSessionFactoryAdapter>();

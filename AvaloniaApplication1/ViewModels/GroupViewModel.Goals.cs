@@ -65,12 +65,12 @@ public partial class GroupViewModel
     {
         if (HideGoaledEvents)
         {
-            OnPropertyChanged(nameof(VisibleEvents));
+            RefreshVisibleEvents();
         }
 
         if (HideGoaledHints)
         {
-            OnPropertyChanged(nameof(VisibleHints));
+            RefreshVisibleHints();
         }
 
         GoalStatesChanged?.Invoke();

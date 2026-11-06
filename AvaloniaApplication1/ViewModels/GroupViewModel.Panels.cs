@@ -71,42 +71,107 @@ public partial class GroupViewModel
     [ObservableProperty]
     private string _itemSearchText = string.Empty;
 
-    public ObservableCollection<EventEntry> Events { get; } = new();
+    /// <summary>Append through <see cref="AppendEvent"/>, so an update batch can merge the appends and the trim.</summary>
+    public RangeObservableCollection<EventEntry> Events { get; } = new();
 
-    public ObservableCollection<HintEntry> Hints { get; } = new();
+    public RangeObservableCollection<HintEntry> Hints { get; } = new();
 
-    public ObservableCollection<ReceivedItemEntry> ReceivedItems { get; } = new();
+    public RangeObservableCollection<ReceivedItemEntry> ReceivedItems { get; } = new();
+
+    // Stable instances: replacing them per change made the bound ListBox re-read the whole list per line.
+    private FilteredCollection<EventEntry> _visibleEvents = null!;
+    private FilteredCollection<HintEntry> _visibleHints = null!;
+    private FilteredCollection<ReceivedItemEntry> _visibleReceivedItems = null!;
+
+    private void InitializeVisibleCollections()
+    {
+        _visibleEvents = new FilteredCollection<EventEntry>(Events, PassesEventFilters);
+        _visibleHints = new FilteredCollection<HintEntry>(Hints, PassesHintFilters);
+        _visibleReceivedItems = new FilteredCollection<ReceivedItemEntry>(ReceivedItems, PassesReceivedItemFilters);
+    }
+
+    // ── Update batch: one list notification per UiUpdateQueue time slice ──
+
+    private int _updateBatchDepth;
+    private readonly List<EventEntry> _pendingEvents = new();
+    private int _pendingEventHistoryLimit = int.MaxValue;
+    private bool _hintAggregatesDirty;
+    private bool _visibleHintsStale;
+
+    /// <summary>Called by <see cref="Services.UiUpdateQueue"/> around a time slice; nests.</summary>
+    public void BeginUpdateBatch() => _updateBatchDepth++;
+
+    public void EndUpdateBatch()
+    {
+        if (--_updateBatchDepth > 0)
+        {
+            return;
+        }
+
+        FlushPendingEvents();
+
+        if (_hintAggregatesDirty)
+        {
+            RaiseHintAggregatesChanged();
+        }
+    }
+
+    /// <summary>Outside a batch this appends at once; inside, the batch end appends and trims everything together.</summary>
+    public void AppendEvent(EventEntry entry, int historyLimit = int.MaxValue)
+    {
+        _pendingEvents.Add(entry);
+        _pendingEventHistoryLimit = Math.Min(_pendingEventHistoryLimit, Math.Max(1, historyLimit));
+
+        if (_updateBatchDepth == 0)
+        {
+            FlushPendingEvents();
+        }
+    }
+
+    private void FlushPendingEvents()
+    {
+        if (_pendingEvents.Count == 0)
+        {
+            return;
+        }
+
+        var limit = _pendingEventHistoryLimit;
+        IReadOnlyList<EventEntry> toAdd = _pendingEvents.ToList();
+        _pendingEvents.Clear();
+        _pendingEventHistoryLimit = int.MaxValue;
+
+        // Trim before appending, so a burst larger than the limit never shows more than the limit.
+        var overflow = Events.Count + toAdd.Count - limit;
+        if (overflow > 0)
+        {
+            var removeExisting = Math.Min(overflow, Events.Count);
+            Events.RemoveRange(0, removeExisting);
+            toAdd = toAdd.Skip(overflow - removeExisting).ToList();
+        }
+
+        Events.AddRange(toAdd);
+    }
 
     /// <summary>"Mine" in the role filter = concerns any configured slot, not just the leader.</summary>
-    public IEnumerable<HintEntry> VisibleHints
+    public IEnumerable<HintEntry> VisibleHints => _visibleHints;
+
+    private bool PassesHintFilters(HintEntry hint)
     {
-        get
+        if (SelectedHintFilter == HintFilter.Unfound && hint.Found)
+            return false;
+
+        var passesRole = SelectedHintRoleFilter switch
         {
-            IEnumerable<HintEntry> hints = Hints;
+            HintRoleFilter.IFind    => IsMine(hint.FindingPlayerKind),
+            HintRoleFilter.IReceive => IsMine(hint.ReceivingPlayerKind),
+            _                       => true,
+        };
 
-            if (SelectedHintFilter == HintFilter.Unfound)
-                hints = hints.Where(h => !h.Found);
-
-            hints = SelectedHintRoleFilter switch
-            {
-                HintRoleFilter.IFind    => hints.Where(h => IsMine(h.FindingPlayerKind)),
-                HintRoleFilter.IReceive => hints.Where(h => IsMine(h.ReceivingPlayerKind)),
-                _                       => hints,
-            };
-
-            hints = hints.Where(h => MatchesItemCategory(h.ItemKind, SelectedHintItemCategoryFilter));
-
-            if (HideGoaledHints)
-                hints = hints.Where(h => h.ReceivingSlot?.HasGoal != true);
-
-            if (SelectedHintsSlotFilter is not null)
-                hints = hints.Where(h => h.SlotId == SelectedHintsSlotFilter.Id);
-
-            if (!string.IsNullOrEmpty(ItemSearchText))
-                hints = hints.Where(h => h.ItemName.Contains(ItemSearchText, StringComparison.OrdinalIgnoreCase));
-
-            return hints;
-        }
+        return passesRole
+               && MatchesItemCategory(hint.ItemKind, SelectedHintItemCategoryFilter)
+               && !(HideGoaledHints && hint.ReceivingSlot?.HasGoal == true)
+               && (SelectedHintsSlotFilter is null || hint.SlotId == SelectedHintsSlotFilter.Id)
+               && (string.IsNullOrEmpty(ItemSearchText) || hint.ItemName.Contains(ItemSearchText, StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool MatchesItemCategory(EventTextSegmentKind itemKind, ItemCategoryFilter filter) => filter switch
@@ -134,79 +199,71 @@ public partial class GroupViewModel
     public string HintsIReceiveButtonText => UnfoundHintIReceiveCount > 0 ? $"My item ({UnfoundHintIReceiveCount})" : "My item";
 
     /// <summary>Slot filtering follows <see cref="EventEntry.PassesSlotFilter"/>.</summary>
-    public IEnumerable<EventEntry> VisibleEvents
+    public IEnumerable<EventEntry> VisibleEvents => _visibleEvents;
+
+    private bool PassesEventFilters(EventEntry entry)
     {
-        get
+        var passesRelevance = SelectedEventRelevanceFilter switch
         {
-            IEnumerable<EventEntry> events = Events;
+            EventRelevanceFilter.ConcernsMe => entry.ConcernsOwnSlot,
+            // An item-send line's first segment is the finder, already classified as
+            // an own slot when it is one. Own receipts start with plain "Received ".
+            EventRelevanceFilter.FoundByMe => entry.Type == EventType.ItemReceived &&
+                                              entry.Segments.Count > 0 &&
+                                              IsMine(entry.Segments[0].Kind),
+            _ => true,
+        };
 
-            if (SelectedEventRelevanceFilter == EventRelevanceFilter.ConcernsMe)
-            {
-                events = events.Where(e => e.ConcernsOwnSlot);
-            }
-            else if (SelectedEventRelevanceFilter == EventRelevanceFilter.FoundByMe)
-            {
-                // An item-send line's first segment is the finder, already classified as
-                // an own slot when it is one. Own receipts start with plain "Received ".
-                events = events.Where(e =>
-                    e.Type == EventType.ItemReceived &&
-                    e.Segments.Count > 0 &&
-                    (e.Segments[0].Kind == EventTextSegmentKind.OwnSlotName ||
-                     e.Segments[0].Kind == EventTextSegmentKind.ConnectedSlotName));
-            }
+        var passesCategory = SelectedEventCategoryFilter switch
+        {
+            EventCategoryFilter.Hints => entry.Type == EventType.HintReceived,
+            EventCategoryFilter.Items => entry.Type == EventType.ItemReceived,
+            EventCategoryFilter.Chat => entry.Type == EventType.Chat,
+            EventCategoryFilter.Admin => entry.Type == EventType.Admin,
+            _ => true,
+        };
 
-            events = SelectedEventCategoryFilter switch
-            {
-                EventCategoryFilter.Hints => events.Where(e => e.Type == EventType.HintReceived),
-                EventCategoryFilter.Items => events.Where(e => e.Type == EventType.ItemReceived),
-                EventCategoryFilter.Chat => events.Where(e => e.Type == EventType.Chat),
-                EventCategoryFilter.Admin => events.Where(e => e.Type == EventType.Admin),
-                _ => events,
-            };
+        var passesItemClass = entry.ItemKind switch
+        {
+            EventTextSegmentKind.ItemProgression => ShowProgressionItemEvents,
+            EventTextSegmentKind.ItemUseful => ShowUsefulItemEvents,
+            EventTextSegmentKind.ItemOther => ShowFillerItemEvents,
+            EventTextSegmentKind.ItemTrap => ShowTrapItemEvents,
+            _ => true, // no item class
+        };
 
-            events = events.Where(e => e.ItemKind switch
-            {
-                EventTextSegmentKind.ItemProgression => ShowProgressionItemEvents,
-                EventTextSegmentKind.ItemUseful => ShowUsefulItemEvents,
-                EventTextSegmentKind.ItemOther => ShowFillerItemEvents,
-                EventTextSegmentKind.ItemTrap => ShowTrapItemEvents,
-                _ => true, // no item class
-            });
-
-            if (HideGoaledEvents)
-            {
-                events = events.Where(e => e.Receiver?.HasGoal != true);
-            }
-
-            if (SelectedEventsSlotFilter is not null)
-            {
-                var filterId = SelectedEventsSlotFilter.Id;
-                events = events.Where(e => e.PassesSlotFilter(filterId));
-            }
-
-            return events;
-        }
+        return passesRelevance && passesCategory && passesItemClass
+               && !(HideGoaledEvents && entry.Receiver?.HasGoal == true)
+               && (SelectedEventsSlotFilter is null || entry.PassesSlotFilter(SelectedEventsSlotFilter.Id));
     }
 
-    public IEnumerable<ReceivedItemEntry> VisibleReceivedItems
+    public IEnumerable<ReceivedItemEntry> VisibleReceivedItems => _visibleReceivedItems;
+
+    private bool PassesReceivedItemFilters(ReceivedItemEntry item) =>
+        MatchesItemCategory(item.ItemKind, SelectedItemCategoryFilter)
+        && (SelectedItemsSlotFilter is null || item.SlotId == SelectedItemsSlotFilter.Id)
+        && (string.IsNullOrEmpty(ItemSearchText) || item.ItemName.Contains(ItemSearchText, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Also raises the property, though the instance stays the same: the filter summary texts piggyback on it, and
+    /// the binding ignores an unchanged instance.
+    /// </summary>
+    private void RefreshVisibleEvents()
     {
-        get
-        {
-            IEnumerable<ReceivedItemEntry> items = ReceivedItems;
+        _visibleEvents.Refresh();
+        OnPropertyChanged(nameof(VisibleEvents));
+    }
 
-            items = items.Where(i => MatchesItemCategory(i.ItemKind, SelectedItemCategoryFilter));
+    private void RefreshVisibleHints()
+    {
+        _visibleHints.Refresh();
+        OnPropertyChanged(nameof(VisibleHints));
+    }
 
-            if (SelectedItemsSlotFilter is not null)
-                items = items.Where(i => i.SlotId == SelectedItemsSlotFilter.Id);
-
-            if (!string.IsNullOrEmpty(ItemSearchText))
-            {
-                items = items.Where(i =>
-                    i.ItemName.Contains(ItemSearchText, StringComparison.OrdinalIgnoreCase));
-            }
-
-            return items;
-        }
+    private void RefreshVisibleReceivedItems()
+    {
+        _visibleReceivedItems.Refresh();
+        OnPropertyChanged(nameof(VisibleReceivedItems));
     }
 
     /// <summary>Summary for the collapsed Events filter bar; empty while nothing narrows the list.</summary>
@@ -282,33 +339,33 @@ public partial class GroupViewModel
         }
     }
 
-    partial void OnSelectedHintFilterChanged(HintFilter value) => OnPropertyChanged(nameof(VisibleHints));
+    partial void OnSelectedHintFilterChanged(HintFilter value) => RefreshVisibleHints();
 
-    partial void OnSelectedHintRoleFilterChanged(HintRoleFilter value) => OnPropertyChanged(nameof(VisibleHints));
+    partial void OnSelectedHintRoleFilterChanged(HintRoleFilter value) => RefreshVisibleHints();
 
-    partial void OnSelectedHintItemCategoryFilterChanged(ItemCategoryFilter value) => OnPropertyChanged(nameof(VisibleHints));
+    partial void OnSelectedHintItemCategoryFilterChanged(ItemCategoryFilter value) => RefreshVisibleHints();
 
-    partial void OnSelectedItemCategoryFilterChanged(ItemCategoryFilter value) => OnPropertyChanged(nameof(VisibleReceivedItems));
+    partial void OnSelectedItemCategoryFilterChanged(ItemCategoryFilter value) => RefreshVisibleReceivedItems();
 
-    partial void OnSelectedEventsSlotFilterChanged(SlotProfile? value) => OnPropertyChanged(nameof(VisibleEvents));
+    partial void OnSelectedEventsSlotFilterChanged(SlotProfile? value) => RefreshVisibleEvents();
 
-    partial void OnSelectedHintsSlotFilterChanged(SlotProfile? value) => OnPropertyChanged(nameof(VisibleHints));
+    partial void OnSelectedHintsSlotFilterChanged(SlotProfile? value) => RefreshVisibleHints();
 
-    partial void OnSelectedItemsSlotFilterChanged(SlotProfile? value) => OnPropertyChanged(nameof(VisibleReceivedItems));
+    partial void OnSelectedItemsSlotFilterChanged(SlotProfile? value) => RefreshVisibleReceivedItems();
 
     partial void OnItemSearchTextChanged(string value)
     {
-        OnPropertyChanged(nameof(VisibleHints));
-        OnPropertyChanged(nameof(VisibleReceivedItems));
+        RefreshVisibleHints();
+        RefreshVisibleReceivedItems();
     }
 
-    partial void OnSelectedEventRelevanceFilterChanged(EventRelevanceFilter value) => OnPropertyChanged(nameof(VisibleEvents));
+    partial void OnSelectedEventRelevanceFilterChanged(EventRelevanceFilter value) => RefreshVisibleEvents();
 
-    partial void OnSelectedEventCategoryFilterChanged(EventCategoryFilter value) => OnPropertyChanged(nameof(VisibleEvents));
+    partial void OnSelectedEventCategoryFilterChanged(EventCategoryFilter value) => RefreshVisibleEvents();
 
-    partial void OnHideGoaledEventsChanged(bool value) => OnPropertyChanged(nameof(VisibleEvents));
+    partial void OnHideGoaledEventsChanged(bool value) => RefreshVisibleEvents();
 
-    partial void OnHideGoaledHintsChanged(bool value) => OnPropertyChanged(nameof(VisibleHints));
+    partial void OnHideGoaledHintsChanged(bool value) => RefreshVisibleHints();
 
     partial void OnShowProgressionItemEventsChanged(bool value) => OnEventItemClassFilterChanged();
 
@@ -320,7 +377,7 @@ public partial class GroupViewModel
 
     private void OnEventItemClassFilterChanged()
     {
-        OnPropertyChanged(nameof(VisibleEvents));
+        RefreshVisibleEvents();
         OnPropertyChanged(nameof(EventItemClassFilterButtonText));
         OnPropertyChanged(nameof(IsEventItemClassFilterActive));
     }
@@ -330,9 +387,6 @@ public partial class GroupViewModel
 
     /// <inheritdoc/>
     public bool IsEventItemClassFilterActive => EventItemClassFilterText.IsActive(this);
-
-    private void OnEventsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) =>
-        OnPropertyChanged(nameof(VisibleEvents));
 
     private void OnHintsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
@@ -347,19 +401,40 @@ public partial class GroupViewModel
             }
         }
 
-        RaiseHintAggregatesChanged();
+        // VisibleHints already followed the change itself; only the counters are stale.
+        MarkHintAggregatesChanged(visibleHintsStale: false);
     }
 
     private void OnHintEntryPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(HintEntry.Found))
         {
-            RaiseHintAggregatesChanged();
+            MarkHintAggregatesChanged(visibleHintsStale: true);
         }
+    }
+
+    /// <summary>The counters scan every hint, so a batch recounts once at its end, not per hint.</summary>
+    private void MarkHintAggregatesChanged(bool visibleHintsStale)
+    {
+        _visibleHintsStale |= visibleHintsStale;
+        if (_updateBatchDepth > 0)
+        {
+            _hintAggregatesDirty = true;
+            return;
+        }
+
+        RaiseHintAggregatesChanged();
     }
 
     private void RaiseHintAggregatesChanged()
     {
+        _hintAggregatesDirty = false;
+        if (_visibleHintsStale)
+        {
+            _visibleHintsStale = false;
+            _visibleHints.Refresh();
+        }
+
         OnPropertyChanged(nameof(VisibleHints));
         OnPropertyChanged(nameof(UnfoundHintCount));
         OnPropertyChanged(nameof(UnfoundHintIFindCount));

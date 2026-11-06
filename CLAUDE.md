@@ -447,6 +447,19 @@ this shape. Each was a real bug with a specific root cause.
     raw rest of the line to the player name *exactly*. Quotes become part
     of the name and never match. Thus these commands send the bare name.
   - Build admin lines through `Services/AdminCommands.cs`, never by hand.
+- **List data goes to the UI through `UiUpdateQueue`, never through a plain
+  `Dispatcher.UIThread.Post`.** This covers `Events`, `Hints`,
+  `ReceivedItems` and attention reports (`Services/UiUpdateQueue.cs`).
+  - A release can send thousands of lines. One post per line rebuilt the
+    whole list per line, and the app froze.
+  - The queue applies changes in 8 ms slices at `Background` priority.
+    Input and render run between the slices.
+  - Append events only with `GroupViewModel.AppendEvent`, never with
+    `Events.Add`. Inside a slice, it merges the appends and the trim.
+  - `VisibleEvents`/`VisibleHints`/`VisibleReceivedItems` are stable
+    `FilteredCollection<T>` instances. Never return a new LINQ result from
+    them.
+  - See Umsetzungsplan.md, "UI-Updates in Zeitscheiben".
 - **Each UI-observable change from inside `ConnectionManager` goes through
   `Dispatcher.UIThread.Post`.** Session callbacks fire on the thread that
   the underlying library uses. If you add a new `ArchipelagoSession` event

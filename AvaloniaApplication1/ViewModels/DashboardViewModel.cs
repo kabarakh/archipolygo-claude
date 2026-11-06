@@ -88,7 +88,264 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
     {
         if (e.PropertyName is nameof(DashboardServerSlotFilter.SelectedServer) or nameof(DashboardServerSlotFilter.SelectedSlot))
         {
-            OnPropertyChanged(visiblePropertyName);
+            RefreshVisible(visiblePropertyName);
+        }
+    }
+
+    // ── Incremental lists ──
+    // Stable instances that follow each group's changes, instead of a fresh LINQ result per line: that made the
+    // bound ListBox re-read (and the Events list re-sort) everything once per incoming line.
+    // See Umsetzungsplan.md, "UI-Updates in Zeitscheiben".
+
+    private readonly RangeObservableCollection<DashboardEventRow> _visibleEvents = new();
+    private readonly RangeObservableCollection<DashboardHintRow> _visibleHints = new();
+
+    // Reused rows, so a rebuild hands the ListBox the same row instances.
+    private readonly Dictionary<EventEntry, DashboardEventRow> _eventRows = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<HintEntry, DashboardHintRow> _hintRows = new(ReferenceEqualityComparer.Instance);
+
+    private bool _visibleEventsStale = true;
+    private bool _visibleHintsStale = true;
+
+    private bool _isShown = true;
+
+    /// <summary>
+    /// False while the tab view replaces the Dashboard: changes then only mark the lists stale, and showing it
+    /// again rebuilds each once. True by default, so a Dashboard built on its own (tests) is always current.
+    /// </summary>
+    public bool IsShown
+    {
+        get => _isShown;
+        set
+        {
+            if (_isShown == value)
+            {
+                return;
+            }
+
+            _isShown = value;
+            if (value)
+            {
+                RefreshVisible(nameof(VisibleEvents));
+                RefreshVisible(nameof(VisibleHints));
+            }
+        }
+    }
+
+    /// <summary>Also raises the property: the summary texts piggyback on it, and the binding ignores an unchanged instance.</summary>
+    private void RefreshVisible(string visiblePropertyName)
+    {
+        if (visiblePropertyName == nameof(VisibleEvents))
+        {
+            _visibleEventsStale = true;
+        }
+        else
+        {
+            _visibleHintsStale = true;
+        }
+
+        if (!IsShown)
+        {
+            return;
+        }
+
+        // The getter rebuilds; reading it here keeps the list current even with no binding attached.
+        _ = visiblePropertyName == nameof(VisibleEvents) ? VisibleEvents : (object)VisibleHints;
+        OnPropertyChanged(visiblePropertyName);
+    }
+
+    private void EnsureVisibleEventsCurrent()
+    {
+        if (!_visibleEventsStale)
+        {
+            return;
+        }
+
+        _visibleEventsStale = false;
+        _visibleEvents.ResetTo(FilteredGroups(EventsFilter)
+            .SelectMany(g => g.Events.Select(e => EventRow(g, e)))
+            .Where(PassesEventFilters)
+            // SelectMany yields server by server; sort so the result is a true cross-server merge.
+            .OrderBy(r => r.Event.Timestamp)
+            .ToList());
+    }
+
+    private void EnsureVisibleHintsCurrent()
+    {
+        if (!_visibleHintsStale)
+        {
+            return;
+        }
+
+        _visibleHintsStale = false;
+        _visibleHints.ResetTo(FilteredGroups(HintFilter)
+            .SelectMany(g => g.Hints.Select(h => HintRow(g, h)))
+            .Where(PassesHintFilters)
+            .ToList());
+    }
+
+    private IEnumerable<GroupViewModel> FilteredGroups(DashboardServerSlotFilter filter) =>
+        filter.SelectedServer is null ? _groups : new[] { filter.SelectedServer };
+
+    private DashboardEventRow EventRow(GroupViewModel group, EventEntry entry)
+    {
+        if (!_eventRows.TryGetValue(entry, out var row))
+        {
+            row = new DashboardEventRow(group, entry);
+            _eventRows[entry] = row;
+        }
+
+        return row;
+    }
+
+    private DashboardHintRow HintRow(GroupViewModel group, HintEntry hint)
+    {
+        if (!_hintRows.TryGetValue(hint, out var row))
+        {
+            row = new DashboardHintRow(group, hint);
+            _hintRows[hint] = row;
+        }
+
+        return row;
+    }
+
+    /// <summary>
+    /// An append adds its rows at their timestamp position (almost always the end); a trim at a group's front
+    /// removes exactly those rows. Anything else rebuilds.
+    /// </summary>
+    private void OnGroupEventsCollectionChanged(GroupViewModel group, NotifyCollectionChangedEventArgs e)
+    {
+        if (!IsShown)
+        {
+            _visibleEventsStale = true;
+            return;
+        }
+
+        if (_visibleEventsStale)
+        {
+            RefreshVisible(nameof(VisibleEvents));
+            return;
+        }
+
+        switch (e.Action)
+        {
+            case NotifyCollectionChangedAction.Add when e.NewItems is not null:
+                if (EventsFilter.SelectedServer is null || EventsFilter.SelectedServer == group)
+                {
+                    InsertEventRowsByTimestamp(e.NewItems.Cast<EventEntry>().Select(entry => EventRow(group, entry)).Where(PassesEventFilters).ToList());
+                }
+
+                break;
+            case NotifyCollectionChangedAction.Remove when e.OldItems is not null:
+                RemoveEventRows(e.OldItems.Cast<EventEntry>());
+                break;
+            default:
+                RefreshVisible(nameof(VisibleEvents));
+                break;
+        }
+    }
+
+    private void InsertEventRowsByTimestamp(IReadOnlyList<DashboardEventRow> rows)
+    {
+        var appendAtEnd = new List<DashboardEventRow>();
+        foreach (var row in rows)
+        {
+            var last = appendAtEnd.Count > 0 ? appendAtEnd[^1] : _visibleEvents.Count > 0 ? _visibleEvents[^1] : null;
+            if (last is null || row.Event.Timestamp >= last.Event.Timestamp)
+            {
+                appendAtEnd.Add(row);
+                continue;
+            }
+
+            _visibleEvents.AddRange(appendAtEnd);
+            appendAtEnd.Clear();
+            _visibleEvents.Insert(UpperBoundByTimestamp(row.Event.Timestamp), row);
+        }
+
+        _visibleEvents.AddRange(appendAtEnd);
+    }
+
+    private int UpperBoundByTimestamp(DateTimeOffset timestamp)
+    {
+        int low = 0, high = _visibleEvents.Count;
+        while (low < high)
+        {
+            var mid = (low + high) / 2;
+            if (_visibleEvents[mid].Event.Timestamp <= timestamp)
+            {
+                low = mid + 1;
+            }
+            else
+            {
+                high = mid;
+            }
+        }
+
+        return low;
+    }
+
+    private void RemoveEventRows(IEnumerable<EventEntry> removedEntries)
+    {
+        var removedRows = new HashSet<DashboardEventRow>(ReferenceEqualityComparer.Instance);
+        foreach (var entry in removedEntries)
+        {
+            if (_eventRows.Remove(entry, out var row))
+            {
+                removedRows.Add(row);
+            }
+        }
+
+        var leading = 0;
+        while (leading < _visibleEvents.Count && removedRows.Contains(_visibleEvents[leading]))
+        {
+            leading++;
+        }
+
+        _visibleEvents.RemoveRange(0, leading);
+        if (_visibleEvents.Any(removedRows.Contains))
+        {
+            // Another server's older lines sit in front of the trimmed ones: one filtering pass, no re-sort.
+            _visibleEvents.ResetTo(_visibleEvents.Where(r => !removedRows.Contains(r)).ToList());
+        }
+    }
+
+    /// <summary>Rows stay grouped by server in tab order, so a new hint goes after its server's last row.</summary>
+    private void OnGroupHintsChangedForVisibleHints(GroupViewModel group, NotifyCollectionChangedEventArgs e)
+    {
+        if (!IsShown)
+        {
+            _visibleHintsStale = true;
+            return;
+        }
+
+        if (_visibleHintsStale)
+        {
+            RefreshVisible(nameof(VisibleHints));
+            return;
+        }
+
+        if (e.Action != NotifyCollectionChangedAction.Add || e.NewItems is null ||
+            e.NewStartingIndex != group.Hints.Count - e.NewItems.Count)
+        {
+            RefreshVisible(nameof(VisibleHints));
+            return;
+        }
+
+        if (HintFilter.SelectedServer is not null && HintFilter.SelectedServer != group)
+        {
+            return;
+        }
+
+        var groupOrder = _groups.IndexOf(group);
+        var insertAt = _visibleHints.Count;
+        while (insertAt > 0 && _groups.IndexOf(_visibleHints[insertAt - 1].Group) > groupOrder)
+        {
+            insertAt--;
+        }
+
+        foreach (var row in e.NewItems.Cast<HintEntry>().Select(hint => HintRow(group, hint)).Where(PassesHintFilters).ToList())
+        {
+            _visibleHints.Insert(insertAt++, row);
         }
     }
 
@@ -137,15 +394,15 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
         EventsFilter.RebuildServerOptions();
         RaiseAggregatesChanged();
         OnPropertyChanged(nameof(HasAdminServer));
-        OnPropertyChanged(nameof(VisibleHints));
-        OnPropertyChanged(nameof(VisibleEvents));
+        RefreshVisible(nameof(VisibleHints));
+        RefreshVisible(nameof(VisibleEvents));
     }
 
     private void SubscribeGroup(GroupViewModel group)
     {
         group.PropertyChanged += OnGroupPropertyChanged;
 
-        NotifyCollectionChangedEventHandler hintsHandler = (_, e) => OnGroupHintsCollectionChanged(e);
+        NotifyCollectionChangedEventHandler hintsHandler = (_, e) => OnGroupHintsCollectionChanged(group, e);
         _hintsCollectionHandlers[group] = hintsHandler;
         group.Hints.CollectionChanged += hintsHandler;
 
@@ -155,7 +412,7 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
         }
 
         // EventEntry is immutable, so unlike hints no per-entry subscription is needed.
-        NotifyCollectionChangedEventHandler eventsHandler = (_, _) => OnPropertyChanged(nameof(VisibleEvents));
+        NotifyCollectionChangedEventHandler eventsHandler = (_, e) => OnGroupEventsCollectionChanged(group, e);
         _eventsCollectionHandlers[group] = eventsHandler;
         group.Events.CollectionChanged += eventsHandler;
 
@@ -196,12 +453,12 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
     {
         if (HideGoaledEvents)
         {
-            OnPropertyChanged(nameof(VisibleEvents));
+            RefreshVisible(nameof(VisibleEvents));
         }
 
         if (HideGoaledHints)
         {
-            OnPropertyChanged(nameof(VisibleHints));
+            RefreshVisible(nameof(VisibleHints));
         }
     }
 
@@ -223,7 +480,7 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
         }
     }
 
-    private void OnGroupHintsCollectionChanged(NotifyCollectionChangedEventArgs e)
+    private void OnGroupHintsCollectionChanged(GroupViewModel group, NotifyCollectionChangedEventArgs e)
     {
         if (e.OldItems is not null)
         {
@@ -241,16 +498,38 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
             }
         }
 
-        OnPropertyChanged(nameof(VisibleHints));
+        if (e.OldItems is not null)
+        {
+            foreach (HintEntry hint in e.OldItems)
+            {
+                _hintRows.Remove(hint);
+            }
+        }
+
+        OnGroupHintsChangedForVisibleHints(group, e);
     }
 
     /// <summary>Only open hints show here, so a hint flipping to found simply drops out of <see cref="VisibleHints"/>.</summary>
     private void OnHintEntryPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(HintEntry.Found))
+        if (e.PropertyName != nameof(HintEntry.Found) || sender is not HintEntry hint)
         {
-            OnPropertyChanged(nameof(VisibleHints));
+            return;
         }
+
+        if (IsShown && !_visibleHintsStale && hint.Found && _hintRows.TryGetValue(hint, out var row))
+        {
+            var index = _visibleHints.IndexOf(row);
+            if (index >= 0)
+            {
+                _visibleHints.RemoveAt(index);
+                OnPropertyChanged(nameof(VisibleHints));
+            }
+
+            return;
+        }
+
+        RefreshVisible(nameof(VisibleHints));
     }
 
     private void RaiseAggregatesChanged()
@@ -274,39 +553,36 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
     {
         get
         {
-            var groups = HintFilter.SelectedServer is null
-                ? (IEnumerable<GroupViewModel>)_groups
-                : new[] { HintFilter.SelectedServer };
-
-            var rows = groups.SelectMany(g => g.Hints.Select(h => new DashboardHintRow(g, h)))
-                             .Where(r => !r.Hint.Found);
-
-            rows = SelectedHintItemCategoryFilter switch
-            {
-                ItemCategoryFilter.Progress => rows.Where(r => r.Hint.ItemKind == EventTextSegmentKind.ItemProgression),
-                ItemCategoryFilter.Useful   => rows.Where(r => r.Hint.ItemKind == EventTextSegmentKind.ItemUseful),
-                ItemCategoryFilter.Normal   => rows.Where(r => r.Hint.ItemKind == EventTextSegmentKind.ItemOther),
-                ItemCategoryFilter.Trap     => rows.Where(r => r.Hint.ItemKind == EventTextSegmentKind.ItemTrap),
-                _                           => rows,
-            };
-
-            if (HideGoaledHints)
-                rows = rows.Where(r => r.Hint.ReceivingSlot?.HasGoal != true);
-
-            if (HintFilter.SelectedSlot is not null)
-                rows = rows.Where(r => r.Hint.SlotId == HintFilter.SelectedSlot.Id);
-
-            return rows;
+            EnsureVisibleHintsCurrent();
+            return _visibleHints;
         }
     }
 
-    partial void OnSelectedHintItemCategoryFilterChanged(ItemCategoryFilter value) => OnPropertyChanged(nameof(VisibleHints));
+    private bool PassesHintFilters(DashboardHintRow row)
+    {
+        var hint = row.Hint;
+        var passesCategory = SelectedHintItemCategoryFilter switch
+        {
+            ItemCategoryFilter.Progress => hint.ItemKind == EventTextSegmentKind.ItemProgression,
+            ItemCategoryFilter.Useful   => hint.ItemKind == EventTextSegmentKind.ItemUseful,
+            ItemCategoryFilter.Normal   => hint.ItemKind == EventTextSegmentKind.ItemOther,
+            ItemCategoryFilter.Trap     => hint.ItemKind == EventTextSegmentKind.ItemTrap,
+            _                           => true,
+        };
+
+        return !hint.Found
+               && passesCategory
+               && !(HideGoaledHints && hint.ReceivingSlot?.HasGoal == true)
+               && (HintFilter.SelectedSlot is null || hint.SlotId == HintFilter.SelectedSlot.Id);
+    }
+
+    partial void OnSelectedHintItemCategoryFilterChanged(ItemCategoryFilter value) => RefreshVisible(nameof(VisibleHints));
 
     /// <summary>Independent of every tab's own "Hide goaled" switch.</summary>
     [ObservableProperty]
     private bool _hideGoaledHints;
 
-    partial void OnHideGoaledHintsChanged(bool value) => OnPropertyChanged(nameof(VisibleHints));
+    partial void OnHideGoaledHintsChanged(bool value) => RefreshVisible(nameof(VisibleHints));
 
     [RelayCommand]
     private void ShowAllHintItemCategories() => SelectedHintItemCategoryFilter = ItemCategoryFilter.All;
@@ -349,11 +625,11 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
     [ObservableProperty]
     private bool _hideGoaledEvents;
 
-    partial void OnHideGoaledEventsChanged(bool value) => OnPropertyChanged(nameof(VisibleEvents));
+    partial void OnHideGoaledEventsChanged(bool value) => RefreshVisible(nameof(VisibleEvents));
 
-    partial void OnSelectedEventRelevanceFilterChanged(EventRelevanceFilter value) => OnPropertyChanged(nameof(VisibleEvents));
+    partial void OnSelectedEventRelevanceFilterChanged(EventRelevanceFilter value) => RefreshVisible(nameof(VisibleEvents));
 
-    partial void OnSelectedEventCategoryFilterChanged(EventCategoryFilter value) => OnPropertyChanged(nameof(VisibleEvents));
+    partial void OnSelectedEventCategoryFilterChanged(EventCategoryFilter value) => RefreshVisible(nameof(VisibleEvents));
 
     partial void OnShowProgressionItemEventsChanged(bool value) => OnEventItemClassFilterChanged();
 
@@ -365,7 +641,7 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
 
     private void OnEventItemClassFilterChanged()
     {
-        OnPropertyChanged(nameof(VisibleEvents));
+        RefreshVisible(nameof(VisibleEvents));
         OnPropertyChanged(nameof(EventItemClassFilterButtonText));
         OnPropertyChanged(nameof(IsEventItemClassFilterActive));
     }
@@ -404,49 +680,36 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
     {
         get
         {
-            var groups = EventsFilter.SelectedServer is null
-                ? (IEnumerable<GroupViewModel>)_groups
-                : new[] { EventsFilter.SelectedServer };
-
-            var rows = groups.SelectMany(g => g.Events.Select(e => new DashboardEventRow(g, e)));
-
-            if (SelectedEventRelevanceFilter == EventRelevanceFilter.ConcernsMe)
-            {
-                rows = rows.Where(r => r.Event.ConcernsOwnSlot);
-            }
-
-            rows = SelectedEventCategoryFilter switch
-            {
-                EventCategoryFilter.Hints => rows.Where(r => r.Event.Type == EventType.HintReceived),
-                EventCategoryFilter.Items => rows.Where(r => r.Event.Type == EventType.ItemReceived),
-                EventCategoryFilter.Chat => rows.Where(r => r.Event.Type == EventType.Chat),
-                EventCategoryFilter.Admin => rows.Where(r => r.Event.Type == EventType.Admin),
-                _ => rows,
-            };
-
-            rows = rows.Where(r => r.Event.ItemKind switch
-            {
-                EventTextSegmentKind.ItemProgression => ShowProgressionItemEvents,
-                EventTextSegmentKind.ItemUseful => ShowUsefulItemEvents,
-                EventTextSegmentKind.ItemOther => ShowFillerItemEvents,
-                EventTextSegmentKind.ItemTrap => ShowTrapItemEvents,
-                _ => true,
-            });
-
-            if (HideGoaledEvents)
-            {
-                rows = rows.Where(r => r.Event.Receiver?.HasGoal != true);
-            }
-
-            if (EventsFilter.SelectedSlot is not null)
-            {
-                var filterId = EventsFilter.SelectedSlot.Id;
-                rows = rows.Where(r => r.Event.PassesSlotFilter(filterId));
-            }
-
-            // SelectMany yields server by server; sort so the result is a true cross-server merge.
-            return rows.OrderBy(r => r.Event.Timestamp);
+            EnsureVisibleEventsCurrent();
+            return _visibleEvents;
         }
+    }
+
+    private bool PassesEventFilters(DashboardEventRow row)
+    {
+        var entry = row.Event;
+        var passesCategory = SelectedEventCategoryFilter switch
+        {
+            EventCategoryFilter.Hints => entry.Type == EventType.HintReceived,
+            EventCategoryFilter.Items => entry.Type == EventType.ItemReceived,
+            EventCategoryFilter.Chat => entry.Type == EventType.Chat,
+            EventCategoryFilter.Admin => entry.Type == EventType.Admin,
+            _ => true,
+        };
+
+        var passesItemClass = entry.ItemKind switch
+        {
+            EventTextSegmentKind.ItemProgression => ShowProgressionItemEvents,
+            EventTextSegmentKind.ItemUseful => ShowUsefulItemEvents,
+            EventTextSegmentKind.ItemOther => ShowFillerItemEvents,
+            EventTextSegmentKind.ItemTrap => ShowTrapItemEvents,
+            _ => true,
+        };
+
+        return (SelectedEventRelevanceFilter != EventRelevanceFilter.ConcernsMe || entry.ConcernsOwnSlot)
+               && passesCategory && passesItemClass
+               && !(HideGoaledEvents && entry.Receiver?.HasGoal == true)
+               && (EventsFilter.SelectedSlot is null || entry.PassesSlotFilter(EventsFilter.SelectedSlot.Id));
     }
 
     // ── "Who's chatting" - deliberately separate from the filter above ──
