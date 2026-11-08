@@ -93,6 +93,19 @@ public class ConnectionEditorWindowProgressTests
             expectedVisible: false);
     }
 
+    [AvaloniaFact]
+    public void AddSlotPlayerRow_SlotNameIsPartOfTheCheckBox_SoClickingTheLabelToggles()
+    {
+        var group = new ServerConnectionGroup { Name = "Test Server", Host = "host", Port = 1 };
+        var viewModel = ConnectionEditorViewModel.ForAddSlot(group, new[] { new PlayerChoice { SlotName = "Bob", DisplayText = "Bob (Bobby)" } });
+        var window = new ConnectionEditorWindow { DataContext = viewModel };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var label = window.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == "Bob (Bobby)");
+        Assert.NotNull(label.FindAncestorOfType<CheckBox>());
+    }
+
     private static void AssertTrackerFieldVisibility(ConnectionEditorViewModel viewModel, bool expectedVisible)
     {
         var window = new ConnectionEditorWindow { DataContext = viewModel };
