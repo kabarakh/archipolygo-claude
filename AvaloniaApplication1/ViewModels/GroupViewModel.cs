@@ -113,6 +113,8 @@ public partial class GroupViewModel : ViewModelBase, IEventItemClassFilter
         }
 
         Group.Slots.CollectionChanged += OnSlotsCollectionChanged;
+        FilterLayout.PropertyChanged += OnFilterLayoutChanged;
+        UpdateWatchedFilterEntry();
     }
 
     partial void OnGroupChanged(ServerConnectionGroup? oldValue, ServerConnectionGroup newValue)
@@ -126,6 +128,8 @@ public partial class GroupViewModel : ViewModelBase, IEventItemClassFilter
         RaiseHeaderChanged();
         RaiseMuteStateChanged();
         OnPropertyChanged(nameof(Slots));
+        OnWatchedSlotNameChanged();
+        OnWatchedItemCountChanged();
     }
 
     partial void OnConnectionStateChanged(ConnectionState value) => RaiseConnectionAvailabilityChanged();
@@ -165,6 +169,13 @@ public partial class GroupViewModel : ViewModelBase, IEventItemClassFilter
                 break;
             case nameof(ServerConnectionGroup.TrackerId):
                 OnTrackerIdChanged();
+                break;
+            case nameof(ServerConnectionGroup.WatchedSlotName):
+            case nameof(ServerConnectionGroup.WatchedSlotId):
+                OnWatchedSlotNameChanged();
+                break;
+            case nameof(ServerConnectionGroup.WatchedItemCount):
+                OnWatchedItemCountChanged();
                 break;
         }
     }

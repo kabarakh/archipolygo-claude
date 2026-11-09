@@ -42,6 +42,7 @@
         <StyleInclude Source="avares://Archipolygo/Styles/FilterStyles.axaml"/>
         <StyleInclude Source="avares://Archipolygo/Styles/OverlayStyles.axaml"/>
         <StyleInclude Source="avares://Archipolygo/Styles/IconButtonStyles.axaml"/>
+        <StyleInclude Source="avares://Archipolygo/Styles/WatchedStyles.axaml"/>
         <!-- Without this, ColorPicker/ColorView render completely unstyled. -->
         <StyleInclude Source="avares://Avalonia.Controls.ColorPicker/Themes/Fluent/Fluent.xaml"/>
     </Application.Styles>

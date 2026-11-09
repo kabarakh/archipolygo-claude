@@ -35,7 +35,8 @@ internal sealed class CatchUpQueue
     }
 
     /// <summary>Appends at the end; a slot already pending or in flight isn't added twice. Completes once all given slots are done.</summary>
-    public Task EnqueueAsync(GroupViewModel group, IReadOnlyList<SlotProfile> slots)
+    /// <param name="countsTowardsStartupSync">False keeps the slots out of <c>announce</c>/<c>completed</c>, e.g. a watched slot that isn't configured.</param>
+    public Task EnqueueAsync(GroupViewModel group, IReadOnlyList<SlotProfile> slots, bool countsTowardsStartupSync = true)
     {
         var completions = new List<Task>();
         var startWorker = false;
@@ -51,10 +52,13 @@ internal sealed class CatchUpQueue
                     continue;
                 }
 
-                var entry = new Entry(group, slot);
+                var entry = new Entry(group, slot, countsTowardsStartupSync);
                 _pending.AddLast(entry);
                 completions.Add(entry.Completion.Task);
-                added++;
+                if (countsTowardsStartupSync)
+                {
+                    added++;
+                }
             }
 
             if (added > 0)
@@ -146,12 +150,17 @@ internal sealed class CatchUpQueue
 
     private void Finish(Entry entry)
     {
-        _completed(entry.Group, entry.Slot);
+        if (entry.CountsTowardsStartupSync)
+        {
+            _completed(entry.Group, entry.Slot);
+        }
+
         entry.Completion.TrySetResult();
     }
 
-    private sealed class Entry(GroupViewModel group, SlotProfile slot)
+    private sealed class Entry(GroupViewModel group, SlotProfile slot, bool countsTowardsStartupSync)
     {
+        public bool CountsTowardsStartupSync { get; } = countsTowardsStartupSync;
         public GroupViewModel Group { get; } = group;
         public SlotProfile Slot { get; } = slot;
         public TaskCompletionSource Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);

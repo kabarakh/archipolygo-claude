@@ -108,6 +108,9 @@ public class ConnectionManager : IConnectionManager
     // Optional. Used directly only for DeathLink; item/hint/chat triggers live in SessionEventTranslator/HintService.
     private readonly IAttentionTracker? _attentionTracker;
 
+    // Optional: without it a non-configured watched slot is only caught up by an opt-in login.
+    private readonly IMultiworldTrackerService? _multiworldTrackerService;
+
     public ConnectionManager(
         IMessageHistoryService messageHistoryService,
         IHintService hintService,
@@ -118,8 +121,10 @@ public class ConnectionManager : IConnectionManager
         TimeSpan? dataPackageRequestTimeout = null,
         IDiagnosticLogger? diagnosticLogger = null,
         IAttentionTracker? attentionTracker = null,
-        TimeSpan? connectGateMaxHold = null)
+        TimeSpan? connectGateMaxHold = null,
+        IMultiworldTrackerService? multiworldTrackerService = null)
     {
+        _multiworldTrackerService = multiworldTrackerService;
         _messageHistoryService = messageHistoryService;
         _hintService = hintService;
         _sessionFactory = sessionFactory;
@@ -173,6 +178,9 @@ public class ConnectionManager : IConnectionManager
         {
             EnqueueSiblingCatchUps(group, targetSlot);
         }
+
+        // Every new leader session needs the watched slot's number and hint subscription; the catch-up only when coming online.
+        InitializeWatchedSlot(group, newSession, catchUp: groupJustCameOnline);
 
         // The leader already got its own full backlog via login. Raised after the siblings are
         // announced, so the banner never briefly shows a finished pass in between.
@@ -278,6 +286,108 @@ public class ConnectionManager : IConnectionManager
         await _socketCleanup.CloseAsync(group, previousSlot, oldSession);
     }
 
+    public Task RefreshWatchedSlotAsync(GroupViewModel group)
+    {
+        if (TryGetLeaderSession(group.Group.Id, out _, out var leaderSession))
+        {
+            InitializeWatchedSlot(group, leaderSession, catchUp: true);
+        }
+        else
+        {
+            group.SetWatchedSlotNumber(null);
+            Dispatcher.UIThread.Post(group.ApplyWatchedSlotStatuses);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// A configured watched slot is caught up like any sibling; any other one through the tracker, else an opt-in login.
+    /// See Umsetzungsplan.md, "Beobachteter Slot: Nummer, Hints und Catch-up".
+    /// </summary>
+    private void InitializeWatchedSlot(GroupViewModel group, IArchipelagoSession leaderSession, bool catchUp)
+    {
+        try
+        {
+            var watchedName = group.Group.WatchedSlotName;
+            var watched = string.IsNullOrWhiteSpace(watchedName)
+                ? null
+                : FilterToRealPlayers(leaderSession.Players.AllPlayers)
+                    .FirstOrDefault(p => string.Equals(p.Name, watchedName, StringComparison.OrdinalIgnoreCase));
+
+            group.SetWatchedSlotNumber(watched?.Slot);
+            Dispatcher.UIThread.Post(group.ApplyWatchedSlotStatuses);
+
+            if (watched is null || group.Group.Slots.Any(s => string.Equals(s.SlotName, watched.Name, StringComparison.OrdinalIgnoreCase)))
+            {
+                return;
+            }
+
+            _sessionEvents.TrackHintsForWatchedSlotOnLeader(group, leaderSession, watched.Slot);
+
+            if (catchUp)
+            {
+                _ = CatchUpWatchedSlotAsync(group, leaderSession, watched);
+            }
+        }
+        catch (Exception ex)
+        {
+            _diagnosticLogger.Warning($"[{group.Group.Name}] Could not set up the watched slot: {ex.Message}");
+        }
+    }
+
+    private async Task CatchUpWatchedSlotAsync(GroupViewModel group, IArchipelagoSession leaderSession, PlayerInfo watched)
+    {
+        try
+        {
+            if (_multiworldTrackerService is not null && !string.IsNullOrWhiteSpace(group.Group.TrackerId))
+            {
+                var items = await _multiworldTrackerService.GetReceivedItemsAsync(group.Group.TrackerId, watched.Team, watched.Slot);
+                if (items is not null && group.IsWatchedSlotName(watched.Name))
+                {
+                    var history = SessionEventTranslator.NameTrackerHistory(group, leaderSession, watched.Slot, items);
+                    var displayName = SlotProfile.FormatDisplayName(watched.Name, watched.Alias);
+                    _messageHistoryService.ApplyWatchedSlotHistory(group, group.Group.WatchedSlotId, displayName,
+                        group.GetRoomSlotStatus(watched.Slot), history);
+                    return;
+                }
+            }
+
+            if (group.Group.WatchedCatchUpByLogin)
+            {
+                var standIn = new SlotProfile { Id = group.Group.WatchedSlotId, SlotName = watched.Name };
+                _ = _catchUpQueue.EnqueueAsync(group, new[] { standIn }, countsTowardsStartupSync: false);
+            }
+        }
+        catch (Exception ex)
+        {
+            _diagnosticLogger.Warning($"[{group.Group.Name}] Watched-slot catch-up failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>The temporary profile an opt-in watched-slot login runs under; never part of the group's slots.</summary>
+    private static bool IsWatchedSlotStandIn(GroupViewModel group, SlotProfile slot) =>
+        slot.Id == group.Group.WatchedSlotId && !group.Group.Slots.Contains(slot);
+
+    /// <summary>Like a sibling catch-up, but never prompts for a password: the slot belongs to someone else.</summary>
+    private async Task CatchUpWatchedSlotByLoginAsync(GroupViewModel group, SlotProfile standIn)
+    {
+        if (_autoReconnectSuppressed.ContainsKey(group.Group.Id) || !group.IsWatchedSlotName(standIn.SlotName) ||
+            _sessions.ContainsKey(standIn.Id))
+        {
+            return;
+        }
+
+        var session = await ConnectCancellableAsync(group, standIn, isLeaderSession: false, isBackgroundCatchUp: true);
+        if (session is null)
+        {
+            return;
+        }
+
+        await Task.Delay(_itemBacklogGracePeriod);
+        await CloseTemporarySessionAsync(group, standIn, session);
+    }
+
     /// <summary>Appended to the app-wide queue; the caller doesn't wait for them.</summary>
     private void EnqueueSiblingCatchUps(GroupViewModel group, SlotProfile leaderSlot)
     {
@@ -367,6 +477,12 @@ public class ConnectionManager : IConnectionManager
     /// <summary>Caller holds the group's gate. See Umsetzungsplan.md, "CatchUpSyncAsync vs. CatchUpSyncCoreAsync (Locking)".</summary>
     private async Task CatchUpSyncCoreAsync(GroupViewModel group, SlotProfile slot)
     {
+        if (IsWatchedSlotStandIn(group, slot))
+        {
+            await CatchUpWatchedSlotByLoginAsync(group, slot);
+            return;
+        }
+
         var groupId = group.Group.Id;
 
         var slotWasRemoved = !group.Group.Slots.Any(s => s.Id == slot.Id);
@@ -857,6 +973,10 @@ public class ConnectionManager : IConnectionManager
 
         // The server re-delivers the full item history on every connect.
         _messageHistoryService.ClearReceivedItemsForSlot(group, slot.Id);
+        if (group.IsWatchedSlotName(slot.SlotName))
+        {
+            _messageHistoryService.ClearWatchedItems(group);
+        }
 
         session.Items.ItemReceived += helper =>
             _sessionEvents.OnItemReceived(group, slot, session, helper, isLeaderSession, backlog.HasAnnouncedConnection);
@@ -903,7 +1023,7 @@ public class ConnectionManager : IConnectionManager
     /// <summary>May throw a transient error. See Umsetzungsplan.md, "Passwort-Prompt und Retry-Flow".</summary>
     private async Task<LoginOutcome> ConnectAndLoginAsync(GroupViewModel group, SlotProfile slot, IArchipelagoSession session, bool isLeaderSession, bool isBackgroundCatchUp, CancellationToken cancellationToken)
     {
-        if (NeedsPasswordPrompt(group, slot) && PasswordRequested is not null)
+        if (NeedsPasswordPrompt(group, slot) && PasswordRequested is not null && !IsWatchedSlotStandIn(group, slot))
         {
             var obtained = await PasswordRequested(group, slot, false /* isRetryAfterFailure */, cancellationToken);
             if (!obtained || cancellationToken.IsCancellationRequested)
@@ -926,7 +1046,11 @@ public class ConnectionManager : IConnectionManager
             return await HandleLoginFailureAsync(group, slot, session, isLeaderSession, (LoginFailure)loginResult, cancellationToken);
         }
 
-        UpdateRequiresPassword(group, slot, !string.IsNullOrEmpty(effectivePassword));
+        if (!IsWatchedSlotStandIn(group, slot))
+        {
+            UpdateRequiresPassword(group, slot, !string.IsNullOrEmpty(effectivePassword));
+        }
+
         return LoginOutcome.Succeeded;
     }
 
@@ -974,7 +1098,7 @@ public class ConnectionManager : IConnectionManager
     /// <summary>Only InvalidPassword is retried. See Umsetzungsplan.md, "Passwort-Prompt und Retry-Flow".</summary>
     private async Task<LoginOutcome> HandleLoginFailureAsync(GroupViewModel group, SlotProfile slot, IArchipelagoSession session, bool isLeaderSession, LoginFailure failure, CancellationToken cancellationToken)
     {
-        if (failure.ErrorCodes.Contains(ConnectionRefusedError.InvalidPassword))
+        if (failure.ErrorCodes.Contains(ConnectionRefusedError.InvalidPassword) && !IsWatchedSlotStandIn(group, slot))
         {
             UpdateRequiresPassword(group, slot, true);
 

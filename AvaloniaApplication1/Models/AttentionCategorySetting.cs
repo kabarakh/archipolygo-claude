@@ -17,7 +17,8 @@ public class AttentionCategorySetting
     /// <summary>Defaults: only the important triggers are on; everything noisier is opt-in.</summary>
     public static AttentionCategorySetting DefaultFor(AttentionCategory category) => category switch
     {
-        AttentionCategory.OwnHint or AttentionCategory.DeathLink or AttentionCategory.ProgressionItem or AttentionCategory.ChatMention
+        AttentionCategory.OwnHint or AttentionCategory.DeathLink or AttentionCategory.ProgressionItem or AttentionCategory.WatchedProgressionItem
+            or AttentionCategory.ChatMention
             => new AttentionCategorySetting { Count = true, Blink = true },
         _ => new AttentionCategorySetting { Count = false, Blink = false }
     };

@@ -17,6 +17,9 @@ public sealed class AttentionTracker : IAttentionTracker
     /// <summary>Groups with a raised <see cref="GroupViewModel.UnreadAttentionCount"/>. UI-thread only.</summary>
     private readonly HashSet<GroupViewModel> _unreadGroups = new();
 
+    /// <summary>Groups whose watched-slot strip has rows marked new. UI-thread only.</summary>
+    private readonly HashSet<GroupViewModel> _groupsWithNewWatchedItems = new();
+
     private AppSettings _settings;
 
     private readonly IUiUpdateQueue _updateQueue;
@@ -35,8 +38,25 @@ public sealed class AttentionTracker : IAttentionTracker
     public void Report(GroupViewModel group, AttentionCategory category) =>
         _updateQueue.Enqueue(group, () => ReportOnUiThread(group, category));
 
+    public void NoteNewWatchedItems(GroupViewModel group)
+    {
+        if (_windows.IsGroupSeen(group.Group.Id))
+        {
+            group.MarkWatchedItemsSeen();
+            return;
+        }
+
+        _groupsWithNewWatchedItems.Add(group);
+    }
+
     public void RefreshSeenState()
     {
+        foreach (var group in _groupsWithNewWatchedItems.Where(group => _windows.IsGroupSeen(group.Group.Id)).ToList())
+        {
+            group.MarkWatchedItemsSeen();
+            _groupsWithNewWatchedItems.Remove(group);
+        }
+
         foreach (var group in _unreadGroups.ToList())
         {
             if (group.UnreadAttentionCount == 0 || _windows.IsGroupSeen(group.Group.Id))

@@ -50,6 +50,8 @@ public class EventEntry
         EventTextSegmentKind.ItemTrap
     };
 
+    public bool IsProgressionItem => ItemKind == EventTextSegmentKind.ItemProgression;
+
     /// <summary>Item category of this entry's item segment, or null if it concerns no item (then item filters never hide it).</summary>
     public EventTextSegmentKind? ItemKind
     {

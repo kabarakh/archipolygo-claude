@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 using Archipelago.MultiClient.Net.BounceFeatures.DeathLink;
 using Archipelago.MultiClient.Net.Enums;
 using Archipelago.MultiClient.Net.Models;
@@ -157,6 +158,74 @@ public class MessageHistoryService : IMessageHistoryService
     public void ClearReceivedItemsForSlot(GroupViewModel group, Guid slotId)
     {
         _updateQueue.Enqueue(group, () => group.ReceivedItems.RemoveAll(item => item.SlotId == slotId));
+    }
+
+    public int GetLastSeenItemIndex(Guid slotId) => _syncStateStore.Get(slotId).LastSeenItemIndex;
+
+    public void HandleWatchedItem(GroupViewModel group, WatchedItemRow row) =>
+        _updateQueue.Enqueue(group, () => group.AddWatchedItem(row));
+
+    public void ClearWatchedItems(GroupViewModel group) =>
+        _updateQueue.Enqueue(group, () => group.ReplaceWatchedItems([]));
+
+    public void HandleWatchedReceivedItem(GroupViewModel group, ReceivedItemEntry entry) =>
+        _updateQueue.Enqueue(group, () => group.ReceivedItems.Add(entry));
+
+    public void ApplyWatchedSlotHistory(GroupViewModel group, Guid watchedSlotId, string watchedSlotName, RoomSlotStatus receiver,
+                                        IReadOnlyList<WatchedHistoryItem> history)
+    {
+        var syncState = _syncStateStore.Get(watchedSlotId);
+        // A shorter history than the persisted index means a new room under the same name.
+        var firstUnseen = syncState.LastSeenItemIndex <= history.Count ? syncState.LastSeenItemIndex : 0;
+
+        var receivedItems = history.Select(item => new ReceivedItemEntry
+        {
+            SlotId = watchedSlotId,
+            ReceivingSlotName = watchedSlotName,
+            ItemName = item.ItemName,
+            LocationName = item.LocationName,
+            SenderName = item.SenderName,
+            ItemKind = EventSegmentBuilder.ClassifyItemFlags(item.Flags),
+            SenderKind = item.SenderKind,
+        }).ToList();
+
+        var stripRows = history
+            .Select((item, index) => (item, index))
+            .Where(entry => entry.item.IsProgression)
+            .Reverse()
+            .Select(entry => new WatchedItemRow
+            {
+                ItemName = entry.item.ItemName,
+                SenderName = entry.item.SenderName,
+                LocationName = entry.item.LocationName,
+                IsNew = entry.index >= firstUnseen,
+            })
+            .ToList();
+
+        _updateQueue.Enqueue(group, () =>
+        {
+            group.ReceivedItems.RemoveAll(item => item.SlotId == watchedSlotId);
+            group.ReceivedItems.AddRange(receivedItems);
+            group.ReplaceWatchedItems(stripRows);
+        });
+
+        for (var i = firstUnseen; i < history.Count; i++)
+        {
+            var item = history[i];
+            AddEvent(group, new EventEntry
+            {
+                SlotId = watchedSlotId,
+                Type = EventType.ItemReceived,
+                Text = $"{watchedSlotName} received {item.ItemName} ({item.LocationName}) since last connection",
+                Segments = EventSegmentBuilder.BuildWatchedItemReceivedSegments(watchedSlotName, receiver, item.ItemName, item.Flags, item.LocationName),
+                IsNewSinceLastSession = true,
+                ConcernsOwnSlot = false,
+                Receiver = receiver
+            });
+        }
+
+        syncState.LastSeenItemIndex = firstUnseen;
+        AdvanceSyncState(syncState, history.Count);
     }
 
     private void AdvanceSyncState(ProfileSyncState syncState, int newCount)

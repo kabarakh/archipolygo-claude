@@ -66,6 +66,12 @@ The other configured slots on the server also stay current:
   - **Automatic login:** The server logs you out when you switch accounts with "Chat as" or when you reconnect. The server also logs you out when a different client logs in as admin. While the app runs, Archipolygo logs you in again automatically.
   - **Visibility:** All players in the room see admin commands in the chat. The server hides passwords.
 - **Item links.** A room can have item-link groups: several slots share one item pool. The event log and the hints then show only the name of the group. Move the mouse over that name to see its members. If the room has item-link groups, an **Item links** button shows next to "Hints" and "Items". It lists each group with its game and its members. Your own slots are at the top.
+- **Watched slot.** In **Edit server**, "Watched slot" selects one slot of the room that you want to follow, for example a friend whose progress unblocks you. It can be one of your own slots or any other player. The server must be connected to list the players of the room.
+  - A strip above the event log shows the last progression items of that slot (by default 8; "show last … items" changes the number). Click ▾ to collapse the strip. Collapsed, it still shows the newest item. New items are marked "NEW" until you look at the server.
+  - Its progression items in the event log get a yellow edge. "Highlight watched" in the Events filters turns this off. The slot filters have an entry "name (watched)" for a slot that is not one of yours.
+  - An item for an item-link group that the slot belongs to also counts. The strip then shows "via" and the name of the group.
+  - A progression item for the watched slot flashes the taskbar ("Progression item for a watched slot" in the notification settings). After the slot completes its goal, it no longer flashes.
+  - Items that the slot received while the app was closed come from the multiworld tracker of the server. Without a tracker, you can select "Catch up by logging in as this slot". All players in the room then see that slot join and leave for a moment.
 - **Hint...** opens a picker window for the leader of that server. You can browse the full item list of the game, not only the items that you saw before. Then you can send a `!hint` or `!hint_location` request without typing it. A checkbox hides items that you already received or hinted.
 - **Progress bar.** The progress bar is in the status row of each tab. It has up to four colored segments:
   - Your checks that are done.
@@ -102,6 +108,7 @@ Click **Dashboard** in the toolbar to change the full window from the server tab
 
 - **Overview** (left, default) shows all configured servers. Each row shows the connection status, the badges for unread events and open hints, and the same combined progress bar as the tab. Each row also has small icons for common actions (Connect/Disconnect, Add slot, Edit server, Remove server), so you do not have to go to the tab of the server. Click a row (not an icon) to go to the tab of that server. To change the order of the servers, drag the small grip icon on the left of a row. This works the same as dragging a tab.
 - **Events** (left, toggle next to "Overview") shows one event log for all servers. By default, it shows the activity of all servers together. Use the Server and Slot filters to show less. Below the log, a separate "Send as" Server/Slot picker selects the server and the slot for a chat message. Thus, you can send chat messages from the Dashboard. This picker is intentionally independent from the filters above it.
+- **Watched slots.** With a watched slot, the Overview row of the server shows its newest progression item. In **Events**, "Watched only" replaces the event log with the progression items of all watched slots, and "Highlight watched" marks their lines.
 - **Hints** (right, always visible) shows the open hints (hints that are not found yet) of all servers. It has its own Server, Slot and item category filters. These filters are independent from the Hints filters in each tab.
 
 ## How this project was built

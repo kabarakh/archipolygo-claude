@@ -20,6 +20,12 @@ public interface IAttentionTracker
     /// </summary>
     void RefreshSeenState();
 
+    /// <summary>
+    /// The group's watched-slot strip got rows marked new: they stay new until the group is next on screen.
+    /// UI thread only.
+    /// </summary>
+    void NoteNewWatchedItems(GroupViewModel group);
+
     /// <summary>Affects only later <see cref="Report"/> calls.</summary>
     void ApplySettings(AppSettings settings);
 }

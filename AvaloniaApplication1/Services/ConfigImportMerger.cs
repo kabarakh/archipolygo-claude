@@ -46,6 +46,10 @@ public static class ConfigImportMerger
             overwrittenLocals.Add(local);
             var replacement = CopyGroup(imported, local.Id, MatchingLocalSlot, claimedSlotIds);
             replacement.Password = local.Password;
+            if (IsSameWatchedSlot(local, imported))
+            {
+                replacement.WatchedSlotId = local.WatchedSlotId;
+            }
             overwrites.Add(new GroupOverwrite(local, replacement));
             obsoleteSlotIds.AddRange(local.Slots
                 .Where(s => !imported.Slots.Any(i => IsSameSlot(s, i)))
@@ -60,6 +64,11 @@ public static class ConfigImportMerger
 
     public static bool IsSameServer(ServerConnectionGroup a, ServerConnectionGroup b) =>
         string.Equals(a.Host, b.Host, StringComparison.OrdinalIgnoreCase) && a.Port == b.Port;
+
+    /// <summary>Keeps the local watched-slot id, and with it the catch-up's sync state, when both watch the same slot.</summary>
+    private static bool IsSameWatchedSlot(ServerConnectionGroup local, ServerConnectionGroup imported) =>
+        !string.IsNullOrEmpty(local.WatchedSlotName) &&
+        string.Equals(local.WatchedSlotName, imported.WatchedSlotName, StringComparison.OrdinalIgnoreCase);
 
     private static bool IsSameSlot(SlotProfile a, SlotProfile b) =>
         string.Equals(a.SlotName, b.SlotName, StringComparison.OrdinalIgnoreCase);
@@ -90,6 +99,9 @@ public static class ConfigImportMerger
             Color = imported.Color,
             TrackerReferenceInput = imported.TrackerReferenceInput,
             TrackerId = imported.TrackerId,
+            WatchedSlotName = imported.WatchedSlotName,
+            WatchedItemCount = imported.WatchedItemCount,
+            WatchedCatchUpByLogin = imported.WatchedCatchUpByLogin,
         };
 
         var finalIdByImportedId = new Dictionary<Guid, Guid>();

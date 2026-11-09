@@ -17,6 +17,10 @@ public sealed class FakeAttentionTracker : IAttentionTracker
 
     public void RefreshSeenState() => RefreshSeenStateCalls++;
 
+    public List<GroupViewModel> NoteNewWatchedItemsCalls { get; } = new();
+
+    public void NoteNewWatchedItems(GroupViewModel group) => NoteNewWatchedItemsCalls.Add(group);
+
     public void ApplySettings(AppSettings settings)
     {
     }

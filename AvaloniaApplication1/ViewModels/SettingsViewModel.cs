@@ -69,6 +69,7 @@ public partial class SettingsViewModel : ViewModelBase
                 (AttentionCategory.OwnHint, "Hint for one of my slots"),
                 (AttentionCategory.DeathLink, "DeathLink"),
                 (AttentionCategory.ProgressionItem, "Progression item for me"),
+                (AttentionCategory.WatchedProgressionItem, "Progression item for a watched slot"),
                 (AttentionCategory.OtherItem, "Other items for me"),
                 (AttentionCategory.ChatMention, "Chat mentioning my slot"),
                 (AttentionCategory.Chat, "Any other chat message"),

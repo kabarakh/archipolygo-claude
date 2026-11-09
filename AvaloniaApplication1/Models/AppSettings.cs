@@ -29,6 +29,8 @@ public class AppSettings
     public bool DashboardEventsFiltersExpanded { get; set; } = true;
     public bool DashboardHintsFiltersExpanded { get; set; } = true;
 
+    public bool WatchedItemsExpanded { get; set; } = true;
+
     /// <summary>"Off", "Count" or "UntilFocus"; read via <see cref="BlinkMode"/>, where an unrecognized value reads as the default.</summary>
     public string AttentionBlinkMode { get; set; } = nameof(Models.AttentionBlinkMode.Count);
 

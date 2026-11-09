@@ -35,5 +35,6 @@
         <StyleInclude Source="avares://Archipolygo/Styles/FilterStyles.axaml"/>
         <StyleInclude Source="avares://Archipolygo/Styles/OverlayStyles.axaml"/>
         <StyleInclude Source="avares://Archipolygo/Styles/IconButtonStyles.axaml"/>
+        <StyleInclude Source="avares://Archipolygo/Styles/WatchedStyles.axaml"/>
     </Application.Styles>
 </Application>

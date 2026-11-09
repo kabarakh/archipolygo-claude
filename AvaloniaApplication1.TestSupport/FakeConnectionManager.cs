@@ -328,6 +328,18 @@ public sealed class FakeConnectionManager : IConnectionManager
     public Task<IReadOnlyList<PlayerInfo>> GetRoomPlayersAsync(GroupViewModel group) =>
         Task.FromResult(RoomPlayers);
 
+    public List<GroupViewModel> RefreshWatchedSlotCalls { get; } = new();
+
+    /// <summary>Resolves the watched slot's number from <see cref="RoomPlayers"/>, like a live leader would.</summary>
+    public Task RefreshWatchedSlotAsync(GroupViewModel group)
+    {
+        RefreshWatchedSlotCalls.Add(group);
+        var watched = RoomPlayers.FirstOrDefault(p => group.IsWatchedSlotName(p.Name));
+        group.SetWatchedSlotNumber(watched?.Slot);
+        group.ApplyWatchedSlotStatuses();
+        return Task.CompletedTask;
+    }
+
     private readonly Dictionary<Guid, List<HintableLocation>> _hintableLocationsBySlot = new();
 
     public List<(Guid SlotId, long LocationId)> SentLocationHints { get; } = new();

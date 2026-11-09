@@ -58,6 +58,7 @@ public partial class GroupViewModel
 
         RefreshSlotOrder();
         RaiseRoomProgressChanged();
+        OnConfiguredSlotsChangedForWatchedSlot();
     }
 
     /// <summary>Adds slots via <see cref="InsertSlotsInOrder"/> instead of a Clear+rebuild (see there for why).</summary>
@@ -76,6 +77,7 @@ public partial class GroupViewModel
 
         InsertSlotsInOrder(newSlots);
         RaiseRoomProgressChanged();
+        OnConfiguredSlotsChangedForWatchedSlot();
     }
 
     /// <summary>
@@ -119,6 +121,14 @@ public partial class GroupViewModel
         Slots.Remove(slot);
         SlotFilterOptions.Remove(slot);
         RaiseRoomProgressChanged();
+        OnConfiguredSlotsChangedForWatchedSlot();
+    }
+
+    /// <summary>Adding or removing the watched slot's name as a configured slot flips its kind.</summary>
+    private void OnConfiguredSlotsChangedForWatchedSlot()
+    {
+        UpdateWatchedFilterEntry();
+        RaiseWatchedSlotKindChanged();
     }
 
     /// <summary>A removed slot must not stay selected in any of the three slot filters.</summary>
@@ -187,15 +197,21 @@ public partial class GroupViewModel
             SlotFilterOptions.Add(slot);
         }
 
+        if (_watchedFilterEntry is not null)
+        {
+            SlotFilterOptions.Add(_watchedFilterEntry);
+        }
+
         OnPropertyChanged(nameof(CanConnect));
         ConnectCommand.NotifyCanExecuteChanged();
 
         SlotProfile? KeepIfStillConfigured(SlotProfile? slot) => slot is not null && ordered.Contains(slot) ? slot : null;
+        SlotProfile? KeepIfStillAnOption(SlotProfile? slot) => slot is not null && SlotFilterOptions.Contains(slot) ? slot : null;
 
         SelectedChatSlot = KeepIfStillConfigured(previousChatSlot);
-        SelectedEventsSlotFilter = KeepIfStillConfigured(previousEventsFilter);
-        SelectedHintsSlotFilter = KeepIfStillConfigured(previousHintsFilter);
-        SelectedItemsSlotFilter = KeepIfStillConfigured(previousItemsFilter);
+        SelectedEventsSlotFilter = KeepIfStillAnOption(previousEventsFilter);
+        SelectedHintsSlotFilter = KeepIfStillAnOption(previousHintsFilter);
+        SelectedItemsSlotFilter = KeepIfStillAnOption(previousItemsFilter);
     }
 
     partial void OnLeaderSlotIdChanged(Guid? value)

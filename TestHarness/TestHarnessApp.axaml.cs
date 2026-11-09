@@ -64,6 +64,8 @@ public partial class TestHarnessApp : Application
             mainWindowViewModel.SelectedGroup = groupViewModel;
 
             SeedAdminDemo(groupViewModel, connectionManager, trackerService);
+            groupViewModel.Group.WatchedSlotName = "malandor";
+            _ = connectionManager.RefreshWatchedSlotAsync(groupViewModel);
 
             // Positioned so it never overlaps ControlPanelWindow at (20,20), 260 wide.
             var mainWindow = new MainWindow
@@ -113,6 +115,7 @@ public partial class TestHarnessApp : Application
             (6, "Done Dan", null, "Super Metroid", 30, 100, 100, System.TimeSpan.FromDays(2.1)),
             (7, "Latecomer", null, "Hollow Knight", 0, 0, 190, null),
             (8, "Nightowl", null, "A Link to the Past", 5, 177, 216, System.TimeSpan.FromSeconds(40)),
+            (12, "malandor", null, "Super Metroid", 20, 40, 100, System.TimeSpan.FromMinutes(12)),
         };
 
         var games = new Dictionary<string, (string[] Items, string[] Locations)>

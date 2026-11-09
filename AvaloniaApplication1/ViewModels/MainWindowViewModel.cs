@@ -65,12 +65,16 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private void ToggleDashboard() => IsDashboardVisible = !IsDashboardVisible;
 
-    private GroupViewModel CreateGroupViewModel(ServerConnectionGroup group) =>
-        new(group, _connectionManager, _multiworldTrackerService, FilterLayout)
+    private GroupViewModel CreateGroupViewModel(ServerConnectionGroup group)
+    {
+        var groupViewModel = new GroupViewModel(group, _connectionManager, _multiworldTrackerService, FilterLayout)
         {
             ShowUnreadInTitle = _showUnreadInTitle,
             ShowUnreadBadge = _showUnreadBadge
         };
+        groupViewModel.NewWatchedItemsAdded += () => _attentionTracker?.NoteNewWatchedItems(groupViewModel);
+        return groupViewModel;
+    }
 
     /// <summary>Design-time only (XAML previewer); at runtime <see cref="App"/> resolves this via DI.</summary>
     public MainWindowViewModel()
@@ -203,7 +207,8 @@ public partial class MainWindowViewModel : ViewModelBase
         EventsFiltersExpanded = settings.EventsFiltersExpanded,
         RightPanelFiltersExpanded = settings.RightPanelFiltersExpanded,
         DashboardEventsFiltersExpanded = settings.DashboardEventsFiltersExpanded,
-        DashboardHintsFiltersExpanded = settings.DashboardHintsFiltersExpanded
+        DashboardHintsFiltersExpanded = settings.DashboardHintsFiltersExpanded,
+        WatchedItemsExpanded = settings.WatchedItemsExpanded
     };
 
     /// <summary>Saved on every toggle so collapsed filters stay collapsed across restarts.</summary>
@@ -214,6 +219,7 @@ public partial class MainWindowViewModel : ViewModelBase
         settings.RightPanelFiltersExpanded = FilterLayout.RightPanelFiltersExpanded;
         settings.DashboardEventsFiltersExpanded = FilterLayout.DashboardEventsFiltersExpanded;
         settings.DashboardHintsFiltersExpanded = FilterLayout.DashboardHintsFiltersExpanded;
+        settings.WatchedItemsExpanded = FilterLayout.WatchedItemsExpanded;
         _persistenceService.SaveSettings(settings);
     }
 

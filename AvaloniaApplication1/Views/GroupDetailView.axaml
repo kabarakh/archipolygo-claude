@@ -18,6 +18,7 @@
         <conv:ConnectionStateToBrushConverter x:Key="ConnectionStateToBrushConverter"/>
         <conv:SlotFilterDisplayConverter x:Key="SlotFilterDisplayConverter"/>
         <conv:CountToStarWidthConverter x:Key="CountToStarWidthConverter"/>
+        <conv:ExpandArrowConverter x:Key="ExpandArrowConverter"/>
     </UserControl.Resources>
 
     <Grid Margin="12" RowDefinitions="Auto,*,Auto">
@@ -126,6 +127,9 @@
                     <Border Classes="filter-separator"/>
                     <views:ItemClassFilterButton/>
                     <Border Classes="filter-separator"/>
+                    <CheckBox Name="HighlightWatchedEventsCheckBox" Content="Highlight watched"
+                              IsChecked="{Binding HighlightWatchedEvents}" IsVisible="{Binding HasWatchedSlot}"
+                              ToolTip.Tip="Highlight progression items for the watched slot"/>
                     <CheckBox Name="HideGoaledEventsCheckBox" Content="Hide goaled"
                               IsChecked="{Binding HideGoaledEvents}"
                               ToolTip.Tip="Hide items and hints for slots that reached their goal"/>
@@ -162,8 +166,52 @@
 
             <!-- Grid so JumpToNewestButton can float over the list. Once a row is selected, Avalonia keeps
                  re-scrolling to it on every new event; clearing the selection is what stops that. -->
-            <Grid Grid.Row="1" Grid.Column="0">
-                <ListBox Name="EventsListBox" ItemsSource="{Binding VisibleEvents}" SelectionMode="Multiple"
+            <Grid Grid.Row="1" Grid.Column="0" RowDefinitions="Auto,*">
+                <!-- The watched slot's strip. Collapsed, its header shows the latest item instead of the caption. -->
+                <Border Grid.Row="0" Name="WatchedItemsStrip" IsVisible="{Binding HasWatchedSlot}"
+                        BorderBrush="{StaticResource WatchedRowBorderBrush}" BorderThickness="0,0,0,1"
+                        Padding="0,2,0,6" Margin="0,0,0,6">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Name="WatchedItemsToggleButton" Padding="6,0" VerticalAlignment="Center"
+                                    Command="{Binding ToggleWatchedItemsExpandedCommand}"
+                                    Content="{Binding FilterLayout.WatchedItemsExpanded, Converter={StaticResource ExpandArrowConverter}}"
+                                    ToolTip.Tip="Collapse or expand"/>
+                            <Path Classes="watched-eye"/>
+                            <TextBlock Name="WatchedSlotHeaderTextBlock" FontWeight="SemiBold" VerticalAlignment="Center">
+                                <TextBlock.Text>
+                                    <MultiBinding Converter="{StaticResource GoalMarkerTextConverter}">
+                                        <Binding Path="WatchedSlotHeaderText"/>
+                                        <Binding Path="WatchedSlotHasGoal"/>
+                                    </MultiBinding>
+                                </TextBlock.Text>
+                            </TextBlock>
+                            <TextBlock Text="{Binding WatchedItemsCaption}" Opacity="0.6" VerticalAlignment="Center"
+                                       IsVisible="{Binding ShowWatchedCaptionInHeader}"/>
+                            <ContentControl Name="WatchedLatestItemInHeader" Content="{Binding LatestWatchedItem}"
+                                            ContentTemplate="{StaticResource WatchedItemRowTemplate}" VerticalAlignment="Center"
+                                            IsVisible="{Binding ShowWatchedLatestInHeader}"/>
+                            <Border Background="#faeeda" CornerRadius="10" Padding="6,1" VerticalAlignment="Center"
+                                    IsVisible="{Binding HasNewWatchedItems}">
+                                <TextBlock Text="{Binding NewWatchedItemCountText}" FontSize="11" Foreground="#854f0b"/>
+                            </Border>
+                            <TextBlock Text="goal reached, no more notifications" Opacity="0.6" FontStyle="Italic"
+                                       VerticalAlignment="Center" IsVisible="{Binding WatchedSlotHasGoal}"/>
+                        </StackPanel>
+                        <ScrollViewer MaxHeight="140" Margin="28,4,0,0" IsVisible="{Binding FilterLayout.WatchedItemsExpanded}">
+                            <StackPanel Spacing="2">
+                                <TextBlock Text="No progression items yet." Opacity="0.6" FontStyle="Italic"
+                                           IsVisible="{Binding ShowNoWatchedItemsText}"/>
+                                <ItemsControl Name="WatchedItemsList" ItemsSource="{Binding WatchedItems}"
+                                              ItemTemplate="{StaticResource WatchedItemRowTemplate}"/>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </StackPanel>
+                </Border>
+
+                <ListBox Grid.Row="1" Name="EventsListBox" ItemsSource="{Binding VisibleEvents}" SelectionMode="Multiple"
+                         views:WatchedEventHighlight.IsEnabled="True"
+                         Classes.highlight-watched="{Binding HighlightWatchedEvents}"
                          KeyDown="OnEventsListKeyDown" SelectionChanged="OnEventsListSelectionChanged">
                     <ListBox.ContextMenu>
                         <ContextMenu>
@@ -190,9 +238,9 @@
                     </ListBox.ItemTemplate>
                 </ListBox>
 
-                <views:JumpToNewestButton TargetListBox="{Binding #EventsListBox}"/>
+                <views:JumpToNewestButton Grid.Row="1" TargetListBox="{Binding #EventsListBox}"/>
 
-                <Button Name="CopyEventsFromHereButton" Content="Copy from here" Classes="floating-overlay"
+                <Button Grid.Row="1" Name="CopyEventsFromHereButton" Content="Copy from here" Classes="floating-overlay"
                         HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="12,0,0,12"
                         Click="OnCopyEventsFromHereClick" IsVisible="False"/>
             </Grid>

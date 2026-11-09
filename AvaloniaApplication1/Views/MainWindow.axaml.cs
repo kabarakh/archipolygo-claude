@@ -140,11 +140,12 @@ public partial class MainWindow : Window, IGroupHostWindow
             group.Group,
             ViewModel.GetAllGroups(),
             ViewModel.ResolveTrackerIdAsync,
-            ViewModel.ResolveRoomConnectionInfoAsync);
+            ViewModel.ResolveRoomConnectionInfoAsync,
+            await ViewModel.GetWatchableRoomPlayersAsync(group));
         var result = await ConnectionEditorWindow.ShowDialogAsync(this, editorViewModel);
         if (result is not null)
         {
-            await ViewModel.UpdateGroup(group, result.Name, result.Host, result.Port, result.Password, result.AutoConnect, result.PreferredLeaderSlotId, result.Color, result.SlotsToRemove, result.TrackerReferenceInput, result.TrackerId, result.NotificationsMuted, result.IsAdmin);
+            await ViewModel.UpdateGroup(group, result.Name, result.Host, result.Port, result.Password, result.AutoConnect, result.PreferredLeaderSlotId, result.Color, result.SlotsToRemove, result.TrackerReferenceInput, result.TrackerId, result.NotificationsMuted, result.IsAdmin, result.Watched);
         }
     }
 

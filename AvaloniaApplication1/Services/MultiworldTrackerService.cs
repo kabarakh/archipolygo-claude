@@ -129,6 +129,88 @@ public class MultiworldTrackerService : IMultiworldTrackerService
         return new RoomProgressSnapshot { Players = players };
     }
 
+    public async Task<IReadOnlyList<TrackerReceivedItem>?> GetReceivedItemsAsync(string trackerId, int team, int player,
+                                                                                CancellationToken cancellationToken = default)
+    {
+        var tracker = await GetTrackerAsync(trackerId, cancellationToken);
+        var entry = tracker?.PlayerItemsReceived.FirstOrDefault(e => e.Team == team && e.Player == player);
+        if (entry is null)
+        {
+            return null;
+        }
+
+        var items = new List<TrackerReceivedItem>(entry.Items.Count);
+        foreach (var element in entry.Items)
+        {
+            if (!TryParseNetworkItem(element, out var item))
+            {
+                return null;
+            }
+
+            items.Add(item);
+        }
+
+        return items;
+    }
+
+    /// <summary>
+    /// NetworkItem is a Python NamedTuple (item, location, player, flags), which Flask serializes as an array;
+    /// the object form is accepted too in case a webhost serializes it by field name.
+    /// </summary>
+    internal static bool TryParseNetworkItem(JsonElement element, out TrackerReceivedItem item)
+    {
+        item = null!;
+        long itemId, locationId;
+        int sender, flags = 0;
+
+        if (element.ValueKind == JsonValueKind.Array)
+        {
+            var length = element.GetArrayLength();
+            if (length < 3 ||
+                !TryGetLong(element[0], out itemId) ||
+                !TryGetLong(element[1], out locationId) ||
+                !TryGetInt(element[2], out sender) ||
+                (length > 3 && !TryGetInt(element[3], out flags)))
+            {
+                return false;
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Object)
+        {
+            if (!element.TryGetProperty("item", out var itemProperty) || !TryGetLong(itemProperty, out itemId) ||
+                !element.TryGetProperty("location", out var locationProperty) || !TryGetLong(locationProperty, out locationId) ||
+                !element.TryGetProperty("player", out var playerProperty) || !TryGetInt(playerProperty, out sender))
+            {
+                return false;
+            }
+
+            if (element.TryGetProperty("flags", out var flagsProperty) && !TryGetInt(flagsProperty, out flags))
+            {
+                return false;
+            }
+        }
+        else
+        {
+            return false;
+        }
+
+        item = new TrackerReceivedItem(itemId, locationId, sender, flags);
+        return true;
+    }
+
+    // JsonElement.TryGetInt64 throws instead of returning false for a non-number.
+    private static bool TryGetLong(JsonElement element, out long value)
+    {
+        value = 0;
+        return element.ValueKind == JsonValueKind.Number && element.TryGetInt64(out value);
+    }
+
+    private static bool TryGetInt(JsonElement element, out int value)
+    {
+        value = 0;
+        return element.ValueKind == JsonValueKind.Number && element.TryGetInt32(out value);
+    }
+
     private async Task<TrackerResponse?> GetTrackerAsync(string trackerId, CancellationToken cancellationToken)
     {
         if (_trackerCache.TryGetValue(trackerId, out var cached) && _clock() - cached.FetchedAt < TrackerCacheDuration)
@@ -203,6 +285,14 @@ public class MultiworldTrackerService : IMultiworldTrackerService
         public List<PlayerChecksDoneEntry> PlayerChecksDone { get; set; } = new();
         public List<PlayerTimerEntry> ActivityTimers { get; set; } = new();
         public List<PlayerStatusEntry> PlayerStatus { get; set; } = new();
+        public List<PlayerItemsReceivedEntry> PlayerItemsReceived { get; set; } = new();
+    }
+
+    private sealed class PlayerItemsReceivedEntry
+    {
+        public int Team { get; set; }
+        public int Player { get; set; }
+        public List<JsonElement> Items { get; set; } = new();
     }
 
     private sealed class PlayerTimerEntry

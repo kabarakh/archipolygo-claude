@@ -100,6 +100,12 @@ public interface IConnectionManager
     Task<IReadOnlyList<PlayerInfo>> GetRoomPlayersAsync(GroupViewModel group);
 
     /// <summary>
+    /// After the watched slot changed: resolves it in the live room, tracks its hints and catches it up.
+    /// Without a leader it only clears the old slot's number; the next leader connect does the rest.
+    /// </summary>
+    Task RefreshWatchedSlotAsync(GroupViewModel group);
+
+    /// <summary>
     /// <paramref name="slot"/>'s not-yet-found locations, from cache if it has connected since app
     /// start, otherwise via a kept-alive probe connection (see <see cref="ReleaseHeldSessionAsync"/>).
     /// Serialized on the group's gate. Empty if no connection could be made; already-hinted

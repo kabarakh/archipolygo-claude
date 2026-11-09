@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Archipolygo.Models;
@@ -18,6 +19,12 @@ public interface IMultiworldTrackerService
     /// Null on any failure (treat as "no data right now"); never throws.
     /// </summary>
     Task<RoomProgressSnapshot?> GetProgressAsync(string trackerId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// One player's full received-item history in index order, from the same cached <c>/tracker</c> response as
+    /// <see cref="GetProgressAsync"/>. Null on any failure or an unknown player; never throws.
+    /// </summary>
+    Task<IReadOnlyList<TrackerReceivedItem>?> GetReceivedItemsAsync(string trackerId, int team, int player, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Host/Port (+ tracker id) from one <c>/room_status</c> call. Host is always this service's own

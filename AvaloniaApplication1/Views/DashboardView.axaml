@@ -86,6 +86,14 @@
                             <Border Classes="filter-separator"/>
                             <views:ItemClassFilterButton/>
                             <Border Classes="filter-separator"/>
+                            <Button Name="DashboardWatchedOnlyButton" Content="Watched only" Classes="filter-toggle"
+                                    Command="{Binding ToggleWatchedOnlyCommand}" Classes.active="{Binding ShowWatchedOnly}"
+                                    IsVisible="{Binding HasWatchedSlot}"
+                                    ToolTip.Tip="Only the watched slots' progression items, across all servers"/>
+                            <CheckBox Name="DashboardHighlightWatchedEventsCheckBox" Content="Highlight watched"
+                                      IsChecked="{Binding HighlightWatchedEvents}" IsVisible="{Binding HasWatchedSlot}"
+                                      IsEnabled="{Binding IsEventLogVisible}"
+                                      ToolTip.Tip="Highlight progression items for the watched slots"/>
                             <CheckBox Name="DashboardHideGoaledEventsCheckBox" Content="Hide goaled"
                                       IsChecked="{Binding HideGoaledEvents}"
                                       ToolTip.Tip="Hide items and hints for slots that reached their goal"/>
@@ -247,6 +255,19 @@
                                 <TextBlock Text="{Binding ConnectionState, StringFormat='{}{0} - no progress data yet'}"
                                            Opacity="0.6" FontStyle="Italic" FontSize="11" Margin="16,0,0,0"
                                            IsVisible="{Binding !HasAnyProgress}"/>
+
+                                <StackPanel Orientation="Horizontal" Spacing="6" Margin="16,0,0,0" Tag="WatchedOverviewLine"
+                                            IsVisible="{Binding HasWatchedSlot}">
+                                    <Path Classes="watched-eye"/>
+                                    <TextBlock FontSize="12" VerticalAlignment="Center">
+                                        <TextBlock.Text>
+                                            <MultiBinding Converter="{StaticResource GoalMarkerTextConverter}">
+                                                <Binding Path="WatchedOverviewText"/>
+                                                <Binding Path="WatchedSlotHasGoal"/>
+                                            </MultiBinding>
+                                        </TextBlock.Text>
+                                    </TextBlock>
+                                </StackPanel>
                             </StackPanel>
 
                             <Rectangle Height="3" VerticalAlignment="Top" HorizontalAlignment="Stretch" Fill="DodgerBlue"
@@ -265,6 +286,9 @@
                     <Grid Grid.Row="0">
                         <!-- Multi-select log like a server tab's Events list, not a click-to-navigate list. -->
                         <ListBox Name="DashboardEventsListBox" ItemsSource="{Binding VisibleEvents}"
+                                 IsVisible="{Binding IsEventLogVisible}"
+                                 views:WatchedEventHighlight.IsEnabled="True"
+                                 Classes.highlight-watched="{Binding HighlightWatchedEvents}"
                                  SelectionMode="Multiple" KeyDown="OnDashboardEventsListKeyDown">
                             <ListBox.ItemTemplate>
                                 <DataTemplate DataType="m:DashboardEventRow">
@@ -284,7 +308,33 @@
                             </ListBox.ItemTemplate>
                         </ListBox>
 
-                        <views:JumpToNewestButton TargetListBox="{Binding #DashboardEventsListBox}"/>
+                        <views:JumpToNewestButton TargetListBox="{Binding #DashboardEventsListBox}"
+                                                  IsVisible="{Binding IsEventLogVisible}"/>
+
+                        <!-- A real ListBox, so it looks like the event log it replaces. -->
+                        <ListBox Name="DashboardWatchedItemsListBox" ItemsSource="{Binding WatchedItemsAcrossGroups}"
+                                 IsVisible="{Binding ShowWatchedOnly}" SelectionMode="Multiple">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate DataType="m:DashboardWatchedRow">
+                                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,2">
+                                        <TextBlock Text="{Binding Group.HeaderText}" Foreground="{Binding Group.ColorBrush}" FontWeight="SemiBold" FontSize="11" VerticalAlignment="Center"/>
+                                        <Path Classes="watched-eye"/>
+                                        <TextBlock Text="{Binding Group.WatchedSlotName}" VerticalAlignment="Center"/>
+                                        <ContentControl Content="{Binding Item}" ContentTemplate="{StaticResource WatchedItemRowTemplate}"
+                                                        VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        <TextBlock Text="No watched slot has progression items yet." Opacity="0.6" FontStyle="Italic" Margin="8"
+                                   IsHitTestVisible="False">
+                            <TextBlock.IsVisible>
+                                <MultiBinding Converter="{x:Static BoolConverters.And}">
+                                    <Binding Path="ShowWatchedOnly"/>
+                                    <Binding Path="HasNoWatchedItems"/>
+                                </MultiBinding>
+                            </TextBlock.IsVisible>
+                        </TextBlock>
                     </Grid>
 
                     <!-- Picking the slot here is the real leader switch: binds to the group's own live state. -->

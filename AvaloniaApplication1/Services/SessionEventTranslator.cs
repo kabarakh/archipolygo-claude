@@ -92,6 +92,44 @@ internal sealed class SessionEventTranslator
     }
 
     /// <summary>
+    /// Hints for a watched slot that isn't configured, so no login of its own ever tracks them.
+    /// The first (replay) callback is backlog, like <see cref="TrackHintsForSiblingOnLeader"/>.
+    /// </summary>
+    public void TrackHintsForWatchedSlotOnLeader(GroupViewModel group, IArchipelagoSession leaderSession, int watchedSlotNumber)
+    {
+        var replayDelivered = false;
+        leaderSession.Hints.TrackHints(
+            hints =>
+            {
+                OnHintsUpdated(group, leaderSession, hints, isLive: replayDelivered);
+                replayDelivered = true;
+            },
+            retrieveCurrentlyUnlockedHints: true,
+            slot: watchedSlotNumber);
+    }
+
+    /// <summary>Names the tracker's ids with the leader's data package: items in the watched slot's game, locations in the sender's.</summary>
+    public static IReadOnlyList<WatchedHistoryItem> NameTrackerHistory(GroupViewModel group, IArchipelagoSession leaderSession,
+                                                                       int watchedSlotNumber, IReadOnlyList<TrackerReceivedItem> items)
+    {
+        var roster = BuildSlotRoster(leaderSession, group.Group);
+        var ownSlot = leaderSession.ConnectionInfo.Slot;
+        var siblingIds = SiblingIdsExcludingOwn(roster, ownSlot);
+        var watchedGame = leaderSession.Players.GetPlayerInfo(watchedSlotNumber)?.Game;
+
+        return items.Select(item =>
+        {
+            var senderGame = leaderSession.Players.GetPlayerInfo(item.SenderSlot)?.Game;
+            return new WatchedHistoryItem(
+                leaderSession.Items.GetItemName(item.ItemId, watchedGame) ?? $"Item #{item.ItemId}",
+                leaderSession.Locations.GetLocationNameFromId(item.LocationId, senderGame) ?? $"Location #{item.LocationId}",
+                PlayerDisplayName(leaderSession, item.SenderSlot),
+                EventSegmentBuilder.ClassifyPlayerSlot(item.SenderSlot, ownSlot, siblingIds),
+                (ItemFlags)item.Flags);
+        }).ToList();
+    }
+
+    /// <summary>
     /// One status read per leader connect; afterwards <see cref="GoalLogMessage"/> keeps it current, since the
     /// server never undoes a goal.
     /// </summary>
@@ -212,7 +250,10 @@ internal sealed class SessionEventTranslator
 
         var segments = EventSegmentBuilder.BuildChatSegments(logMessage, siblingIds, group.GetRoomSlotStatus);
         var receiver = logMessage is ItemSendLogMessage send ? group.GetRoomSlotStatus(send.Receiver.Slot) : null;
-        var slotId = ResolvePrimarySlotId(logMessage, roster);
+        var watchedReceiver = logMessage is ItemSendLogMessage and not HintItemSendLogMessage
+            ? MatchWatchedReceiver(group, session, ((ItemSendLogMessage)logMessage).Receiver.Slot)
+            : null;
+        var slotId = ResolvePrimarySlotId(logMessage, roster) ?? WatchedSlotIdFor(group, watchedReceiver);
         // HintItemSendLogMessage derives from ItemSendLogMessage, so it must be matched first.
         var eventType = logMessage switch
         {
@@ -273,6 +314,82 @@ internal sealed class SessionEventTranslator
                 _attentionTracker?.Report(group, ItemAttentionCategory(itemSend.Item.Flags));
             }
         }
+
+        if (logMessage is ItemSendLogMessage watchedSend && watchedReceiver is { } watched)
+        {
+            HandleWatchedItemSend(group, session, roster, watchedSend, watched);
+        }
+    }
+
+    /// <summary>The watched slot itself, or an item-link group it belongs to; null if the receiver is neither.</summary>
+    private readonly record struct WatchedReceiver(int WatchedSlotNumber, string? ItemLinkGroupName);
+
+    private static WatchedReceiver? MatchWatchedReceiver(GroupViewModel group, IArchipelagoSession session, int receiverSlot)
+    {
+        if (group.WatchedSlotNumber is not { } watched)
+        {
+            return null;
+        }
+
+        if (receiverSlot == watched)
+        {
+            return new WatchedReceiver(watched, null);
+        }
+
+        var receiver = session.Players.GetPlayerInfo(receiverSlot);
+        return receiver is { IsGroup: true } && receiver.GetGroupMembers(session.Players).Any(member => member.Slot == watched)
+            ? new WatchedReceiver(watched, PlayerDisplayName(session, receiverSlot))
+            : null;
+    }
+
+    /// <summary>A configured watched slot already has its own id; any other one is filed under the group's stand-in id.</summary>
+    private static Guid? WatchedSlotIdFor(GroupViewModel group, WatchedReceiver? watched) =>
+        watched is not null && !group.IsWatchedSlotOwn ? group.Group.WatchedSlotId : null;
+
+    /// <summary>
+    /// The strip, the Items panel of a non-configured watched slot, and the notification. A configured watched
+    /// slot also reports its normal item category elsewhere, so it notifies twice by design.
+    /// </summary>
+    private void HandleWatchedItemSend(GroupViewModel group, IArchipelagoSession session, Dictionary<int, SlotProfile> roster,
+                                       ItemSendLogMessage itemSend, WatchedReceiver watched)
+    {
+        var senderName = PlayerDisplayName(session, itemSend.Item.Player);
+        var isConfigured = roster.ContainsKey(watched.WatchedSlotNumber);
+
+        if (!isConfigured)
+        {
+            var siblingIds = SiblingIdsExcludingOwn(roster, session.ConnectionInfo.Slot);
+            _messageHistoryService.HandleWatchedReceivedItem(group, new ReceivedItemEntry
+            {
+                SlotId = group.Group.WatchedSlotId,
+                ReceivingSlotName = PlayerDisplayName(session, watched.WatchedSlotNumber),
+                ItemName = itemSend.Item.ItemDisplayName,
+                LocationName = itemSend.Item.LocationDisplayName,
+                SenderName = senderName,
+                ItemKind = EventSegmentBuilder.ClassifyItemFlags(itemSend.Item.Flags),
+                SenderKind = EventSegmentBuilder.ClassifyPlayerSlot(itemSend.Item.Player, session.ConnectionInfo.Slot, siblingIds),
+            });
+        }
+
+        if (EventSegmentBuilder.ClassifyItemFlags(itemSend.Item.Flags) != EventTextSegmentKind.ItemProgression)
+        {
+            return;
+        }
+
+        _messageHistoryService.HandleWatchedItem(group, new WatchedItemRow
+        {
+            ItemName = itemSend.Item.ItemDisplayName,
+            SenderName = senderName,
+            LocationName = itemSend.Item.LocationDisplayName,
+            ItemLinkGroupName = watched.ItemLinkGroupName,
+            IsNew = true,
+        });
+
+        // Chat lines are never backlog, so this is always live.
+        if (!group.GetRoomSlotStatus(watched.WatchedSlotNumber).HasGoal)
+        {
+            _attentionTracker?.Report(group, AttentionCategory.WatchedProgressionItem);
+        }
     }
 
     /// <summary>
@@ -295,6 +412,7 @@ internal sealed class SessionEventTranslator
             slotId = findingSlot.Id;
         }
 
+        slotId ??= WatchedHintSlotId(group, receivingPlayer, findingPlayer);
         if (slotId is null)
         {
             return;
@@ -323,6 +441,8 @@ internal sealed class SessionEventTranslator
         // See Umsetzungsplan.md, section "Item-Backlog vs. Live bei OnItemReceived".
         var isLive = isLeaderSession && hasAnnouncedConnection;
         var receiver = group.GetRoomSlotStatus(session.ConnectionInfo.Slot);
+        var isWatchedBacklog = !isLive && group.IsWatchedSlotName(slot.SlotName);
+        var lastSeenBeforeThisItem = isWatchedBacklog ? _messageHistoryService.GetLastSeenItemIndex(slot.Id) : 0;
 
         if (isLive)
         {
@@ -352,6 +472,23 @@ internal sealed class SessionEventTranslator
         }
 
         _messageHistoryService.TrackReceivedItem(group, slot, helper.AllItemsReceived, senderName, senderKind);
+
+        // Live items reach the strip through the leader's chat line instead.
+        if (isWatchedBacklog && helper.AllItemsReceived.Count > 0)
+        {
+            var index = helper.AllItemsReceived.Count - 1;
+            var latest = helper.AllItemsReceived[index];
+            if (EventSegmentBuilder.ClassifyItemFlags(latest.Flags) == EventTextSegmentKind.ItemProgression)
+            {
+                _messageHistoryService.HandleWatchedItem(group, new WatchedItemRow
+                {
+                    ItemName = latest.ItemDisplayName,
+                    SenderName = senderName,
+                    LocationName = latest.LocationDisplayName,
+                    IsNew = index >= lastSeenBeforeThisItem,
+                });
+            }
+        }
 
         while (helper.Any())
         {
@@ -389,6 +526,7 @@ internal sealed class SessionEventTranslator
                 slotId = findingSlot.Id;
             }
 
+            slotId ??= WatchedHintSlotId(group, hint.ReceivingPlayer, hint.FindingPlayer);
             if (slotId is null)
             {
                 continue;
@@ -420,6 +558,12 @@ internal sealed class SessionEventTranslator
             _hintService.SyncHints(group, snapshots, isLive);
         }
     }
+
+    /// <summary>A hint for or from a non-configured watched slot, filed under the group's stand-in id.</summary>
+    private static Guid? WatchedHintSlotId(GroupViewModel group, int receivingPlayer, int findingPlayer) =>
+        group.WatchedSlotNumber is { } watched && (receivingPlayer == watched || findingPlayer == watched) && !group.IsWatchedSlotOwn
+            ? group.Group.WatchedSlotId
+            : null;
 
     private static string PlayerDisplayName(IArchipelagoSession session, int slot) =>
         session.Players.GetPlayerInfo(slot) is { } player

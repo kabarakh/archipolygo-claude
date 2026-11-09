@@ -72,6 +72,31 @@ public partial class ServerConnectionGroup : ObservableObject
     [ObservableProperty]
     private string? _trackerId;
 
+    /// <summary>
+    /// The one slot of the room this server watches for progression items, by roster name; may be a configured
+    /// slot or any other player. Null = none.
+    /// </summary>
+    [ObservableProperty]
+    private string? _watchedSlotName;
+
+    /// <summary>
+    /// Stands in for a non-configured watched slot wherever a slot id is needed (slot filters, items, sync state).
+    /// Renewed whenever <see cref="WatchedSlotName"/> changes, so a new slot never inherits the old one's sync state.
+    /// </summary>
+    [ObservableProperty]
+    private Guid _watchedSlotId = Guid.NewGuid();
+
+    /// <summary>How many of the watched slot's latest progression items the strip above the event log keeps.</summary>
+    [ObservableProperty]
+    private int _watchedItemCount = 8;
+
+    /// <summary>
+    /// Opt-in fallback without a multiworld tracker: catch up by briefly logging in as the watched slot,
+    /// which everyone in the room sees as a join/leave.
+    /// </summary>
+    [ObservableProperty]
+    private bool _watchedCatchUpByLogin;
+
     public string HostPort => $"{Host}:{Port}";
 
     /// <summary>

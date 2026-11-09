@@ -55,6 +55,9 @@ public class ConnectionEditorResult
 
     /// <summary>Empty for <see cref="ConnectionEditorMode.AddSlot"/>, which doesn't touch the server's color.</summary>
     public string Color { get; init; } = string.Empty;
+
+    /// <summary>Null unless <see cref="ConnectionEditorMode.EditGroup"/>.</summary>
+    public WatchedSlotSettings? Watched { get; init; }
 }
 
 /// <summary>Dialog view model for creating a server, adding slots to one, or editing one - see <see cref="Mode"/>.</summary>
@@ -130,6 +133,23 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     [ObservableProperty]
     private Guid? _preferredLeaderSlotId;
 
+    /// <summary>"(none)" first, then the configured slots, then everyone else in the room.</summary>
+    public ObservableCollection<WatchedSlotChoice> WatchedSlotChoices { get; } = new();
+
+    [ObservableProperty]
+    private WatchedSlotChoice? _selectedWatchedSlot;
+
+    /// <summary>decimal because that's what NumericUpDown binds to.</summary>
+    [ObservableProperty]
+    private decimal? _watchedItemCount = 8;
+
+    [ObservableProperty]
+    private bool _watchedCatchUpByLogin;
+
+    /// <summary>Without a live connection the room's players are unknown, so only the current choice is offered.</summary>
+    [ObservableProperty]
+    private bool _isWatchedSlotRosterUnavailable;
+
     /// <summary>Applied only on Save - see <see cref="ConnectionEditorResult.SlotsToRemove"/>.</summary>
     private readonly List<SlotProfile> _slotsToRemove = new();
 
@@ -153,6 +173,8 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     public bool ShowMultiworldTracker => Mode != ConnectionEditorMode.AddSlot;
 
     public bool ShowColorPicker => Mode != ConnectionEditorMode.AddSlot;
+
+    public bool ShowWatchedSlot => Mode == ConnectionEditorMode.EditGroup;
 
     [ObservableProperty]
     private Color _selectedColor;
@@ -237,11 +259,14 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         ServerConnectionGroup group,
         IReadOnlyList<ServerConnectionGroup>? existingGroups = null,
         Func<string, Task<string?>>? resolveTrackerId = null,
-        Func<string, Task<RoomConnectionInfo?>>? resolveRoomConnectionInfo = null)
+        Func<string, Task<RoomConnectionInfo?>>? resolveRoomConnectionInfo = null,
+        IReadOnlyList<PlayerChoice>? roomPlayers = null)
     {
         var viewModel = new ConnectionEditorViewModel
         {
             Mode = ConnectionEditorMode.EditGroup,
+            WatchedItemCount = group.WatchedItemCount,
+            WatchedCatchUpByLogin = group.WatchedCatchUpByLogin,
             Name = group.Name,
             HostPortInput = group.HostPort,
             Password = group.Password,
@@ -268,7 +293,40 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             });
         }
 
+        viewModel.FillWatchedSlotChoices(group, roomPlayers);
         return viewModel;
+    }
+
+    private void FillWatchedSlotChoices(ServerConnectionGroup group, IReadOnlyList<PlayerChoice>? roomPlayers)
+    {
+        var none = new WatchedSlotChoice(null, "(none)");
+        WatchedSlotChoices.Add(none);
+        IsWatchedSlotRosterUnavailable = roomPlayers is null;
+
+        bool IsConfigured(string slotName) =>
+            group.Slots.Any(slot => string.Equals(slot.SlotName, slotName, StringComparison.OrdinalIgnoreCase));
+
+        var choices = (roomPlayers ?? Array.Empty<PlayerChoice>())
+            .OrderBy(player => IsConfigured(player.SlotName) ? 0 : 1)
+            .ThenBy(player => player.SlotName, StringComparer.OrdinalIgnoreCase)
+            .Select(player => new WatchedSlotChoice(player.SlotName,
+                IsConfigured(player.SlotName) ? $"{player.DisplayText} (own slot)" : player.DisplayText))
+            .ToList();
+
+        // Keep the current choice selectable even when it isn't in the (possibly unavailable) roster.
+        if (!string.IsNullOrWhiteSpace(group.WatchedSlotName) &&
+            !choices.Any(choice => string.Equals(choice.SlotName, group.WatchedSlotName, StringComparison.OrdinalIgnoreCase)))
+        {
+            choices.Insert(0, new WatchedSlotChoice(group.WatchedSlotName, group.WatchedSlotName));
+        }
+
+        foreach (var choice in choices)
+        {
+            WatchedSlotChoices.Add(choice);
+        }
+
+        SelectedWatchedSlot = choices.FirstOrDefault(choice =>
+            string.Equals(choice.SlotName, group.WatchedSlotName, StringComparison.OrdinalIgnoreCase)) ?? none;
     }
 
     private static IEnumerable<SlotProfile> SortSlotsForDisplay(IEnumerable<SlotProfile> slots, Guid? leaderSlotId) =>
@@ -613,7 +671,10 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             SlotsToRemove = _slotsToRemove,
             TrackerReferenceInput = ShowMultiworldTracker ? TrackerReferenceInput.Trim() : null,
             TrackerId = ShowMultiworldTracker ? _resolvedTrackerId : null,
-            Color = ShowColorPicker ? SelectedColor.ToString() : string.Empty
+            Color = ShowColorPicker ? SelectedColor.ToString() : string.Empty,
+            Watched = ShowWatchedSlot
+                ? new WatchedSlotSettings(SelectedWatchedSlot?.SlotName, (int)Math.Clamp(WatchedItemCount ?? 8, 1, 50), WatchedCatchUpByLogin)
+                : null
         };
         return true;
     }

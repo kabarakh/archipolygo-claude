@@ -21,6 +21,19 @@ public sealed class FakeMultiworldTrackerService : IMultiworldTrackerService
 
     public void SetProgress(string trackerId, RoomProgressSnapshot? snapshot) => _progressByTrackerId[trackerId] = snapshot;
 
+    private readonly Dictionary<(string TrackerId, int Team, int Player), IReadOnlyList<TrackerReceivedItem>?> _receivedItems = new();
+
+    public List<(string TrackerId, int Team, int Player)> GetReceivedItemsCalls { get; } = new();
+
+    public void SetReceivedItems(string trackerId, int team, int player, IReadOnlyList<TrackerReceivedItem>? items) =>
+        _receivedItems[(trackerId, team, player)] = items;
+
+    public Task<IReadOnlyList<TrackerReceivedItem>?> GetReceivedItemsAsync(string trackerId, int team, int player, CancellationToken cancellationToken = default)
+    {
+        GetReceivedItemsCalls.Add((trackerId, team, player));
+        return Task.FromResult(_receivedItems.GetValueOrDefault((trackerId, team, player)));
+    }
+
     public void SetConnectionInfoForRoom(string roomId, RoomConnectionInfo? info) => _connectionInfoByRoomId[roomId] = info;
 
     public Task<string?> ResolveTrackerIdAsync(string roomId, CancellationToken cancellationToken = default)

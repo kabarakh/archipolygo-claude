@@ -103,6 +103,10 @@ public partial class MainWindowViewModel
         group.IsAdmin = replacement.IsAdmin;
         group.TrackerReferenceInput = replacement.TrackerReferenceInput;
         group.TrackerId = replacement.TrackerId;
+        group.WatchedSlotName = replacement.WatchedSlotName;
+        group.WatchedSlotId = replacement.WatchedSlotId;
+        group.WatchedItemCount = replacement.WatchedItemCount;
+        group.WatchedCatchUpByLogin = replacement.WatchedCatchUpByLogin;
         ApplyNotificationsMuted(groupViewModel, replacement.NotificationsMuted);
 
         if (!string.IsNullOrEmpty(replacement.Color))

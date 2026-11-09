@@ -109,7 +109,8 @@ public partial class MainWindowViewModel
     public async Task UpdateGroup(
         GroupViewModel groupViewModel, string name, string host, int port, string password, bool autoConnect,
         Guid? preferredLeaderSlotId, string? color = null, IReadOnlyList<SlotProfile>? slotsToRemove = null,
-        string? trackerReferenceInput = null, string? trackerId = null, bool? notificationsMuted = null, bool? isAdmin = null)
+        string? trackerReferenceInput = null, string? trackerId = null, bool? notificationsMuted = null, bool? isAdmin = null,
+        WatchedSlotSettings? watched = null)
     {
         groupViewModel.Group.Name = name;
         groupViewModel.Group.Host = host;
@@ -145,7 +146,47 @@ public partial class MainWindowViewModel
             }
         }
 
+        var watchedSlotNeedsRefresh = watched is not null && ApplyWatchedSlotSettings(groupViewModel.Group, watched);
+
         PersistGroups();
+
+        if (watchedSlotNeedsRefresh)
+        {
+            await _connectionManager.RefreshWatchedSlotAsync(groupViewModel);
+        }
+    }
+
+    /// <summary>True if the live room must resolve or catch up the watched slot again.</summary>
+    private static bool ApplyWatchedSlotSettings(ServerConnectionGroup group, WatchedSlotSettings watched)
+    {
+        var name = string.IsNullOrWhiteSpace(watched.SlotName) ? null : watched.SlotName;
+        var slotChanged = !string.Equals(group.WatchedSlotName, name, StringComparison.OrdinalIgnoreCase);
+        var loginCatchUpTurnedOn = watched.CatchUpByLogin && !group.WatchedCatchUpByLogin;
+
+        if (slotChanged)
+        {
+            // A fresh id, so the new slot doesn't inherit the old one's sync state.
+            group.WatchedSlotId = Guid.NewGuid();
+            group.WatchedSlotName = name;
+        }
+
+        group.WatchedItemCount = watched.ItemCount;
+        group.WatchedCatchUpByLogin = watched.CatchUpByLogin;
+        return slotChanged || (loginCatchUpTurnedOn && name is not null);
+    }
+
+    /// <summary>Every player of the live room, for the Edit dialog's watched-slot picker; null while offline.</summary>
+    public async Task<IReadOnlyList<PlayerChoice>?> GetWatchableRoomPlayersAsync(GroupViewModel groupViewModel)
+    {
+        if (!groupViewModel.IsLeaderConnected)
+        {
+            return null;
+        }
+
+        var players = await _connectionManager.GetRoomPlayersAsync(groupViewModel);
+        return players
+            .Select(p => new PlayerChoice { SlotName = p.Name, DisplayText = SlotProfile.FormatDisplayName(p.Name, p.Alias) })
+            .ToList();
     }
 
     /// <summary>Context-menu shortcut for Edit server's mute checkbox.</summary>

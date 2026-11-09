@@ -20,4 +20,8 @@ public partial class FilterBarLayoutState : ObservableObject
 
     [ObservableProperty]
     private bool _dashboardHintsFiltersExpanded = true;
+
+    /// <summary>The watched slot's strip above each tab's event log; collapsed it shows only the latest item.</summary>
+    [ObservableProperty]
+    private bool _watchedItemsExpanded = true;
 }

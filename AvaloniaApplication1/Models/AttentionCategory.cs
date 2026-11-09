@@ -14,6 +14,9 @@ public enum AttentionCategory
     /// <summary>A progression item arriving for one of this group's configured slots.</summary>
     ProgressionItem,
 
+    /// <summary>A progression item arriving for the group's watched slot (see <see cref="ServerConnectionGroup.WatchedSlotName"/>).</summary>
+    WatchedProgressionItem,
+
     /// <summary>Any other (useful/filler/trap) item arriving for one of this group's configured slots.</summary>
     OtherItem,
 

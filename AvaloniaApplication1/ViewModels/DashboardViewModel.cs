@@ -82,6 +82,8 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
         {
             SubscribeGroup(group);
         }
+
+        RebuildWatchedItemsAcrossGroups();
     }
 
     private void OnFilterPropertyChanged(PropertyChangedEventArgs e, string visiblePropertyName)
@@ -396,6 +398,7 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
         OnPropertyChanged(nameof(HasAdminServer));
         RefreshVisible(nameof(VisibleHints));
         RefreshVisible(nameof(VisibleEvents));
+        RebuildWatchedItemsAcrossGroups();
     }
 
     private void SubscribeGroup(GroupViewModel group)
@@ -417,6 +420,7 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
         group.Events.CollectionChanged += eventsHandler;
 
         group.GoalStatesChanged += OnGroupGoalStatesChanged;
+        SubscribeWatchedItems(group);
     }
 
     private void UnsubscribeGroup(GroupViewModel group)
@@ -439,6 +443,7 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
         }
 
         group.GoalStatesChanged -= OnGroupGoalStatesChanged;
+        UnsubscribeWatchedItems(group);
 
         HintFilter.HandleGroupRemoved(group);
         EventsFilter.HandleGroupRemoved(group);
@@ -472,6 +477,11 @@ public partial class DashboardViewModel : ViewModelBase, IEventItemClassFilter
         if (e.PropertyName == nameof(GroupViewModel.ShowAdminButton))
         {
             OnPropertyChanged(nameof(HasAdminServer));
+        }
+
+        if (e.PropertyName == nameof(GroupViewModel.HasWatchedSlot))
+        {
+            RebuildWatchedItemsAcrossGroups();
         }
 
         if (e.PropertyName == nameof(GroupViewModel.IsLeaderConnected) && ReferenceEquals(sender, SelectedSendServerGroup))

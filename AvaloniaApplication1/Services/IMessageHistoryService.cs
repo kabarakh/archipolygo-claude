@@ -63,4 +63,23 @@ public interface IMessageHistoryService
 
     /// <summary>Room-wide: <see cref="EventEntry.SlotId"/> stays null.</summary>
     void HandleDeathLinkReceived(GroupViewModel group, DeathLink deathLink);
+
+    /// <summary>The persisted count of items already shown for this slot (or watched-slot id).</summary>
+    int GetLastSeenItemIndex(Guid slotId);
+
+    /// <summary>One live or backlog progression item for the watched slot's strip.</summary>
+    void HandleWatchedItem(GroupViewModel group, WatchedItemRow row);
+
+    /// <summary>Before the watched slot's own login re-delivers its history into the strip.</summary>
+    void ClearWatchedItems(GroupViewModel group);
+
+    /// <summary>An item a non-configured watched slot received, for the Items panel.</summary>
+    void HandleWatchedReceivedItem(GroupViewModel group, ReceivedItemEntry entry);
+
+    /// <summary>
+    /// A catch-up read the watched slot's full history (index order): replaces its Items-panel entries and strip,
+    /// logs the items beyond the last persisted index as received since last time, then advances that index.
+    /// </summary>
+    void ApplyWatchedSlotHistory(GroupViewModel group, Guid watchedSlotId, string watchedSlotName, RoomSlotStatus receiver,
+                                 IReadOnlyList<WatchedHistoryItem> history);
 }

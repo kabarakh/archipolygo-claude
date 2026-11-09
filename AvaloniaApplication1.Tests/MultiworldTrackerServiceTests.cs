@@ -6,6 +6,7 @@ using System.Net.Http;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Archipolygo.Models;
 using Archipolygo.Services;
 
 namespace AvaloniaApplication1.Tests;
@@ -309,5 +310,78 @@ public class MultiworldTrackerServiceTests
         Assert.Equal(3, handler.RequestedUrls.Count); // one more /tracker/ call, static_tracker still cached
         Assert.Equal(2, handler.RequestedUrls.Count(u => u.Contains("/api/tracker/")));
         Assert.Equal(1, handler.RequestedUrls.Count(u => u.Contains("static_tracker")));
+    }
+
+    // player_items_received as WebHostLib/api/tracker.py builds it; NetworkItem is a NamedTuple, so Flask writes arrays.
+    private const string TrackerWithItemsJson = """
+        {
+          "aliases": [],
+          "player_items_received": [
+            { "team": 0, "player": 12, "items": [[1001, 2001, 3, 1], [1002, 2002, 4, 0], [1003, 2003, 0]] },
+            { "team": 0, "player": 13, "items": [{ "item": 7, "location": 8, "player": 9, "flags": 4 }] }
+          ],
+          "player_checks_done": [],
+          "total_checks_done": [],
+          "hints": [],
+          "activity_timers": [],
+          "connection_timers": [],
+          "player_status": []
+        }
+        """;
+
+    [Fact]
+    public async Task GetReceivedItemsAsync_ParsesNetworkItemArraysInIndexOrder()
+    {
+        var service = MakeService(new() { ["api/tracker/"] = TrackerWithItemsJson }, out _);
+
+        var items = await service.GetReceivedItemsAsync("abc", team: 0, player: 12);
+
+        Assert.Equal(new[]
+        {
+            new TrackerReceivedItem(1001, 2001, 3, 1),
+            new TrackerReceivedItem(1002, 2002, 4, 0),
+            new TrackerReceivedItem(1003, 2003, 0, 0), // flags default to 0 like NetworkItem's
+        }, items);
+    }
+
+    [Fact]
+    public async Task GetReceivedItemsAsync_AlsoAcceptsTheObjectForm()
+    {
+        var service = MakeService(new() { ["api/tracker/"] = TrackerWithItemsJson }, out _);
+
+        var items = await service.GetReceivedItemsAsync("abc", team: 0, player: 13);
+
+        Assert.Equal(new[] { new TrackerReceivedItem(7, 8, 9, 4) }, items);
+    }
+
+    [Fact]
+    public async Task GetReceivedItemsAsync_UnknownPlayer_IsNull()
+    {
+        var service = MakeService(new() { ["api/tracker/"] = TrackerWithItemsJson }, out _);
+
+        Assert.Null(await service.GetReceivedItemsAsync("abc", team: 0, player: 99));
+    }
+
+    [Fact]
+    public async Task GetReceivedItemsAsync_SharesTheProgressCache()
+    {
+        var service = MakeService(new() { ["api/tracker/"] = TrackerWithItemsJson, ["api/static_tracker/"] = StaticTrackerJson }, out var handler);
+
+        await service.GetProgressAsync("abc");
+        await service.GetReceivedItemsAsync("abc", team: 0, player: 12);
+
+        Assert.Single(handler.RequestedUrls, url => url.Contains("api/tracker/"));
+    }
+
+    [Theory]
+    [InlineData("[1, 2]")]
+    [InlineData("[\"a\", 2, 3]")]
+    [InlineData("{ \"item\": 1 }")]
+    [InlineData("42")]
+    public void TryParseNetworkItem_MalformedEntry_IsRejected(string json)
+    {
+        using var document = System.Text.Json.JsonDocument.Parse(json);
+
+        Assert.False(MultiworldTrackerService.TryParseNetworkItem(document.RootElement, out _));
     }
 }

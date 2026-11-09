@@ -42,6 +42,17 @@ public static class EventSegmentBuilder
             new EventTextSegment($" ({locationDisplayName})", EventTextSegmentKind.PlainText)
         };
 
+    /// <summary>"name received Item (Location)" for a watched slot that isn't configured, so the plain "Received" would be ambiguous.</summary>
+    public static IReadOnlyList<EventTextSegment> BuildWatchedItemReceivedSegments(string slotName, RoomSlotStatus receiver, string itemDisplayName,
+                                                                                   ItemFlags flags, string locationDisplayName) =>
+        new[]
+        {
+            new EventTextSegment(slotName, EventTextSegmentKind.OtherSlotName, receiver),
+            new EventTextSegment(" received ", EventTextSegmentKind.PlainText),
+            new EventTextSegment(itemDisplayName, ClassifyItemFlags(flags)),
+            new EventTextSegment($" ({locationDisplayName})", EventTextSegmentKind.PlainText)
+        };
+
     public static IReadOnlyList<EventTextSegment> BuildHintReceivedSegments(
         string itemName, ItemFlags itemFlags,
         string findingPlayerName, EventTextSegmentKind findingPlayerKind,

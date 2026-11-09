@@ -206,6 +206,10 @@ To change connection, leader or reconnect behavior, start in
     panel). Their member list also goes into `RoomSlotStatus`, for the
     tooltip on the group name. See `Item-Link-Uebersicht.md` in the
     feature-plan archive.
+  - `.Watched.cs` - the watched slot: its strip above the event log, its
+    slot-filter entry and its `RoomSlotStatus.IsWatched` flag. A watched
+    slot that is not configured has no `SlotProfile` in `Group.Slots`.
+    See `Beobachteter-Slot.md` in the feature-plan archive.
 
   Add new members to the file of their topic, not to the core file.
 - `ViewModels/MainWindowViewModel.cs` owns `Groups`, the add/remove/edit

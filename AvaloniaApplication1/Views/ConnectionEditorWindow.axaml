@@ -131,6 +131,32 @@
                     </ItemsControl>
                 </StackPanel>
 
+                <StackPanel IsVisible="{Binding ShowWatchedSlot}" Spacing="4">
+                    <TextBlock Text="Watched slot"/>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <ComboBox Name="WatchedSlotComboBox" ItemsSource="{Binding WatchedSlotChoices}"
+                                  SelectedItem="{Binding SelectedWatchedSlot}" Width="180">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate DataType="m:WatchedSlotChoice">
+                                    <TextBlock Text="{Binding DisplayText}" MaxWidth="160" TextTrimming="CharacterEllipsis"/>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                        <TextBlock Text="show last" VerticalAlignment="Center"/>
+                        <NumericUpDown Value="{Binding WatchedItemCount}" Minimum="1" Maximum="50" Increment="1"
+                                       FormatString="0" Width="100"/>
+                        <TextBlock Text="items" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <TextBlock Text="Shows this slot's progression items above the event log and notifies you when it gets one."
+                               Opacity="0.6" FontSize="12" TextWrapping="Wrap"/>
+                    <TextBlock Text="Connect the server to pick from the room's players."
+                               Opacity="0.6" FontSize="12" TextWrapping="Wrap" IsVisible="{Binding IsWatchedSlotRosterUnavailable}"/>
+                    <CheckBox Content="Catch up by logging in as this slot (others see it join)"
+                              IsChecked="{Binding WatchedCatchUpByLogin}"/>
+                    <TextBlock Text="Only needed without a multiworld tracker. Fails if the slot has its own password."
+                               Opacity="0.6" FontSize="12" TextWrapping="Wrap" Margin="28,0,0,0"/>
+                </StackPanel>
+
                 <TextBlock Text="Password" IsVisible="{Binding !ShowPlayerPicker}"/>
                 <TextBox Text="{Binding Password}" PasswordChar="*" Classes="revealPasswordButton" IsVisible="{Binding !ShowPlayerPicker}"/>
 

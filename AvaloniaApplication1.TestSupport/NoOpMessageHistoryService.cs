@@ -23,4 +23,9 @@ public sealed class NoOpMessageHistoryService : IMessageHistoryService
     public void HandleObservedItemForSlot(GroupViewModel group, SlotProfile targetSlot, string itemDisplayName, string locationDisplayName, ItemFlags itemFlags, string senderName, EventTextSegmentKind senderKind, RoomSlotStatus? receiver = null) { }
     public void ClearReceivedItemsForSlot(GroupViewModel group, Guid slotId) { }
     public void HandleDeathLinkReceived(GroupViewModel group, DeathLink deathLink) { }
+    public int GetLastSeenItemIndex(Guid slotId) => 0;
+    public void HandleWatchedItem(GroupViewModel group, WatchedItemRow row) { }
+    public void ClearWatchedItems(GroupViewModel group) { }
+    public void HandleWatchedReceivedItem(GroupViewModel group, ReceivedItemEntry entry) { }
+    public void ApplyWatchedSlotHistory(GroupViewModel group, Guid watchedSlotId, string watchedSlotName, RoomSlotStatus receiver, IReadOnlyList<WatchedHistoryItem> history) { }
 }

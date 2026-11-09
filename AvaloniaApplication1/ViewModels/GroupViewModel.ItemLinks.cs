@@ -36,6 +36,7 @@ public partial class GroupViewModel
             ItemLinkGroups.Add(new ItemLinkGroup(snapshot.Group.DisplayName, snapshot.Game, groupStatus, members));
         }
 
+        ApplyWatchedSlotStatuses();
         OnPropertyChanged(nameof(HasItemLinkGroups));
         if (!HasItemLinkGroups && SelectedRightPanel == RightPanelView.ItemLinks)
         {

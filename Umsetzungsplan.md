@@ -1081,6 +1081,57 @@ Die Methode bricht ab, sobald einer dieser Fälle eintritt:
 - `CancelPendingReconnect` hat das Token gecancelt (manueller Switch oder
   Disconnect).
 
+### Beobachteter Slot: Nummer, Hints und Catch-up
+
+Eine Gruppe kann einen Slot beobachten (`ServerConnectionGroup.WatchedSlotName`).
+Das kann ein eigener Slot oder ein fremder Slot sein. Ein fremder Slot hat
+kein `SlotProfile` und keinen eigenen Login. Darum braucht er drei Wege.
+
+**Nummer.** `InitializeWatchedSlot` sucht den Namen bei jedem Leader-Connect
+im Roster (`FilterToRealPlayers`). Die Nummer steht in
+`GroupViewModel.WatchedSlotNumber`. Session-Callbacks lesen sie außerhalb des
+UI-Threads. Darum ist sie ein einfaches `int` mit `Volatile`, keine
+Observable-Property. `ApplyWatchedSlotStatuses` setzt danach auf dem
+UI-Thread `RoomSlotStatus.IsWatched`. Das Flag gilt auch für jede
+Item-Link-Gruppe des Slots. Der Grund: Ein Item an eine Item-Link-Gruppe
+nennt die Gruppe als Empfänger, nicht das Mitglied.
+
+**Hints.** Für einen fremden Slot abonniert der Leader zusätzlich
+`TrackHints(slot: n)`, aus demselben Grund wie für Sibling-Slots (siehe
+"Warum die Leader-Session pro Sibling-Slot ein eigenes TrackHints braucht").
+Ein eigener beobachteter Slot hat dieses Abo schon.
+
+**Live-Items.** Der Broadcast von `MessageLog` zeigt jedes Item im Raum.
+`OnLeaderMessageReceived` füllt daraus den Streifen und meldet
+`WatchedProgressionItem`. Für einen eigenen Slot meldet die App zusätzlich
+die normale Item-Kategorie. Das ist Absicht: Der Benutzer will beide
+Meldungen.
+
+**Catch-up.** Ein eigener beobachteter Slot läuft über den normalen
+Sibling-Catch-up. Für einen fremden Slot gilt diese Reihenfolge:
+
+1. Tracker-API des Webhosts (`player_items_received`). Die App benennt die
+   IDs mit dem Datapackage der Leader-Session. Der Index des zuletzt
+   gesehenen Items steht im Sync-State unter `WatchedSlotId`.
+2. Nur wenn der Tracker nichts liefert und der Benutzer
+   `WatchedCatchUpByLogin` eingeschaltet hat: ein kurzer Login als dieser
+   Slot über die `CatchUpQueue`.
+
+Der Login in Schritt 2 läuft unter einem Stellvertreter-`SlotProfile` mit
+der Id `WatchedSlotId`. Dieses Profil ist nie Teil von `Group.Slots`
+(`IsWatchedSlotStandIn`). Für dieses Profil gelten drei Regeln:
+
+- Die App fragt nie nach einem Passwort. Der Slot gehört einem anderen
+  Spieler.
+- Die App ändert `RequiresPassword` nicht und speichert nichts.
+- Die Startup-Sync-Zähler zählen den Login nicht
+  (`countsTowardsStartupSync: false`).
+
+`WatchedSlotId` bekommt bei jedem neuen Namen eine neue Guid
+(`MainWindowViewModel.UpdateGroup`). So erbt ein neuer Slot nie den
+Sync-State des alten Slots. Ein Config-Import behält die lokale Id, wenn er
+denselben Slot beobachtet.
+
 ## UI-Updates in Zeitscheiben
 
 Ein Release oder ein großer Catch-up erzeugt tausende Log-Zeilen in kurzer

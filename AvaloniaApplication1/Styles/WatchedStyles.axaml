@@ -1,0 +1,24 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- The watched slot's marker. Height matches the geometry's 14x9 aspect: Uniform stretch would otherwise
+         top-align it in a square box. The 2px nudge centers it on the text rather than its line box. -->
+    <Style Selector="Path.watched-eye">
+        <Setter Property="Data" Value="{StaticResource WatchedEyeGeometry}"/>
+        <Setter Property="Stroke" Value="{StaticResource WatchedAccentBrush}"/>
+        <Setter Property="StrokeThickness" Value="1.4"/>
+        <Setter Property="Width" Value="14"/>
+        <Setter Property="Height" Value="9"/>
+        <Setter Property="Stretch" Value="Uniform"/>
+        <Setter Property="Margin" Value="0,2,0,0"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="ToolTip.Tip" Value="Watched slot"/>
+    </Style>
+
+    <!-- Rows get the "watched" class from WatchedEventHighlight; the list's own class is the user's toggle. -->
+    <Style Selector="ListBox.highlight-watched ListBoxItem.watched">
+        <Setter Property="Background" Value="{StaticResource WatchedRowBackgroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource WatchedRowBorderBrush}"/>
+        <Setter Property="BorderThickness" Value="3,0,0,0"/>
+    </Style>
+</Styles>

@@ -42,6 +42,7 @@ public sealed class ControlPanelWindow : Window
 
         var panel = new StackPanel { Orientation = Orientation.Vertical, Spacing = 6, Margin = new Avalonia.Thickness(10) };
 
+        AddWatchedSlotSection(panel);
         AddItemLinksSection(panel);
         AddAdminSection(panel, group, connectionManager);
 
@@ -121,6 +122,148 @@ public sealed class ControlPanelWindow : Window
         Content = new ScrollViewer { Content = panel };
     }
 
+    private void AddWatchedSlotSection(StackPanel panel)
+    {
+        panel.Children.Add(new TextBlock { Text = "Watched slot (Beobachteter-Slot.md)", FontWeight = Avalonia.Media.FontWeight.Bold });
+        panel.Children.Add(new TextBlock
+        {
+            Text = "TestServer watches \"malandor\" (slot 12). Change it here or in Edit server → \"Watched slot\" (needs a connected server). " +
+                   "Buttons mimic what SessionEventTranslator does for a chat line; live items report WatchedProgressionItem.",
+            FontSize = 11,
+            Opacity = 0.7,
+            TextWrapping = Avalonia.Media.TextWrapping.Wrap
+        });
+        panel.Children.Add(Btn("Watch malandor", () => Watch("malandor")));
+        panel.Children.Add(Btn($"Watch {_slot.SlotName} (own slot)", () => Watch(_slot.SlotName)));
+        panel.Children.Add(Btn("Watch nobody", () => Watch(null)));
+        panel.Children.Add(Btn("malandor: progression item (live)", () => AddForeignItem("malandor", 12, ItemFlags.Advancement, isLive: true)));
+        panel.Children.Add(Btn("malandor: filler item (live)", () => AddForeignItem("malandor", 12, ItemFlags.None, isLive: true)));
+        panel.Children.Add(Btn("Progression item to Samus Link", AddLinkItemForWatched));
+        panel.Children.Add(Btn("Catch-up delivers 3 items", () =>
+        {
+            AddForeignItem("malandor", 12, ItemFlags.Advancement, isLive: false);
+            AddForeignItem("malandor", 12, ItemFlags.None, isLive: false);
+            AddForeignItem("malandor", 12, ItemFlags.Advancement, isLive: false);
+        }));
+        panel.Children.Add(Btn("malandor reaches goal", () => _group.ApplyGoals(null, [12])));
+        panel.Children.Add(Btn("Progression item for malandor in 3 s", () =>
+            Avalonia.Threading.DispatcherTimer.RunOnce(() => AddForeignItem("malandor", 12, ItemFlags.Advancement, isLive: true), TimeSpan.FromSeconds(3))));
+    }
+
+    private static readonly string[] WatchedDemoItems = ["Morph Ball", "Varia Suit", "Grapple Beam", "Space Jump", "Screw Attack", "Speed Booster"];
+    private static readonly string[] FillerDemoItems = ["Missile", "Energy Tank", "Power Bomb"];
+
+    private void AddForeignItem(string receiverName, int receiverSlot, ItemFlags flags, bool isLive)
+    {
+        _counter++;
+        var isProgression = flags.HasFlag(ItemFlags.Advancement);
+        var itemName = isProgression ? WatchedDemoItems[_counter % WatchedDemoItems.Length] : FillerDemoItems[_counter % FillerDemoItems.Length];
+        var senderName = _counter % 2 == 0 ? "Mira (Mira the Brave)" : _siblingSlot.SlotName;
+        var locationName = $"Crystal Peak #{_counter}";
+        var receiver = _group.GetRoomSlotStatus(receiverSlot);
+        var slotId = _group.Group.WatchedSlotId; // harness shortcut: always the stand-in id, even while malandor isn't watched
+
+        var entry = new EventEntry
+        {
+            Type = EventType.ItemReceived,
+            Text = $"{senderName} sent {itemName} to {receiverName} ({locationName})",
+            Segments =
+            [
+                new(senderName, EventTextSegmentKind.OtherSlotName, _group.GetRoomSlotStatus(3)),
+                new(" sent ", EventTextSegmentKind.PlainText),
+                new(itemName, EventSegmentBuilder.ClassifyItemFlags(flags)),
+                new(" to ", EventTextSegmentKind.PlainText),
+                new(receiverName, EventTextSegmentKind.OtherSlotName, receiver),
+                new($" ({locationName})", EventTextSegmentKind.PlainText),
+            ],
+            SlotId = slotId,
+            Receiver = receiver,
+            IsNewSinceLastSession = !isLive,
+        };
+        _group.Events.Add(entry);
+        _group.ReceivedItems.Add(new ReceivedItemEntry
+        {
+            SlotId = slotId,
+            ReceivingSlotName = receiverName,
+            ItemName = itemName,
+            LocationName = locationName,
+            SenderName = senderName,
+            ItemKind = EventSegmentBuilder.ClassifyItemFlags(flags),
+            SenderKind = EventTextSegmentKind.OtherSlotName,
+        });
+
+        if (!isProgression)
+        {
+            return;
+        }
+
+        AddWatchedRow(receiverSlot, itemName, senderName, locationName, viaLink: null, isNew: true);
+        ReportWatchedIfLive(receiverName, receiver, isLive);
+    }
+
+    private void AddLinkItemForWatched()
+    {
+        _counter++;
+        var itemName = WatchedDemoItems[_counter % WatchedDemoItems.Length];
+        var linkGroup = _group.GetRoomSlotStatus(11);
+        var locationName = $"Hallownest Seal #{_counter}";
+        var entry = new EventEntry
+        {
+            Type = EventType.ItemReceived,
+            Text = $"Kestrel sent {itemName} to Samus Link ({locationName})",
+            Segments =
+            [
+                new("Kestrel", EventTextSegmentKind.OtherSlotName, _group.GetRoomSlotStatus(5)),
+                new(" sent ", EventTextSegmentKind.PlainText),
+                new(itemName, EventTextSegmentKind.ItemProgression),
+                new(" to ", EventTextSegmentKind.PlainText),
+                new("Samus Link", EventTextSegmentKind.OtherSlotName, linkGroup),
+                new($" ({locationName})", EventTextSegmentKind.PlainText),
+            ],
+            SlotId = _group.IsWatchedSlotOwn ? null : _group.Group.WatchedSlotId,
+            Receiver = linkGroup,
+        };
+        _group.Events.Add(entry);
+
+        // Counts for every link member; the prototype records it for the watched member only.
+        AddWatchedRow(12, itemName, "Kestrel", locationName, viaLink: "Samus Link", isNew: true);
+        ReportWatchedIfLive("malandor", _group.GetRoomSlotStatus(12), isLive: true);
+    }
+
+    private void ReportWatchedIfLive(string receiverName, RoomSlotStatus receiver, bool isLive)
+    {
+        if (isLive && !receiver.HasGoal && _group.IsWatchedSlotName(receiverName))
+        {
+            Report(AttentionCategory.WatchedProgressionItem);
+        }
+    }
+
+    /// <summary>What SessionEventTranslator does for a chat line naming the watched slot (or one of its item-link groups).</summary>
+    private void AddWatchedRow(int receiverSlot, string itemName, string senderName, string locationName, string? viaLink, bool isNew)
+    {
+        if (_group.WatchedSlotNumber != receiverSlot)
+        {
+            return;
+        }
+
+        _group.AddWatchedItem(new WatchedItemRow
+        {
+            ItemName = itemName,
+            SenderName = senderName,
+            LocationName = locationName,
+            ItemLinkGroupName = viaLink,
+            IsNew = isNew,
+        });
+    }
+
+    /// <summary>Same path as Edit server's Save: the group's setting, then the live-room refresh (the fake resolves the number).</summary>
+    private void Watch(string? slotName)
+    {
+        _group.Group.WatchedSlotId = Guid.NewGuid();
+        _group.Group.WatchedSlotName = slotName;
+        _ = _connectionManager.RefreshWatchedSlotAsync(_group);
+    }
+
     // Slot numbers match SeedAdminDemo's roster in TestHarnessApp.
     private void AddItemLinksSection(StackPanel panel)
     {
@@ -145,7 +288,7 @@ public sealed class ControlPanelWindow : Window
         [
             new(P(9, "Sword Link"), "A Link to the Past", [P(1, _slot.SlotName), P(4, "Player One"), P(8, "Nightowl")]),
             new(P(10, "Bug Link"), "Hollow Knight", [P(2, _siblingSlot.SlotName), P(5, "Kestrel"), P(7, "Latecomer")]),
-            new(P(11, "Samus Link"), "Super Metroid", [P(3, "Mira", "Mira the Brave"), P(6, "Done Dan")]),
+            new(P(11, "Samus Link"), "Super Metroid", [P(3, "Mira", "Mira the Brave"), P(6, "Done Dan"), P(12, "malandor")]),
         ]);
     }
 
@@ -260,13 +403,21 @@ public sealed class ControlPanelWindow : Window
         _counter++;
         var locationName = $"Some Location #{_counter}";
 
-        _group.Events.Add(new EventEntry
+        var entry = new EventEntry
         {
             Type = EventType.ItemReceived,
             Text = $"Received {itemName} ({locationName})",
             Segments = EventSegmentBuilder.BuildItemReceivedSegments(itemName, flags, locationName),
             SlotId = _slot.Id,
-        });
+        };
+        _group.Events.Add(entry);
+
+        if (flags.HasFlag(ItemFlags.Advancement))
+        {
+            // Own watched slot: both the normal item category and the watched one report ("beide melden").
+            AddWatchedRow(1, itemName, "SomeOtherPlayer", locationName, viaLink: null, isNew: true);
+            ReportWatchedIfLive(_slot.SlotName, _group.GetRoomSlotStatus(1), isLive: true);
+        }
 
         _group.ReceivedItems.Add(new ReceivedItemEntry
         {

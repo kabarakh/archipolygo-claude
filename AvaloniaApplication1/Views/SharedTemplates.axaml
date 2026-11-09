@@ -8,6 +8,24 @@
 
     <!-- Hand-drawn rather than emoji, whose rendering differs per platform.
          For a stroked Path, not PathIcon (which only fills). -->
+    <StreamGeometry x:Key="WatchedEyeGeometry">M1,8 C3.5,3.5 12.5,3.5 15,8 C12.5,12.5 3.5,12.5 1,8 Z M8,5.8 A2.2,2.2 0 1 1 8,10.2 A2.2,2.2 0 1 1 8,5.8 Z</StreamGeometry>
+    <SolidColorBrush x:Key="WatchedAccentBrush" Color="#D49A00"/>
+    <SolidColorBrush x:Key="WatchedRowBackgroundBrush" Color="#33FFC107"/>
+    <SolidColorBrush x:Key="WatchedRowBorderBrush" Color="#FFC107"/>
+
+    <!-- One row of the watched slot's strip and of the Dashboard's "Watched only" list. -->
+    <DataTemplate x:Key="WatchedItemRowTemplate" DataType="m:WatchedItemRow">
+        <StackPanel Orientation="Horizontal" Spacing="6">
+            <TextBlock Text="NEW" FontWeight="Bold" Foreground="OrangeRed" IsVisible="{Binding IsNew}"/>
+            <TextBlock Text="{Binding ItemName}" FontWeight="SemiBold"
+                       Foreground="{Binding Source={x:Static m:EventTextSegmentKind.ItemProgression}, Converter={StaticResource SegmentKindToBrushConverter}}"/>
+            <TextBlock Text="←" Opacity="0.6"/>
+            <TextBlock Text="{Binding SenderName}"/>
+            <TextBlock Text="{Binding LocationText}" Opacity="0.6"/>
+            <TextBlock Text="{Binding ViaText}" Opacity="0.6" FontStyle="Italic" IsVisible="{Binding HasViaText}"/>
+        </StackPanel>
+    </DataTemplate>
+
     <StreamGeometry x:Key="BellOffGeometry">M8,2 C5.8,2 4.5,3.8 4.5,6 L4.5,9.5 L3,11.5 L13,11.5 L11.5,9.5 L11.5,6 C11.5,3.8 10.2,2 8,2 Z M6.5,13.5 L9.5,13.5 M2,2 L14,14</StreamGeometry>
 
     <DataTemplate x:Key="EventTextSegmentTemplate" DataType="m:EventTextSegment">

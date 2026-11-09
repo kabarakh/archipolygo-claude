@@ -65,10 +65,13 @@ public sealed class FakeArchipelagoSession : IArchipelagoSession
     /// <summary>Shows whether a connect got past ConnectionManager's app-wide connect gate (CreateSession runs before it).</summary>
     public int LoginCallCount { get; private set; }
 
+    public string? LastLoginName { get; private set; }
+
     public Task<LoginResult> LoginAsync(string game, string name, ItemsHandlingFlags itemsHandlingFlags,
         Version? version = null, string[]? tags = null, string? uuid = null, string? password = null, bool requestSlotData = true)
     {
         LoginCallCount++;
+        LastLoginName = name;
         LastPasswordArgument = password;
         return LoginResultSource.Task;
     }
@@ -131,7 +134,10 @@ public sealed class FakeReceivedItemsHelper : IReceivedItemsHelper
 {
     public event ReceivedItemsHelper.ItemReceivedHandler? ItemReceived;
 
-    public string GetItemName(long id, string? game = null) => null!;
+    /// <summary>An id with no entry returns null, exercising the real <c>?? $"Item #{id}"</c> fallback.</summary>
+    public Dictionary<long, string> ItemNames { get; } = new();
+
+    public string GetItemName(long id, string? game = null) => ItemNames.TryGetValue(id, out var name) ? name : null!;
     public int Index => throw new NotImplementedException();
     public ReadOnlyCollection<ItemInfo> AllItemsReceived => throw new NotImplementedException();
     public bool Any() => false;
@@ -214,8 +220,14 @@ public sealed class FakeHintsHelper : IHintsHelper
 {
     public int TrackHintsCallCount { get; private set; }
 
-    public void TrackHints(Action<Hint[]> onHintsUpdated, bool retrieveCurrentlyUnlockedHints = true, int? slot = null, int? team = null) =>
+    /// <summary>The <c>slot</c> argument of every TrackHints call; null = the session's own slot.</summary>
+    public List<int?> TrackedSlots { get; } = new();
+
+    public void TrackHints(Action<Hint[]> onHintsUpdated, bool retrieveCurrentlyUnlockedHints = true, int? slot = null, int? team = null)
+    {
         TrackHintsCallCount++;
+        TrackedSlots.Add(slot);
+    }
 
     public List<long[]> CreateHintsCalls { get; } = new();
 
